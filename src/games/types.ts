@@ -96,6 +96,74 @@ export interface MoveSpec {
   };
 }
 
+// ------------------------------------------------------------------ items
+
+// A custom item effect built from blocks (written to studio_item_effects.lua
+// and turned into an item_effects record by src/lua/itemEffectRuntime.ts).
+export interface ItemEffectStep {
+  act:
+    | "heal" | "cure" | "revive" | "pp" | "statexp" | "level" | "evolve" // on a party Pokémon
+    | "stage" | "focus" | "mist" | "xaccuracy" | "escape" | "ball" // in battle
+    | "repel"; // in the field
+  amount?: number; // heal / pp / statexp
+  percent?: number; // heal / revive (of max HP)
+  full?: boolean; // heal / pp
+  statuses?: string[]; // cure; missing = every status
+  all?: boolean; // pp: every move (false = the move the player picks)
+  stat?: string; // statexp / stage
+  delta?: number; // stage
+  cap?: number; // statexp
+  steps?: number; // repel
+}
+
+export interface ItemEffectSpec {
+  target: "party" | "none"; // pick a party Pokémon first
+  where?: "both" | "battle" | "field"; // missing = both
+  keep?: boolean; // never used up
+  steps: ItemEffectStep[];
+}
+
+// A ball's catch numbers (gen1recomp src/battle/Catching.lua BALLS).
+export interface BallRecord {
+  randMax: number;
+  hpFactor?: number;
+  wobbleFactor?: number;
+  autoCatch?: boolean;
+  flicker?: boolean;
+  tossAnim?: string;
+}
+
+// A shop clerk whose stock the Items workspace can edit.
+export interface MartRef {
+  registry: string; // text_pointers
+  map: string; // the registry record (map label)
+  text: string; // the TEXT_* key inside it
+  label: string; // shown to the user
+  mapId?: string;
+}
+
+// What the Items workspace needs to know about a generation.
+export interface ItemSpec {
+  registry: string;
+  nameMax: number;
+  maxPrice: number;
+  // custom effects built from blocks
+  effectRegistry: string; // studio_item_effects
+  ballRegistry?: string; // balls
+  stats: string[]; // battle stages
+  expStats: string[]; // stat exp
+  statuses: { id: string; label: string }[];
+  tossAnims: string[];
+  // what a vanilla item does ("" = nothing), and its blocks when it has some
+  describe(id: string, item: Record<string, unknown>): string;
+  template(id: string, item: Record<string, unknown>): ItemEffectSpec | null;
+  // items whose built-in behaviour blocks can't rebuild (bicycle, rods, ...)
+  special(id: string, item: Record<string, unknown>): boolean;
+  // which ids the engine gives a move picker (Ether-style)
+  picksMove(id: string): boolean;
+  marts(ctx: GameContext): MartRef[];
+}
+
 // ------------------------------------------------------------------ trainers
 
 export interface TrainerSlot {
@@ -315,4 +383,5 @@ export interface GameAdapter {
   globals?: GlobalsSpec;
   trainers?: TrainerSpec;
   moves?: MoveSpec;
+  items?: ItemSpec;
 }

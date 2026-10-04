@@ -46,6 +46,10 @@ function stripDeletes(value: unknown): unknown {
 }
 
 export function applyOps<T>(table: Record<string, T>, ops: RegistryOp[], registry: string): void {
+  // registries whose records carry their own id (pokemon, moves, items, maps)
+  // get it on records a mod adds too; the others (text_pointers: a map of
+  // TEXT_* entries, encounters, ...) must not grow an `id` key
+  const stamp = Object.values(table).some((r) => isPlainObject(r) && "id" in r);
   for (const op of ops) {
     if (op.registry !== registry || typeof op.id !== "string") continue;
     let next: unknown;
@@ -56,7 +60,9 @@ export function applyOps<T>(table: Record<string, T>, ops: RegistryOp[], registr
     else {
       const record = next as Record<string, unknown>;
       // a reference to another record ({ __ref }) stays exactly that
-      if (isPlainObject(record) && record.id === undefined && !("__ref" in record)) record.id = op.id;
+      if (stamp && isPlainObject(record) && record.id === undefined && !("__ref" in record)) record.id = op.id;
+      // an id an older studio stamped there by mistake (it broke text_pointers)
+      if (!stamp && isPlainObject(record) && record.id === op.id) delete record.id;
       table[op.id] = record as T;
     }
   }

@@ -6,8 +6,9 @@
 //   color:    one SGB palette per map (vanilla cascade, see palette.ts)
 
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, MoveSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
+import { isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
 import { paletteColors, paletteNames, resolveMapPalettes, type PaletteData } from "./palette.ts";
 
 interface Gen1Map extends MapDef {
@@ -90,7 +91,18 @@ const content: ContentSpec[] = [
   // custom move effects built in the studio: plain data in the mod's
   // studio_effects.lua, registered as move_effects by the generated helper
   { registry: "studio_effects", editable: true, build: () => ({}), studioFile: "studio_effects.lua", generates: "move_effects" },
-  { registry: "items", file: "items.lua", editable: false },
+  {
+    registry: "items",
+    file: "items.lua",
+    editable: true,
+    fieldOrder: ["id", "name", "index", "price", "keyItem", "tossable", "machine", "effect", "needsTarget", "ball"],
+  },
+  // custom item effects built in the studio: plain data in the mod's
+  // studio_item_effects.lua, registered as item_effects by the generated helper
+  { registry: "studio_item_effects", editable: true, build: () => ({}), studioFile: "studio_item_effects.lua", generates: "item_effects" },
+  // catch numbers per ball id; the vanilla records live in the engine
+  // (src/battle/Catching.lua), so they are restated (written with override)
+  { registry: "balls", editable: true, replace: true, build: () => structuredClone(VANILLA_BALLS), fieldOrder: ["randMax", "hpFactor", "wobbleFactor", "autoCatch", "flicker", "tossAnim"] },
 ];
 
 interface Field {
@@ -279,6 +291,40 @@ const moves: MoveSpec = {
     ],
     describe: (effect) => GEN1_EFFECTS[effect]?.text ?? "",
     template: (effect) => (GEN1_EFFECTS[effect]?.spec ? structuredClone(GEN1_EFFECTS[effect].spec!) : null),
+  },
+};
+
+// ------------------------------------------------------------------ items
+
+const items: ItemSpec = {
+  registry: "items",
+  // the bag's column width (BIKE VOUCHER)
+  nameMax: 12,
+  maxPrice: 999999,
+  effectRegistry: "studio_item_effects",
+  ballRegistry: "balls",
+  stats: ["attack", "defense", "speed", "special"],
+  expStats: ["hp", "attack", "defense", "speed", "special"],
+  statuses: ITEM_STATUSES,
+  tossAnims: ["TOSS_ANIM", "GREATTOSS_ANIM", "ULTRATOSS_ANIM"],
+  describe: vanillaItemText,
+  template: (id) => itemTemplate(id),
+  special: isSpecialItem,
+  picksMove,
+  // shop clerks: text_pointers[<map label>][TEXT_*].mart
+  marts(ctx) {
+    const out: MartRef[] = [];
+    const labelToId = new Map(Object.entries(ctx.maps).map(([id, m]) => [String(m.label ?? id), id]));
+    for (const [map, entries] of Object.entries(recordsOf(ctx, "text_pointers"))) {
+      for (const [text, entry] of Object.entries(entries as Record<string, { mart?: unknown }>)) {
+        if (!Array.isArray(entry?.mart)) continue;
+        const mapId = labelToId.get(map);
+        out.push({ registry: "text_pointers", map, text, mapId, label: mapId ?? map });
+      }
+    }
+    // a map with two clerks gets numbered labels
+    for (const m of out) if (out.filter((x) => x.map === m.map).length > 1) m.label += ` (${(m.text.split("_").pop() ?? m.text).toLowerCase().replace(/(\D)(\d+)$/, "$1 $2")})`;
+    return out.sort((a, b) => a.label.localeCompare(b.label));
   },
 };
 
@@ -616,6 +662,7 @@ export const gen1: GameAdapter = {
   globals,
   trainers,
   moves,
+  items,
 };
 
 function blockAt(map: MapDef, bx: number, by: number): number {

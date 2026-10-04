@@ -768,3 +768,11 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .step-row { display: grid; grid-template-columns: 90px 130px 90px minmax(0, 1fr) 28px; gap: 6px; align-items: center; }
 .step-row select, .step-row input[type="number"] { width: 100%; }
 .step-chance { display: flex; align-items: center; gap: 4px; }
+.step-row.item-step { grid-template-columns: 190px minmax(0, 1fr) 28px; }
+.step-row.item-step .row.nowrap { flex-wrap: wrap; gap: 6px; align-items: center; }
+.step-row.item-step .row.nowrap input[type="number"] { width: 80px; }
+.step-row.item-step .row.nowrap select { width: auto; }
+.inline-check { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.mart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 16px; }
+.mart-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.mart-row .btn { padding: 0 6px; height: 20px; }

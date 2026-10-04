@@ -16,6 +16,9 @@ const NAMES: Record<string, [string, string]> = {
   moves: ["Moves", "move"],
   studio_effects: ["Custom move effects", "custom effect"],
   battle_anims: ["Move animations", "move animation"],
+  items: ["Items", "item"],
+  studio_item_effects: ["Custom item effects", "custom item effect"],
+  balls: ["Ball catch numbers", "ball"],
   trainers: ["Trainers", "trainer"],
   ai_classes: ["Trainer AI", "trainer AI"],
   text: ["Texts", "text"],
@@ -71,6 +74,13 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     case "studio_effects": {
       const user = Object.entries(store.table("moves")).find(([, m]) => (m as { effect?: unknown }).effect === id)?.[0];
       return user ? () => nav.openMove(user) : null;
+    }
+    case "items":
+    case "balls":
+      return store.table("items")[id] ? () => nav.openItem(id) : null;
+    case "studio_item_effects": {
+      const user = Object.entries(store.table("items")).find(([, m]) => (m as { effect?: unknown }).effect === id)?.[0];
+      return user ? () => nav.openItem(user) : null;
     }
     case "trainers":
       return removed ? null : () => nav.openTrainer(id);

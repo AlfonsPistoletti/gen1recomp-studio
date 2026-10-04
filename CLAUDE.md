@@ -30,7 +30,7 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   history. Map edits emit `"edit"`, other registries `"content"`, and undo/redo of a
   non-map record emits `"reveal"`. Save writes every editable registry; ops of
   registries the studio doesn't edit are kept verbatim.
-- UI workspaces (Maps / Pokémon / Moves / Trainers / Text / Global): `index.html` has one panel set per
+- UI workspaces (Maps / Pokémon / Moves / Items / Trainers / Text / Global): `index.html` has one panel set per
   workspace (`data-ws`), switched in `main.ts`. Cross-links go through `src/ui/nav.ts`;
   the top-bar changes dropdown (`src/ui/changesMenu.ts`) maps each changed record to a nav call.
   Encounters live in the Maps right panel, not in a workspace: its bottom tab bar
@@ -70,6 +70,15 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   them into `move_effects` records. Its `move_effects` ops are never kept on save (`generates`).
   The engine iterates `run()`'s result with ipairs: it must always return a list. Vanilla effect
   descriptions/block templates: `src/games/gen1/effects.ts`.
+- Custom item effects follow the same design: `studio_item_effects` registry ->
+  `studio_item_effects.lua`, `src/lua/itemEffectRuntime.ts` -> `item_effects` (Gen 1's
+  ItemEffects.use runs `data.item_effects[item.effect]` before its id-based code). Vanilla
+  descriptions/templates: `src/games/gen1/items.ts`. `project.ts` GENERATORS maps each
+  `generates` registry to its helper. The helper may only `require` `src.pokemon.Stats`
+  (modkit MK006). `balls` is a `replace` registry restated from the engine. Shop stock is
+  `text_pointers[<map label>][TEXT_*].mart`.
+- `applyOps` stamps `id` only in registries whose records carry one (an `id` in a
+  text_pointers record broke the engine's schema); on load it drops such a stray id.
 - `applyOps` must not stamp `id` onto `{ __ref }` values (a reloaded reference was re-saved as a
   broken table once).
 - Custom types: `type_chart` type records ({name, category}) plus "A>B" rows; the engine reads

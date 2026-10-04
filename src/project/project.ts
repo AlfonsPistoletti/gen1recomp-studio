@@ -13,6 +13,7 @@ import type { Dataset, GameAdapter } from "../games/types.ts";
 import type { Host, ProcessResult } from "../host/types.ts";
 import { loadLuaData, runMod } from "../lua/vm.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../lua/effectRuntime.ts";
+import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../lua/itemEffectRuntime.ts";
 import { dataFile, requireLine, studioContentFile, type ContentCall } from "../lua/writer.ts";
 
 export const MOD_ID_RE = /^[\w-]+$/;
@@ -341,8 +342,9 @@ export async function saveProject(project: Project, edited: Record<string, Recor
     for (const [id, value] of Object.entries(edited[c.registry] ?? {})) if (value !== null && value !== undefined) records[id] = value;
     const path = `mods/${modId}/${c.studioFile}`;
     if (Object.keys(records).length) {
-      await host.writeText(path, dataFile(modId, "custom move effects", records, ["kind", "canMiss", "neverMiss", "hits", "damage", "recoil", "drain", "steps"]));
-      if (c.generates === "move_effects") before += EFFECT_RUNTIME + "\n" + effectRegistration(modId, c.studioFile) + "\n";
+      const gen = c.generates ? GENERATORS[c.generates] : undefined;
+      await host.writeText(path, dataFile(modId, gen?.what ?? c.registry, records, gen?.order ?? []));
+      if (gen) before += gen.runtime + "\n" + gen.registration(modId, c.studioFile) + "\n";
     } else if ((await host.readText("game", path)) !== null) {
       await host.deleteFile(path);
     }
@@ -351,6 +353,22 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   const wiredUp = await isWiredUp(host, modId, await readManifest(host, modId));
   return { file, patched, registered, wiredUp, snippet: wiredUp ? undefined : requireLine(modId) };
 }
+
+// the fixed helpers that turn a data file's specs into engine records
+export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string }> = {
+  move_effects: {
+    what: "custom move effects",
+    order: ["kind", "canMiss", "neverMiss", "hits", "damage", "recoil", "drain", "steps"],
+    runtime: EFFECT_RUNTIME,
+    registration: effectRegistration,
+  },
+  item_effects: {
+    what: "custom item effects",
+    order: ["target", "where", "keep", "steps", "act", "amount", "percent", "full", "statuses", "all", "stat", "delta", "cap"],
+    runtime: ITEM_EFFECT_RUNTIME,
+    registration: itemEffectRegistration,
+  },
+};
 
 // within a registry: registrations first (a patch may refer to them)
 function rank(c: ContentCall): number {

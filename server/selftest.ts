@@ -11,6 +11,7 @@ import { applyOps, clone, deepEqual, diffRecord } from "../src/core/merge.ts";
 import type { EntityRecord, MapDef } from "../src/core/types.ts";
 import { adapterFor } from "../src/games/index.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../src/lua/effectRuntime.ts";
+import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../src/lua/itemEffectRuntime.ts";
 import { loadLuaData, runMod } from "../src/lua/vm.ts";
 import { dataFile, studioContentFile } from "../src/lua/writer.ts";
 import { contentCalls, fieldOrders, listMods, openProject } from "../src/project/project.ts";
@@ -115,7 +116,8 @@ for (const [registry, records] of Object.entries(editedContent)) {
   applyOps(table, run.ops, registry);
   for (const [id, value] of Object.entries(records)) {
     const got = table[id] as Rec | string;
-    const want = typeof value === "object" && value && !("id" in value) && typeof got === "object" ? { ...value, id } : value;
+    const carriesId = Object.values(content[registry] ?? {}).some((r) => typeof r === "object" && r !== null && "id" in r);
+    const want = carriesId && typeof value === "object" && value && !("id" in value) && typeof got === "object" ? { ...value, id } : value;
     check(`round-trip ${registry} ${id}`, deepEqual(got, want));
   }
 }
@@ -136,6 +138,38 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   const back = await loadLuaData<Record<string, unknown>>(dataSrc, "studio_effects.lua");
   check("studio_effects.lua round-trips", deepEqual(back.STUDIO_TEST_EFFECT, spec), JSON.stringify(back.STUDIO_TEST_EFFECT));
   check("generated helper has no backticks", !EFFECT_RUNTIME.includes("`"));
+}
+
+// a re-loaded text_pointers patch (a record without an id) saves back without one
+{
+  const ops = [{ registry: "text_pointers", op: "patch", id: "ViridianMart", value: { TEXT_VIRIDIANMART_CLERK: { mart: ["POKE_BALL"] } } }] as Parameters<typeof applyOps>[1];
+  const table = clone(content.text_pointers) as Record<string, Rec>;
+  applyOps(table, ops, "text_pointers");
+  check("text_pointers record gets no id", !("id" in table.ViridianMart));
+  applyOps(table, [{ registry: "text_pointers", op: "patch", id: "ViridianMart", value: { id: "ViridianMart" } }] as Parameters<typeof applyOps>[1], "text_pointers");
+  check("a stray stamped id is dropped on load", !("id" in table.ViridianMart));
+}
+
+// custom item effects: same design, registered as item_effects before the
+// item records that name them
+{
+  const spec = { target: "party", steps: [{ act: "heal", amount: 100 }, { act: "cure" }] };
+  const dataSrc = dataFile("studio_selftest", "custom item effects", { STUDIO_MEGA_POTION: spec });
+  const itemCalls = contentCalls(adapter, { maps: base, ...content }, {
+    items: { MEGA_POTION: { id: "MEGA_POTION", name: "MEGA POTION", price: 1500, effect: "STUDIO_MEGA_POTION", needsTarget: true } },
+    balls: { POKE_BALL: { ...(content.balls?.POKE_BALL as Rec), randMax: 240 } },
+  });
+  const contentSrc = studioContentFile("studio_selftest", itemCalls.calls, fieldOrders(adapter), ITEM_EFFECT_RUNTIME + "\n" + itemEffectRegistration("studio_selftest", "studio_item_effects.lua"));
+  const files = new Map([[file, contentSrc], ["mods/studio_selftest/studio_item_effects.lua", dataSrc]]);
+  const itRun = await runMod(files, "studio_selftest", file, null);
+  check("item effect helper runs", itRun.errors.length === 0, itRun.errors.join("; "));
+  const order = itRun.ops.map((o) => `${o.registry}:${o.id}`);
+  check("item effect registered before the item", order.indexOf("item_effects:STUDIO_MEGA_POTION") >= 0 && order.indexOf("item_effects:STUDIO_MEGA_POTION") < order.indexOf("items:MEGA_POTION"), order.join(", "));
+  check("ball written with override", contentSrc.includes('balls:override("POKE_BALL"') && contentSrc.includes("randMax = 240"));
+  const back = await loadLuaData<Record<string, unknown>>(dataSrc, "studio_item_effects.lua");
+  check("studio_item_effects.lua round-trips", deepEqual(back.STUDIO_MEGA_POTION, spec), JSON.stringify(back.STUDIO_MEGA_POTION));
+  check("item helper has no backticks or ${", !ITEM_EFFECT_RUNTIME.includes("`") && !ITEM_EFFECT_RUNTIME.includes("${"));
+  check("vanilla balls restated", !!content.balls?.GREAT_BALL);
 }
 
 // a reference to another record (a move borrowing an animation) is written as

@@ -26,6 +26,7 @@ import { recall, remember } from "./ui/storage.ts";
 import { mountTextWorkspace } from "./ui/textWorkspace.ts";
 import { mountTrainerWorkspace } from "./ui/trainerEditor.ts";
 import { mountMoveWorkspace } from "./ui/moveEditor.ts";
+import { mountItemWorkspace } from "./ui/itemEditor.ts";
 
 configureLua(wasmUrl);
 // the desktop shell when running inside it, the dev server otherwise
@@ -258,6 +259,7 @@ const encounterPane = mountEncounterPane($("#right-encounters"));
 mountRightTabs($("#right-tabs"), { base: $("#right-base"), encounters: $("#right-encounters") }, (tab) => tab === "encounters" && encounterPane.render(), view);
 mountPokemonWorkspace($("#pokemon-left"), $("#pokemon-center"), $("#pokemon-right"));
 mountMoveWorkspace($("#moves-left"), $("#moves-center"), $("#moves-right"));
+mountItemWorkspace($("#items-left"), $("#items-center"), $("#items-right"));
 mountTrainerWorkspace($("#trainers-left"), $("#trainers-center"), $("#trainers-right"));
 mountTextWorkspace($("#text-left"), $("#text-center"), $("#text-right"));
 mountGlobalWorkspace($("#global-left"), $("#global-center"), $("#global-right"));

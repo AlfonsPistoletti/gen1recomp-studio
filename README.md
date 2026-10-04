@@ -55,7 +55,7 @@ and text written to Lua and read back must come out identical.
 
 ## Workspaces
 
-The tabs in the top bar switch between workspaces (Alt+1 to Alt+6). Game, mod,
+The tabs in the top bar switch between workspaces (Alt+1 to Alt+7). Game, mod,
 undo/redo and Save are shared: one undo history and one save cover every tab.
 
 The changes button next to Validate shows how many records differ from the
@@ -121,6 +121,30 @@ kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
     follows the vanilla rules (Substitute, Mist, type immunity to secondary
     statuses, 2–5 hit spread). Special effects (charge turns, trapping,
     Transform, Metronome, …) stay built-in only.
+- **Items**: name, price, key item, TM/HM move, effect, catch numbers for
+  balls, and the shops that sell it.
+  - Gen 1 items have no categories. Their effects are built into the game
+    per item id, and every built-in effect has a short description.
+  - **Customize this effect** turns a built-in effect into blocks, and
+    **Custom effect** starts one from scratch. The blocks:
+    - on a party Pokémon: restore HP (amount, % or full), cure statuses,
+      revive, restore PP, stat EXP (vitamin), level up, evolve (stone);
+    - in battle or the field: raise a stat (X item), Dire Hit, Guard Spec,
+      X Accuracy, escape a wild battle, throw as a ball, Repel;
+    - plus where the item works (battle, field, both) and "never used up".
+  - Custom effects are plain data in `mods/<id>/studio_item_effects.lua`. A
+    fixed helper in `studio_content.lua` registers them as `item_effects`
+    with the vanilla refusals, texts and menus (HP bar, level-up screen,
+    evolution).
+  - Missing from custom effects, because a mod can't reach them: the heal
+    sound (the item jingle plays instead), Yellow's Pikachu reactions, and
+    Gen 1's par/burn stat quirk after an X item.
+  - Special items (Bicycle, rods, Town Map, Escape Rope, Poké Flute, PP Up,
+    TMs/HMs, …) keep their built-in behaviour.
+  - **+ New** copies an item. A built-in effect comes along as a custom one,
+    and a copied ball gets its own catch numbers. New items are saved by id
+    and need no ROM slot.
+  - **Sold at** adds or removes the item from any shop's stock.
 - **Trainers**: every trainer class with its portrait.
   - **Teams**: species, level and order of each team, plus the maps where
     each one is fought. Each Pokémon shows the moves the game gives it: its

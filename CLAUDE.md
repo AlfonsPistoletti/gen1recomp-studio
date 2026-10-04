@@ -31,7 +31,8 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   non-map record emits `"reveal"`. Save writes every editable registry; ops of
   registries the studio doesn't edit are kept verbatim.
 - UI workspaces (Maps / Pokémon / Moves / Trainers / Text / Global): `index.html` has one panel set per
-  workspace (`data-ws`), switched in `main.ts`. Cross-links go through `src/ui/nav.ts`.
+  workspace (`data-ws`), switched in `main.ts`. Cross-links go through `src/ui/nav.ts`;
+  the top-bar changes dropdown (`src/ui/changesMenu.ts`) maps each changed record to a nav call.
   Encounters live in the Maps right panel, not in a workspace: its bottom tab bar
   (`src/ui/rightTabs.ts`) switches BASE (palette + properties) and ENCOUNTERS.
   Global (`src/ui/globalWorkspace.ts`) edits what `adapter.globals` lists, and only

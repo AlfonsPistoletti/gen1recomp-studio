@@ -28,4 +28,5 @@ export const nav = {
   openTrainer: (_id: string, _team?: number): void => {},
   openMove: (_id: string): void => {},
   openText: (_key: string): void => {},
+  openGlobal: (_section: string): void => {},
 };

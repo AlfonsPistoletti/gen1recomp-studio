@@ -11,6 +11,7 @@ import { configureLua } from "./lua/vm.ts";
 import { createMod, listMods, openProject as loadProject, saveProject, validateMod, wireUp } from "./project/project.ts";
 import { isTyping, MapView } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
+import { mountChangesMenu } from "./ui/changesMenu.ts";
 import { Grid3x3, MousePointer2, PaintBucket, Paintbrush, Pipette, Redo2, Square, Undo2, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { $, clear, field, h, icon, numberInput, toast, errorText } from "./ui/dom.ts";
 import { addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
@@ -49,7 +50,6 @@ const saveBtn = h("button", { class: "btn primary", onclick: () => save(), title
 const validateBtn = h("button", { class: "btn", onclick: () => validate(), title: "Run modkit validate --strict and lint" }, "Validate");
 const undoBtn = h("button", { class: "btn icon", onclick: () => store.undo(), title: "Undo (Ctrl+Z)", "aria-label": "Undo" }, icon(Undo2));
 const redoBtn = h("button", { class: "btn icon", onclick: () => store.redo(), title: "Redo (Ctrl+Shift+Z)", "aria-label": "Redo" }, icon(Redo2));
-const changeCount = h("span", { class: "muted change-count" });
 // which gen1recomp the studio works on; clickable in the desktop app
 const installBtn = h("button", { class: "btn small ghost install-btn", onclick: () => switchInstall() });
 
@@ -80,14 +80,13 @@ const workspaceTabs = WORKSPACES.map((w) =>
 );
 
 $("#topbar").append(
-  h("div", { class: "brand" }, h("span", { class: "logo" }, "◆"), "Gen1Recomp Studio"),
   installBtn,
   h("div", { class: "group" }, h("span", { class: "muted" }, "Game"), versionSelect),
   h("div", { class: "group" }, h("span", { class: "muted" }, "Mod"), modSelect),
   h("nav", { class: "ws-tabs" }, ...workspaceTabs),
   h("div", { class: "group" }, undoBtn, redoBtn),
   h("div", { class: "spacer" }),
-  changeCount,
+  mountChangesMenu(),
   h("div", { class: "group" }, validateBtn, saveBtn),
 );
 
@@ -146,37 +145,7 @@ function renderModSelect(): void {
 }
 
 // what differs from the base, per registry ("2 maps · 1 pokemon")
-function changeSummary(): { total: number; text: string } {
-  const parts: string[] = [];
-  let total = 0;
-  for (const [registry, records] of Object.entries(store.changed())) {
-    const n = Object.keys(records).length;
-    total += n;
-    // [one, many]
-    const NAMES: Record<string, [string, string]> = {
-      maps: ["map", "maps"],
-      pokemon: ["Pokémon", "Pokémon"],
-      text: ["text", "texts"],
-      text_pointers: ["text pointer", "text pointers"],
-      encounters: ["wild table", "wild tables"],
-      constants: ["global setting", "global settings"],
-      type_chart: ["type chart entry", "type chart entries"],
-      trainers: ["trainer", "trainers"],
-      moves: ["move", "moves"],
-      battle_anims: ["move animation", "move animations"],
-      studio_effects: ["custom effect", "custom effects"],
-      ai_classes: ["trainer AI", "trainer AIs"],
-    };
-    const [one, many] = NAMES[registry] ?? [registry, registry];
-    parts.push(`${n} ${n === 1 ? one : many}`);
-  }
-  return { total, text: parts.join(" · ") };
-}
-
 function refreshTopbar(): void {
-  const { total, text } = store.project ? changeSummary() : { total: 0, text: "" };
-  changeCount.textContent = store.project ? `${total ? `${text} changed` : "No changes"}${store.unsaved ? " · unsaved" : ""}` : "";
-  changeCount.title = changeCount.textContent;
   saveBtn.classList.toggle("attention", store.unsaved);
   undoBtn.disabled = !store.canUndo;
   redoBtn.disabled = !store.canRedo;

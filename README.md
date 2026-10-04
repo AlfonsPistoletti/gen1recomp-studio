@@ -58,6 +58,10 @@ and text written to Lua and read back must come out identical.
 The tabs in the top bar switch between workspaces (Alt+1 to Alt+6). Game, mod,
 undo/redo and Save are shared: one undo history and one save cover every tab.
 
+The changes button next to Validate shows how many records differ from the
+game, with a dot while something is unsaved. Click it for the list, grouped by
+kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
+
 - **Maps**: the map editor. The tabs at the bottom of the right panel switch
   what the panel shows. **Base** has the block palette and the properties of
   the map or the selected warp/NPC/sign. For NPCs and signs it also shows and

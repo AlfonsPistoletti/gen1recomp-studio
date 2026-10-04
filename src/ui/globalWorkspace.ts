@@ -50,6 +50,29 @@ function setNumber(n: GlobalNumber, value: number): void {
   write(n.registry, n.id, n.label, { ...def, ...now, [n.key]: v });
 }
 
+// the Global section a record is edited in, or null
+export function globalSectionOf(registry: string, id: string): string | null {
+  const s = spec();
+  if (!s) return null;
+  if (registry === s.typeChart?.registry) return "types";
+  const odds = store.adapter.encounters?.sharedOdds;
+  if (odds && registry === odds.registry && id === odds.id) return "wild";
+  if (s.hmBadges && registry === s.hmBadges.registry && id === s.hmBadges.id) return "fieldmoves";
+  return s.numbers.find((n) => n.registry === registry && n.id === id)?.section ?? null;
+}
+
+// a readable name for a global setting record ("Level cap"), or null
+export function globalLabelOf(registry: string, id: string): string | null {
+  const s = spec();
+  const section = globalSectionOf(registry, id);
+  if (!s || !section) return null;
+  if (section === "types") return null;
+  if (section === "wild") return "Wild slot chances";
+  if (section === "fieldmoves") return "HM badges";
+  const labels = s.numbers.filter((n) => n.registry === registry && n.id === id).map((n) => n.label);
+  return labels.length === 1 ? labels[0] : (s.sections.find((x) => x.id === section)?.label ?? null);
+}
+
 // whether a section holds anything that differs from the base
 function sectionChanged(id: string): boolean {
   const s = spec();
@@ -95,6 +118,10 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     section = id;
     remember(SECTION_KEY, id);
     renderAll(true);
+  };
+  nav.openGlobal = (id) => {
+    nav.setWorkspace("global");
+    open(id);
   };
 
   const renderAll = (force = false) => {

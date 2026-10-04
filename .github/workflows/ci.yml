@@ -1,0 +1,49 @@
+name: ci
+
+# Quick check on every push and pull request: the front end typechecks and
+# builds, and the Rust shell compiles. Linux only, to keep a private repo's
+# Actions minutes low. Installers are built by release.yml.
+#
+# The selftest is not run here: it needs an imported ROM dataset, which must
+# never be uploaded. Run `npm run selftest` locally before a release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# a newer push to the same branch cancels the older run
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+      # the Tauri crates link against the system web view
+      - name: Linux system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --locked

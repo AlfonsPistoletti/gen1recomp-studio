@@ -1,0 +1,10 @@
+node_modules/
+dist/
+studio.config.json
+*.log
+
+# personal notes, not part of the repo
+START.txt
+
+# personal editor setup
+*.code-workspace

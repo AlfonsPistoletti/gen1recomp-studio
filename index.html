@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gen1Recomp Studio</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 1l7 7-7 7-7-7z' fill='%234c8dff'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body data-ws="maps">
+    <header id="topbar"></header>
+    <!-- one list / main / details column set per workspace; only the active
+         workspace's set is shown (src/main.ts setWorkspace) -->
+    <main id="layout">
+      <aside id="left" class="panel side-left" data-ws="maps"></aside>
+      <section id="center" data-ws="maps">
+        <div id="toolbar"></div>
+        <div id="viewport"></div>
+        <footer id="statusbar"></footer>
+      </section>
+      <aside id="right" class="side-right" data-ws="maps">
+        <div id="right-base" class="right-pane">
+          <div id="palette" class="panel"></div>
+          <div id="props" class="panel"></div>
+        </div>
+        <div id="right-encounters" class="right-pane panel" hidden></div>
+        <div id="right-tabs" class="right-tabs"></div>
+      </aside>
+
+      <aside id="pokemon-left" class="panel side-left" data-ws="pokemon" hidden></aside>
+      <section id="pokemon-center" class="panel ws-main" data-ws="pokemon" hidden></section>
+      <aside id="pokemon-right" class="panel side-right" data-ws="pokemon" hidden></aside>
+
+      <aside id="moves-left" class="panel side-left" data-ws="moves" hidden></aside>
+      <section id="moves-center" class="panel ws-main" data-ws="moves" hidden></section>
+      <aside id="moves-right" class="panel side-right" data-ws="moves" hidden></aside>
+
+      <aside id="trainers-left" class="panel side-left" data-ws="trainers" hidden></aside>
+      <section id="trainers-center" class="panel ws-main" data-ws="trainers" hidden></section>
+      <aside id="trainers-right" class="panel side-right" data-ws="trainers" hidden></aside>
+
+      <aside id="text-left" class="panel side-left" data-ws="text" hidden></aside>
+      <section id="text-center" class="panel ws-main" data-ws="text" hidden></section>
+      <aside id="text-right" class="panel side-right" data-ws="text" hidden></aside>
+
+      <aside id="global-left" class="panel side-left" data-ws="global" hidden></aside>
+      <section id="global-center" class="panel ws-main" data-ws="global" hidden></section>
+      <aside id="global-right" class="panel side-right" data-ws="global" hidden></aside>
+    </main>
+    <div id="toasts"></div>
+    <dialog id="dialog"></dialog>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

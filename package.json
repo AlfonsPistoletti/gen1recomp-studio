@@ -1,0 +1,28 @@
+{
+  "name": "gen1recomp-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Map and content editor for gen1recomp",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "selftest": "tsx server/selftest.ts",
+    "tauri": "tauri",
+    "release": "node scripts/release.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.1",
+    "@tauri-apps/plugin-dialog": "^2.8.1",
+    "lucide": "^1.52.0",
+    "wasmoon": "^1.16.0"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.12.1",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}

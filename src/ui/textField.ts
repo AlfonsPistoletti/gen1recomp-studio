@@ -1,0 +1,106 @@
+import { fromEditable, lineMode, lineWidth, preview, TEXT_COMMANDS, toEditable, withEnding, BOX_WIDTH } from "../core/gbtext.ts";
+import { store } from "../core/store.ts";
+import { h } from "./dom.ts";
+
+// Editor for one string of the text registry: plain lines, a blank line
+// between pages, and a live Game Boy text-box preview. Typing is one undo
+// step per pause (merged edits, sealed on blur). With `commands`, buttons
+// insert {PLAYER}, {DONE}, ... and a legend explains them.
+
+export function textEditor(key: string, opts: { rows?: number; label?: string; compact?: boolean; commands?: boolean } = {}): HTMLElement {
+  const current = store.table("text")[key];
+  const original = typeof current === "string" ? current : "";
+  const mode = lineMode(original);
+  const shown = toEditable(original);
+  const area = h("textarea", { rows: opts.rows ?? 6, spellcheck: false, class: "mono gb-text" });
+  area.value = shown;
+  const boxes = h("div", { class: "gb-preview" });
+  const warn = h("p", { class: "hint warn" });
+
+  const renderPreview = () => {
+    const { pages, tooWide, ending } = preview(area.value);
+    const raw = area.value.replace(/\r\n?/g, "\n").split(/\n{2,}/).map((p) => p.split("\n"));
+    boxes.replaceChildren(
+      ...pages.map((lines, pi) =>
+        h(
+          "div",
+          { class: `gb-box${mode === "plain" ? " plain" : ""}` },
+          ...lines.map((l, li) => h("div", { class: `gb-line${lineWidth(raw[pi]?.[li] ?? "") > BOX_WIDTH ? " wide" : ""}` }, l || " ")),
+          // what happens after the page: ▼ = waits for A/B
+          pi < pages.length - 1 || ending === "prompt" ? h("span", { class: "gb-arrow", title: "Waits for A/B" }, "▼") : null,
+        ),
+      ),
+    );
+    if (ending === null) boxes.append(h("span", { class: "hint" }, "No {DONE} or {PROMPT} at the end."));
+    warn.textContent = tooWide.length
+      ? `${tooWide.length} line${tooWide.length === 1 ? "" : "s"} can get wider than the ${BOX_WIDTH}-character text box (up to ${Math.max(...tooWide.map((t) => t.length))}, counting names at their longest).`
+      : "";
+  };
+  renderPreview();
+
+  const save = () => {
+    renderPreview();
+    // untouched strings keep their exact separators
+    const next = area.value === shown ? original : fromEditable(area.value, mode);
+    store.setRecord("text", key, `Edit text ${key}`, next, true);
+  };
+  area.addEventListener("input", save);
+  area.addEventListener("blur", () => store.seal());
+
+  let toolbar: HTMLElement | null = null;
+  let legend: HTMLElement | null = null;
+  if (opts.commands) {
+    // inserting keeps the caret where it was and counts as typing
+    const insert = (token: string, end: boolean) => {
+      const { selectionStart: a, selectionEnd: b, value } = area;
+      if (end) {
+        area.value = withEnding(value, token);
+        area.setSelectionRange(area.value.length, area.value.length);
+      } else {
+        // never after the ending: {DONE}/{PROMPT} must stay last
+        const endAt = value.search(/\s*\{(DONE|PROMPT)\}\s*$/);
+        const at = endAt >= 0 && a > endAt ? endAt : a;
+        const to = endAt >= 0 && b > endAt ? endAt : b;
+        area.value = value.slice(0, at) + token + value.slice(to);
+        area.setSelectionRange(at + token.length, at + token.length);
+      }
+      area.focus();
+      area.dataset.dirty = "1";
+      save();
+    };
+    toolbar = h(
+      "div",
+      { class: "row text-tools" },
+      ...TEXT_COMMANDS.filter((c) => c.button).map((c) =>
+        h("button", { class: `btn small${c.end ? " end" : ""}`, title: `${c.token}: ${c.about}`, onmousedown: (e: Event) => e.preventDefault(), onclick: () => insert(c.token, !!c.end) }, c.label),
+      ),
+      h("button", { class: "btn small", title: "Blank line: waits for A/B, then clears the box", onmousedown: (e: Event) => e.preventDefault(), onclick: () => insert("\n\n", false) }, "New page"),
+    );
+    legend = h(
+      "details",
+      { class: "text-legend" },
+      h("summary", {}, "What the commands do"),
+      h(
+        "dl",
+        {},
+        ...TEXT_COMMANDS.flatMap((c) => [h("dt", {}, h("code", {}, c.token)), h("dd", {}, c.about)]),
+        h("dt", {}, h("code", {}, "blank line")),
+        h("dd", {}, "New page: the box waits for A/B (▼), then clears."),
+        h("dt", {}, h("code", {}, "line break")),
+        h("dd", {}, `Next line. The box shows two lines at a time and scrolls for more. Each line fits ${BOX_WIDTH} characters.`),
+      ),
+    );
+  }
+
+  return h(
+    "div",
+    { class: `text-editor${opts.compact ? " compact" : ""}` },
+    opts.label ? h("span", { class: "field-label" }, opts.label) : null,
+    toolbar,
+    area,
+    h("span", { class: "hint" }, "One line per row; a blank line starts a new page. {PLAYER}, {RIVAL} … are filled in by the game."),
+    warn,
+    boxes,
+    legend,
+  );
+}

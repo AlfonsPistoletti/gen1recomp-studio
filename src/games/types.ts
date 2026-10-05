@@ -302,6 +302,10 @@ export interface PokemonSpec {
   // sprite sizes in pixels: front is frontSize x 8 square
   frontSizes: number[];
   backSize: number;
+  // back sprites may also be bigger, drawn 1:1 instead of doubled
+  backSizes: number[];
+  // the scales the game draws battle pics at (pokemon.battleScaleFront/Back)
+  battleScale: { front: number; back: number; choices: number[] };
   // menu icons: built-in shapes by name, or { image } sheets of 2 frames
   icon: {
     width: number;

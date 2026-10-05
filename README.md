@@ -100,6 +100,12 @@ renamed before players have saves with it.
     towns isn't supported yet (it would also need the Town Map).
   - The **Wild** overlay (W) shows which cells roll encounters.
   - A green dot in the map list marks maps with wild Pokémon.
+- **Pokémon** (battle sprites): back sprites can be imported at 32×32 (Gen 1,
+  drawn doubled) or 48/56/64 px (full resolution, drawn 1:1, like Gen 2).
+  Each sprite has a **drawn at** size (the engine's `battleScaleFront` /
+  `battleScaleBack`), and a battle preview shows both sprites the way the game
+  places them (the player's Pokémon stands on the text box at any size).
+  Transparent pixels stay transparent so the game can ground the sprite.
 - **Pokémon** (cries): the **Cry** card imports a WAV, OGG, MP3 or FLAC
   file, or borrows another Pokémon's cry; imported sounds can be played in
   the studio. The game's own cries are synthesized by the game while it runs,

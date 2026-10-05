@@ -202,6 +202,10 @@ const pokemon: PokemonSpec = {
   backSprite: (r) => (typeof r.spriteBack === "string" ? r.spriteBack : undefined),
   frontSizes: [5, 6, 7],
   backSize: 32,
+  // Gen 1 back pics are 32×32 drawn 2×; Gen 2 style ones are 48×48 and up at
+  // 1× (BattleState.resolveBattleScale: battleScaleBack, any image size)
+  backSizes: [32, 48, 56, 64],
+  battleScale: { front: 1, back: 2, choices: [1, 1.5, 2] },
   // src/ui/PartyMenu.lua drawIcon: record.icon (a shape name or { image }),
   // else icons.byDex[dex]
   icon: {

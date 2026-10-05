@@ -94,6 +94,11 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
 - Renaming a mod's own record id (`src/ui/renameId.ts`, `adapter.renames`): references are found
   only through each registry's RenameSpec fields/lists (never blind string replacement), plus
   `keyed` registries, an id-derived text key and `{ __ref }`s; maps included, `text` prose never.
+- Battle sprite sizes: the engine draws a battle pic of any size at `battle_sprite_scales[path]` >
+  `pokemon.battleScaleFront/Back` > default (front 1x, back 2x), grounded by its transparent rows
+  (BattleState resolveBattleScale/backPlacement/frontPlacement). The studio's back import offers
+  `backSizes` and sets battleScaleBack = 1 for > 32 px; the Art card's battle preview restates the
+  placement math. Battle-sprite imports keep alpha-0 pixels (`ArtTarget.keepTransparent`).
 - Cries: the engine plays `cries[<species id>]` (the pokemon record's `cry` field is not read in
   Gen 1), so new species get a `cries` record (`{ base }` or a copied `{ file }`). `cries` is a
   `replace` registry (chip data / base / file shapes). Imported sounds use the art asset pipeline

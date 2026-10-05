@@ -16,6 +16,9 @@ export interface ArtTarget {
   // square sizes to choose from (front sprites: 40, 48, 56); width/height
   // is the preselected one
   sizes?: number[];
+  // battle sprites keep their transparent pixels: the engine grounds a pic
+  // by its transparent rows and leaves them alone when it recolours
+  keepTransparent?: boolean;
 }
 
 export interface ArtResult {
@@ -75,6 +78,7 @@ function render(img: HTMLImageElement, t: ArtTarget, shades: boolean, brightness
   const data = ctx.getImageData(0, 0, out.width, out.height);
   const px = data.data;
   for (let i = 0; i < px.length; i += 4) {
+    if (t.keepTransparent && px[i + 3] === 0) continue;
     // transparent = white, like the background the game draws sprites on
     const a = px[i + 3] / 255;
     const lum = (0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]) * a + 255 * (1 - a);

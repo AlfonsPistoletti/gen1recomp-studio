@@ -326,6 +326,21 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   const trueColor = r.trueColor === true;
   const frontSize = Number(r.frontSize ?? 7);
   const maxFront = Math.max(...spec.frontSizes) * 8;
+  const scales = spec.battleScale;
+  const frontScale = typeof r.battleScaleFront === "number" ? r.battleScaleFront : scales.front;
+  const backScale = typeof r.battleScaleBack === "number" ? r.battleScaleBack : scales.back;
+  // the import dialog preselects what the current back art probably is
+  const backPx = backScale < scales.back ? spec.backSizes[1] ?? spec.backSize : spec.backSize;
+  // drawn at: the game's scale is dropped rather than saved
+  const scaleSelect = (key: "battleScaleFront" | "battleScaleBack", value: number, def: number) => {
+    const sel = selectInput(String(value), scales.choices.map(String), (v) =>
+      edit(id, "Battle size", (d) => (Number(v) === def ? delete d[key] : (d[key] = Number(v)))),
+    );
+    for (const o of sel.options) o.textContent = `drawn ${o.value}×${Number(o.value) === def ? " (game)" : ""}`;
+    if (!scales.choices.includes(value)) sel.prepend(h("option", { value: String(value), selected: true }, `drawn ${value}×`));
+    sel.title = "How big the game draws this sprite in battle";
+    return sel;
+  };
 
   const importTo = async (kind: "front" | "back" | "icon") => {
     if (!mod) return toast("Choose or create a mod first: imported art is saved into it", "error");
@@ -333,8 +348,8 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       kind === "icon"
         ? { label: "Menu icon", width: spec.icon.width, height: spec.icon.height, frames: spec.icon.frames, align: "center" }
         : kind === "front"
-          ? { label: "Front sprite", width: frontSize * 8, height: frontSize * 8, align: "bottom", sizes: spec.frontSizes.map((n) => n * 8) }
-          : { label: "Back sprite", width: spec.backSize, height: spec.backSize, align: "bottom" },
+          ? { label: "Front sprite", width: frontSize * 8, height: frontSize * 8, align: "bottom", sizes: spec.frontSizes.map((n) => n * 8), keepTransparent: true }
+          : { label: "Back sprite", width: backPx, height: backPx, align: "bottom", sizes: spec.backSizes, keepTransparent: true },
       { trueColor },
     );
     if (!res) return;
@@ -343,7 +358,12 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       if (kind === "front") {
         d.spriteFront = path;
         d.frontSize = res.size / 8;
-      } else if (kind === "back") d.spriteBack = path;
+      } else if (kind === "back") {
+        d.spriteBack = path;
+        // 32×32 is drawn doubled like the game; bigger art is drawn 1:1
+        if (res.size === spec.backSize) delete d.battleScaleBack;
+        else d.battleScaleBack = 1;
+      }
       else d.icon = { image: path, frames: spec.icon.frames, ...(res.trueColor ? { trueColor: true } : {}) };
       if (kind !== "icon") {
         if (res.trueColor) d.trueColor = true;
@@ -364,6 +384,10 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       edit(id, `Use ${String(src.name ?? v)}'s ${kind} art`, (d) => {
         d[key] = path;
         if (kind === "front") d.frontSize = src.frontSize;
+        // the art's battle scale goes with it
+        const scaleKey = kind === "front" ? "battleScaleFront" : "battleScaleBack";
+        if (src[scaleKey] !== undefined) d[scaleKey] = src[scaleKey];
+        else delete d[scaleKey];
       });
     }, owners.length ? "Use art of…" : "No art to reuse");
     for (const o of sel.options) if (o.value) o.textContent = `${String(all[o.value]?.name ?? o.value)}`;
@@ -432,15 +456,15 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       { class: "art-grid" },
       slot(
         "Front",
-        [h("button", { class: "btn small", onclick: () => importTo("front") }, "Import…"), borrow("front")],
+        [h("button", { class: "btn small", onclick: () => importTo("front") }, "Import…"), borrow("front"), scaleSelect("battleScaleFront", frontScale, scales.front)],
         front ? h("img", { src: spriteUrl(front), alt: "", class: "front-art", style: `width:${frontPx}px;height:${frontPx}px` }) : null,
-        `${frontSize * 8}×${frontSize * 8} in battle`,
+        `${frontSize * 8}×${frontSize * 8}`,
       ),
       slot(
         "Back",
-        [h("button", { class: "btn small", onclick: () => importTo("back") }, "Import…"), borrow("back")],
+        [h("button", { class: "btn small", onclick: () => importTo("back") }, "Import…"), borrow("back"), scaleSelect("battleScaleBack", backScale, scales.back)],
         back ? h("img", { src: spriteUrl(back), alt: "" }) : null,
-        `${spec.backSize}×${spec.backSize}`,
+        backScale === scales.back ? `${spec.backSize}×${spec.backSize}, drawn doubled like the game` : "Full resolution",
       ),
       slot(
         "Menu icon",
@@ -449,9 +473,90 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
         icon.image ? "Own image, 2 frames" : "Game icon shape",
       ),
     ),
+    h(
+      "div",
+      { class: "battle-preview-wrap" },
+      battlePreview(front ? spriteUrl(front) : undefined, back ? spriteUrl(back) : undefined, frontScale, backScale, mattedArt(front), mattedArt(back)),
+      h("p", { class: "hint" }, "In battle: the foe's front sprite top right, yours from behind, feet on the text box. Bigger art grows up and out from there."),
+    ),
     h("label", { class: "ai-layer" }, colorBox, h("span", {}, h("strong", {}, "Full color"), h("span", { class: "hint" }, "Shows this Pokémon's battle sprites exactly as drawn instead of colouring 4 gray shades with the game's palette."))),
     mod ? h("p", { class: "hint" }, `Imported images are saved into mods/${mod}/assets/studio/ when you save.`) : h("p", { class: "hint warn" }, "Choose or create a mod to import art."),
   );
+}
+
+// the game's own pics have a white background the engine makes transparent
+const mattedArt = (path: string | undefined): boolean => !!path && (path.startsWith("assets/generated/") || path.startsWith("save/mod-derived/"));
+
+// The battle screen as gen1recomp lays it out (BattleState.drawPicsLayer):
+// the foe's front pic centred in the 7×7 tile slot at tile (12, 0), bottom
+// edge and centre pinned as it scales (frontPlacement); the player's back pic
+// at x 8 with its feet on the text box top, y 96 (backPlacement), both after
+// trimming the transparent rows/columns the engine trims.
+function battlePreview(front: string | undefined, back: string | undefined, fs: number, bs: number, frontMatted: boolean, backMatted: boolean): HTMLElement {
+  const W = 160;
+  const H = 144;
+  const canvas = h("canvas", { width: W, height: H, class: "battle-preview" });
+  const ctx = canvas.getContext("2d")!;
+  const load = (src?: string) =>
+    new Promise<HTMLImageElement | null>((done) => {
+      if (!src) return done(null);
+      const img = new Image();
+      img.onload = () => done(img);
+      img.onerror = () => done(null);
+      img.src = src;
+    });
+  // the pic with the engine's matting, plus its empty bottom rows / left columns
+  const prepare = (img: HTMLImageElement, matted: boolean) => {
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    const g = c.getContext("2d")!;
+    g.drawImage(img, 0, 0);
+    let data: ImageData;
+    try {
+      data = g.getImageData(0, 0, c.width, c.height);
+    } catch {
+      // pixels of another origin can't be read: draw it untrimmed
+      return { c, pad: 0, padL: 0 };
+    }
+    const px = data.data;
+    if (matted) for (let i = 0; i < px.length; i += 4) if (px[i] > 212 && px[i + 1] > 212 && px[i + 2] > 212) px[i + 3] = 0;
+    g.putImageData(data, 0, 0);
+    const opaque = (x: number, y: number) => px[(y * c.width + x) * 4 + 3] > 0;
+    let bottom = c.height - 1;
+    while (bottom >= 0 && ![...Array(c.width).keys()].some((x) => opaque(x, bottom))) bottom--;
+    let left = 0;
+    while (left < c.width && ![...Array(c.height).keys()].some((y) => opaque(left, y))) left++;
+    return { c, pad: c.height - 1 - Math.max(bottom, 0), padL: left === c.width ? 0 : left };
+  };
+  Promise.all([load(front), load(back)]).then(([f, b]) => {
+    ctx.imageSmoothingEnabled = false;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, W, H);
+    // the text box (rows 12-17)
+    ctx.fillStyle = "#e8e8e8";
+    ctx.fillRect(0, 96, W, 48);
+    ctx.strokeStyle = "#383838";
+    ctx.strokeRect(1.5, 97.5, W - 3, 45);
+    if (f) {
+      const { c } = prepare(f, frontMatted);
+      const tw = Math.min(7, Math.max(1, Math.floor(c.width / 8)));
+      const th = Math.min(7, Math.max(1, Math.floor(c.height / 8)));
+      const ex = 96 + 8 * Math.floor((8 - tw) / 2);
+      const ey = 8 * (7 - th);
+      ctx.drawImage(c, ex + (c.width * (1 - fs)) / 2, ey + c.height * (1 - fs), c.width * fs, c.height * fs);
+    }
+    if (b) {
+      const { c, pad, padL } = prepare(b, backMatted);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, W, 96);
+      ctx.clip();
+      ctx.drawImage(c, 8 - padL * bs, 96 - (c.height - pad) * bs, c.width * bs, c.height * bs);
+      ctx.restore();
+    }
+  });
+  return canvas;
 }
 
 function evolutionsCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {

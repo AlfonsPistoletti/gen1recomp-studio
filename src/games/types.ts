@@ -182,6 +182,15 @@ export interface PrizeCounter {
   prizes: Prize[];
 }
 
+// Something on a map the player can interact with that is not a map entity:
+// a list per map id inside the field registry (field[path...][MAP] = {x, y, ...}).
+export interface HiddenKind {
+  id: "pc" | "bench" | "item" | "coins" | "statue";
+  label: string;
+  path: string[];
+  hint: string;
+}
+
 // NPC roles, Pokémon Center PCs, landing spots and prize counters.
 export interface TownSpec {
   pointerRegistry: string; // text_pointers: roles are flags on an NPC's text pointer
@@ -189,6 +198,9 @@ export interface TownSpec {
   prizeRegistry: string; // prize counters, id "<MAP_ID>:<TEXT_ID>"
   prizesPerCounter: number; // the prize window's rows
   maxCoins: number;
+  hidden: HiddenKind[];
+  // a bench guy's text label -> its text key (the engine maps a few by hand)
+  benchText(label: string): string;
   // which maps may get a landing spot (outdoor ones)
   isTown(map: MapDef): boolean;
 }

@@ -8,7 +8,7 @@ import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../co
 import { store, type Selection, type Stamp } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
-import { DoorOpen, Monitor, PlaneLanding, Signpost, type IconNode } from "lucide";
+import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, Signpost, Sparkles, type IconNode } from "lucide";
 import { atlasRect, blockAtlas, BLOCK, CELL, markerIcon, spriteFrame, type BlockAtlas } from "./graphics.ts";
 
 interface CachedMap {
@@ -43,7 +43,14 @@ const MIN_ZOOM = 0.125;
 // colors of the marker icons drawn on warps and signs
 const WARP_ICON = "#6a3fd8";
 const SIGN_ICON = "#a86a00";
-const PC_ICON = "#2f7dff";
+// hidden events (field registry): icon and color per kind
+const HIDDEN_ICONS: Record<string, [string, IconNode, string]> = {
+  pc: ["monitor", Monitor, "#2f7dff"],
+  bench: ["armchair", Armchair, "#c0367a"],
+  item: ["sparkles", Sparkles, "#0f8f80"],
+  coins: ["coins", Coins, "#a8740a"],
+  statue: ["landmark", Landmark, "#5b5f6e"],
+};
 const LANDING_ICON = "#1f9e6b";
 const MAX_ZOOM = 8;
 
@@ -450,8 +457,14 @@ export class MapView {
     // Pokémon Center PCs and the town's landing spot (the field registry)
     const towns = store.adapter.towns;
     if (towns) {
-      const f = store.table(towns.fieldRegistry) as { hiddenExtras?: { pcTiles?: Record<string, EntityRecord[]> }; flyWarps?: Record<string, EntityRecord> };
-      for (const pc of f.hiddenExtras?.pcTiles?.[map.id] ?? []) this.markerIcon("monitor", Monitor, PC_ICON, pc);
+      const f = store.table(towns.fieldRegistry) as Record<string, unknown> & { flyWarps?: Record<string, EntityRecord> };
+      for (const kind of towns.hidden) {
+        let node: unknown = f;
+        for (const key of kind.path) node = (node as Record<string, unknown> | undefined)?.[key];
+        const list = (node as Record<string, EntityRecord[]> | undefined)?.[map.id] ?? [];
+        const [name, icon, color] = HIDDEN_ICONS[kind.id] ?? HIDDEN_ICONS.pc;
+        for (const e of list) this.markerIcon(name, icon, color, e);
+      }
       const land = f.flyWarps?.[map.id];
       if (land) this.markerIcon("plane-landing", PlaneLanding, LANDING_ICON, land);
     }

@@ -10,11 +10,12 @@
 import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
-import type { TownSpec } from "../games/types.ts";
+import type { HiddenKind, TownSpec } from "../games/types.ts";
 import type { MapView } from "../render/mapView.ts";
 import { comboInput, h, numberInput, selectInput, toast } from "./dom.ts";
 import { idBase, newTextId, pointerEntry, type PointerEntry } from "./mapText.ts";
 import { nav } from "./nav.ts";
+import { textEditor } from "./textField.ts";
 import { counterId, counters, freshCounter, prizeCounterEditor } from "./prizeEditor.ts";
 
 type Role = "" | "mart" | "nurse" | "pc" | "prizes";
@@ -135,23 +136,39 @@ interface Spot {
   x: number;
   y: number;
   facing?: string;
+  text?: string;
+  textFacing?: string;
+  item?: string;
+  coins?: number;
 }
 
 interface FieldTable {
-  hiddenExtras?: { pcTiles?: Record<string, Spot[]> };
   flyWarps?: Record<string, Spot>;
+  [key: string]: unknown;
 }
 
 function fieldTable(s: TownSpec): FieldTable {
   return store.table(s.fieldRegistry) as FieldTable;
 }
 
-function setPcs(s: TownSpec, mapId: string, what: string, pcs: Spot[]): void {
-  store.editRecord<Record<string, unknown>>(s.fieldRegistry, "hiddenExtras", what, (d) => {
-    const tiles = { ...((d.pcTiles as Record<string, Spot[]> | undefined) ?? {}) };
-    if (pcs.length) tiles[mapId] = pcs;
-    else delete tiles[mapId];
-    d.pcTiles = tiles;
+// field[path...][mapId]: the map's events of one kind
+function hiddenList(s: TownSpec, kind: HiddenKind, mapId: string): Spot[] {
+  let node: unknown = fieldTable(s);
+  for (const key of kind.path) node = (node as Record<string, unknown> | undefined)?.[key];
+  return clone(((node as Record<string, Spot[]> | undefined)?.[mapId]) ?? []);
+}
+
+function setHidden(s: TownSpec, kind: HiddenKind, mapId: string, what: string, list: Spot[]): void {
+  const [top, ...rest] = kind.path;
+  store.editRecord<Record<string, unknown>>(s.fieldRegistry, top, what, (d) => {
+    // copy the path down to the per-map table, then set or drop this map
+    let node = d;
+    for (const key of rest) {
+      node[key] = { ...((node[key] as Record<string, unknown> | undefined) ?? {}) };
+      node = node[key] as Record<string, unknown>;
+    }
+    if (list.length) node[mapId] = list;
+    else delete node[mapId];
   }, { create: () => ({}) });
   store.seal();
 }
@@ -175,30 +192,7 @@ export function townSection(map: MapDef, view: MapView): HTMLElement[] {
   const out: HTMLElement[] = [];
   const f = fieldTable(s);
 
-  // Pokémon Center PCs
-  const pcs = clone(f.hiddenExtras?.pcTiles?.[map.id] ?? []);
-  const pcRows = pcs.map((pc, i) => {
-    const facing = selectInput(pc.facing ?? "", ["up", "down", "left", "right"], (v) => setPcs(s, map.id, "PC facing", pcs.map((x, j) => (j === i ? { ...x, facing: v || undefined } : x))), "any side");
-    return h(
-      "div",
-      { class: "row nowrap pc-row" },
-      numberInput(pc.x, (v) => setPcs(s, map.id, "Move PC", pcs.map((x, j) => (j === i ? { ...x, x: v } : x))), 0, map.width * 2 - 1),
-      h("span", { class: "x" }, ","),
-      numberInput(pc.y, (v) => setPcs(s, map.id, "Move PC", pcs.map((x, j) => (j === i ? { ...x, y: v } : x))), 0, map.height * 2 - 1),
-      facing,
-      h("button", { class: "btn small ghost", title: "Remove PC", onclick: () => setPcs(s, map.id, "Remove PC", pcs.filter((_, j) => j !== i)) }, "✕"),
-    );
-  });
-  out.push(
-    h("h4", {}, "Pokémon Center"),
-    ...pcRows,
-    h(
-      "div",
-      { class: "row" },
-      h("button", { class: "btn small", onclick: () => pick(view, "PC", (x, y) => setPcs(s, map.id, "Add PC", [...pcs, { x, y, facing: "up" }])) }, "+ PC (pick on map)"),
-    ),
-    h("p", { class: "hint" }, "A PC tile opens Bill's PC when the player faces it (facing: the way the player looks, usually up). The nurse and shop clerk are NPCs: select one and set its Role."),
-  );
+  out.push(h("h4", {}, "Hidden events"), ...hiddenSection(s, map, view));
 
   // landing spot (outdoor towns)
   if (s.isTown(map)) {
@@ -216,4 +210,135 @@ export function townSection(map: MapDef, view: MapView): HTMLElement[] {
     );
   }
   return out;
+}
+
+// ------------------------------------------------------------------ hidden events
+
+const FACINGS = ["up", "down", "left", "right"];
+
+// Everything on the map that is not an entity: PCs, bench guys, hidden items
+// and coins, gym statues. One row each; "+ Add" picks the kind, then a cell.
+function hiddenSection(s: TownSpec, map: MapDef, view: MapView): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const label = typeof map.label === "string" ? map.label : "";
+  for (const kind of s.hidden) {
+    const list = hiddenList(s, kind, map.id);
+    list.forEach((e, i) => {
+      const set = (what: string, patch: Partial<Spot>) => setHidden(s, kind, map.id, what, list.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+      const pos = [
+        numberInput(e.x, (v) => set(`Move ${kind.label}`, { x: v }), 0, map.width * 2 - 1),
+        h("span", { class: "x" }, ","),
+        numberInput(e.y, (v) => set(`Move ${kind.label}`, { y: v }), 0, map.height * 2 - 1),
+      ];
+      const extra: HTMLElement[] = [];
+      let below: HTMLElement | null = null;
+      if (kind.id === "pc" || kind.id === "statue") {
+        extra.push(selectInput(e.facing ?? "", FACINGS, (v) => set("Facing", { facing: v || undefined }), "any side"));
+      } else if (kind.id === "item") {
+        const ids = Object.keys(store.table("items")).sort();
+        extra.push(comboInput(e.item ?? "", "dl-hidden-items", ids, (v) => ids.includes(v) && set("Hidden item", { item: v })));
+      } else if (kind.id === "coins") {
+        extra.push(selectInput(String(e.coins ?? 10), ["10", "20", "100"], (v) => set("Hidden coins", { coins: Number(v) })), h("span", { class: "muted" }, "coins"));
+      } else if (kind.id === "bench") {
+        // he talks when faced from this side (textFacing: the way the player looks)
+        extra.push(selectInput(e.textFacing ?? e.facing ?? "left", FACINGS, (v) => set("Bench guy facing", { facing: v, textFacing: v })));
+        below = benchText(s, map, label, e, (text) => set("Bench guy text", { text }));
+      }
+      const row = h(
+        "div",
+        { class: "hidden-row" },
+        h("span", { class: "hidden-kind", title: kind.hint }, kind.label),
+        h("div", { class: "row nowrap" }, ...pos, ...extra),
+        h("button", { class: "btn small ghost", title: "Show it", onclick: () => view.centerOnCell(e.x, e.y) }, "◎"),
+        h("button", { class: "btn small ghost", title: `Remove ${kind.label}`, onclick: () => setHidden(s, kind, map.id, `Remove ${kind.label}`, list.filter((_, j) => j !== i)) }, "✕"),
+      );
+      out.push(row);
+      if (below) out.push(below);
+    });
+  }
+  if (!out.length) out.push(h("p", { class: "hint" }, "None on this map."));
+
+  const kinds = h("select", {}, ...s.hidden.map((k) => h("option", { value: k.id, title: k.hint }, k.label)));
+  const hint = h("p", { class: "hint" }, s.hidden[0]?.hint ?? "");
+  kinds.addEventListener("change", () => (hint.textContent = s.hidden.find((k) => k.id === kinds.value)?.hint ?? ""));
+  out.push(
+    h(
+      "div",
+      { class: "row" },
+      kinds,
+      h("button", {
+        class: "btn small",
+        onclick: () => {
+          const kind = s.hidden.find((k) => k.id === kinds.value);
+          if (!kind) return;
+          pick(view, kind.label.toLowerCase(), (x, y) => {
+            const list = hiddenList(s, kind, map.id);
+            setHidden(s, kind, map.id, `Add ${kind.label}`, [...list, freshHidden(kind, map, label, x, y)]);
+          });
+        },
+      }, "+ Add (pick on map)"),
+    ),
+    hint,
+  );
+  return out;
+}
+
+function freshHidden(kind: HiddenKind, map: MapDef, label: string, x: number, y: number): Spot {
+  switch (kind.id) {
+    case "pc":
+    case "statue":
+      return { x, y, facing: "up" };
+    case "item":
+      return { x, y, item: "POTION" };
+    case "coins":
+      return { x, y, coins: 10 };
+    case "bench": {
+      // a text label of its own: <MapLabel>BenchGuyText[N]
+      const base = `${label || map.id}BenchGuyText`;
+      const taken = new Set(benchLabels());
+      let text = base;
+      for (let n = 2; taken.has(text); n++) text = `${base}${n}`;
+      return { x, y, facing: "left", textFacing: "left", text };
+    }
+  }
+}
+
+function benchLabels(): string[] {
+  const s = spec()!;
+  const kind = s.hidden.find((k) => k.id === "bench");
+  if (!kind) return [];
+  let node: unknown = fieldTable(s);
+  for (const key of kind.path) node = (node as Record<string, unknown> | undefined)?.[key];
+  return Object.values((node as Record<string, Spot[]> | undefined) ?? {}).flat().map((b) => b.text ?? "");
+}
+
+// what a bench guy says: his text in place, or a button that creates it
+function benchText(s: TownSpec, map: MapDef, label: string, e: Spot, setLabel: (text: string) => void): HTMLElement {
+  const wrap = h("div", { class: "hidden-text" });
+  const textLabel = e.text ?? "";
+  const key = textLabel ? s.benchText(textLabel) : "";
+  const text = store.table("text");
+  if (key && typeof text[key] === "string") {
+    wrap.append(textEditor(key, { rows: 3, compact: true, label: key }));
+    return wrap;
+  }
+  wrap.append(
+    h(
+      "div",
+      { class: "row" },
+      h("span", { class: "hint" }, textLabel ? `No text for ${textLabel} yet.` : "No text yet."),
+      h("button", {
+        class: "btn small primary-ish",
+        onclick: () => {
+          const name = textLabel || `${label || map.id}BenchGuyText`;
+          store.group("Bench guy text", () => {
+            if (!textLabel) setLabel(name);
+            store.setRecord("text", s.benchText(name), "New text", "...{DONE}");
+          });
+          store.seal();
+        },
+      }, "Create text"),
+    ),
+  );
+  return wrap;
 }

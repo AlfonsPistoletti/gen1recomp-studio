@@ -81,7 +81,9 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   lists. `diffDeep` writes only a grown list's tail and overrides the record when a list
   shrank; `applyOps(..., deep)` appends the same way when reading a mod back.
 - Towns (`src/ui/mapTown.ts`, `adapter.towns`): NPC roles are text_pointer flags (mart list,
-  nurse, pc); PC tiles are `field.hiddenExtras.pcTiles[MAP]`, landing spots `field.flyWarps[MAP]`
+  nurse, pc); hidden events (`towns.hidden`: PC tiles, bench guys, hidden items/coins, gym
+  statues) are per-map lists in `field` (`hiddenExtras.*`, `hiddenItems`, `hiddenCoins`); bench
+  guy texts resolve via `towns.benchText` (the engine's BENCH_GUY_TEXT, restated); landing spots `field.flyWarps[MAP]`
   (Teleport/Dig/blackout land there via lastHeal.outdoor). Fly to new towns is deferred:
   `Map.isFlyTown` rejects index >= 11 and the Town Map would need a hook too.
 - Prize counters: `prize_counters` registry ("<MAP_ID>:<TEXT_ID>", vanilla three restated per

@@ -82,7 +82,11 @@ kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
     or **prize counter** (signs too).
   - Map properties, **Music**: the song the map plays (bike and surf songs
     still take over while riding or surfing).
-  - Map properties, **Pokémon Center**: PC tiles (pick on map). For outdoor
+  - Map properties, **Hidden events**: things the player can interact with
+    that aren't NPCs or signs, shown with an icon on the map: PC tiles, bench
+    guys (people drawn into the tiles, like the man on a Pokémon Center bench,
+    with their text), hidden items, hidden coins and gym statues. Add one with
+    "+ Add (pick on map)". For outdoor
     towns, a **landing spot**: where Teleport, Dig, Escape Rope and blacking
     out put the player after healing at a center in the town. Flying to new
     towns isn't supported yet (it would also need the Town Map).

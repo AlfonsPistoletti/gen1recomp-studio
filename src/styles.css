@@ -782,7 +782,11 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .stock-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px; align-items: center; }
 .stock-row .linkish { text-align: left; }
 .stock input.combo { margin-top: 4px; }
-.pc-row input[type="number"] { width: 64px; }
+.hidden-row { display: grid; grid-template-columns: 92px minmax(0, 1fr) auto auto; gap: 6px; align-items: center; }
+.hidden-row input[type="number"] { width: 56px; }
+.hidden-row .row.nowrap { flex-wrap: wrap; gap: 4px; }
+.hidden-kind { font-size: 12px; color: var(--muted); }
+.hidden-text { margin: 2px 0 8px 98px; }
 .prize-counter { display: flex; flex-direction: column; gap: 4px; }
 .prize-row { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
 .prize-row input[type="number"] { width: 72px; }

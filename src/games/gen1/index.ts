@@ -344,12 +344,37 @@ const items: ItemSpec = {
 
 // ------------------------------------------------------------------ towns
 
+// gen1recomp OverworldController BENCH_GUY_TEXT: labels whose text key is not
+// "_" .. label (the extractor kept the far label)
+const BENCH_GUY_TEXT: Record<string, string> = {
+  ViridianCityPokecenterBenchGuyText: "_ViridianCityPokecenterGuyText",
+  PewterCityPokecenterBenchGuyText: "_PewterCityPokecenterGuyText",
+  CeruleanCityPokecenterBenchGuyText: "_CeruleanPokecenterGuyText",
+  LavenderCityPokecenterBenchGuyText: "_LavenderPokecenterGuyText",
+  VermilionCityPokecenterBenchGuyText: "_VermilionPokecenterGuyText",
+  CeladonCityPokecenterBenchGuyText: "_CeladonCityPokecenterGuyText",
+  FuchsiaCityPokecenterBenchGuyText: "_FuchsiaCityPokecenterGuyText",
+  CinnabarIslandPokecenterBenchGuyText: "_CinnabarPokecenterGuyText",
+  RockTunnelPokecenterBenchGuyText: "_RockTunnelPokecenterGuyText",
+  // text_asm: changes after Silph Co.; the studio shows the first line
+  SaffronCityPokecenterBenchGuyText: "_SaffronCityPokecenterGuyText1",
+};
+
 const towns: TownSpec = {
   pointerRegistry: "text_pointers",
   fieldRegistry: "field",
   prizeRegistry: "prize_counters",
   prizesPerCounter: 3,
   maxCoins: 9999,
+  // field.hiddenItems / hiddenCoins / hiddenExtras.* (data/events/hidden_events.asm)
+  hidden: [
+    { id: "pc", label: "PC", path: ["hiddenExtras", "pcTiles"], hint: "Opens Bill's PC when the player faces it (facing: the way the player looks, usually up)." },
+    { id: "bench", label: "Bench guy", path: ["hiddenExtras", "benchGuys"], hint: "A person drawn into the tiles (like the man on a Pokémon Center bench) who talks when the player faces him." },
+    { id: "item", label: "Hidden item", path: ["hiddenItems"], hint: "Found once by pressing A on the cell (the Itemfinder points at it)." },
+    { id: "coins", label: "Hidden coins", path: ["hiddenCoins"], hint: "Coins on the floor, found once; needs the Coin Case. The game pays 10, 20 or 100." },
+    { id: "statue", label: "Gym statue", path: ["hiddenExtras", "gymStatues"], hint: "Shows the gym's plaque when faced; only works on the game's own gym maps." },
+  ],
+  benchText: (label) => BENCH_GUY_TEXT[label] ?? `_${label}`,
   // Teleport/Dig/Escape Rope land outside: OVERWORLD (or a map marked outdoor)
   isTown: (map) => (map as { outdoor?: boolean }).outdoor === true || map.tileset === "OVERWORLD",
 };

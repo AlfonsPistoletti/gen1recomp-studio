@@ -20,7 +20,7 @@ const NAMES: Record<string, [string, string]> = {
   studio_item_effects: ["Custom item effects", "custom item effect"],
   balls: ["Ball catch numbers", "ball"],
   map_songs: ["Map music", "map's music"],
-  field: ["PCs and landing spots", "PC/landing setting"],
+  field: ["Hidden events and landing spots", "field setting"],
   prize_counters: ["Game Corner prizes", "prize counter"],
   trainers: ["Trainers", "trainer"],
   ai_classes: ["Trainer AI", "trainer AI"],
@@ -101,7 +101,7 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
 }
 
 // field keys the studio edits
-const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenExtras: "Pokémon Center PCs" };
+const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenExtras: "PCs, bench guys, gym statues", hiddenItems: "Hidden items", hiddenCoins: "Hidden coins" };
 
 function displayName(record: unknown, id: string, registry = ""): string {
   if (registry === "field" && FIELD_NAMES[id]) return FIELD_NAMES[id];

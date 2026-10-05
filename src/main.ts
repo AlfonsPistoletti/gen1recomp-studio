@@ -286,6 +286,50 @@ nav.openMap = (mapId) => {
   setWorkspace("maps");
   view.openMap(mapId);
 };
+// draws an event's walking path: each click walks from the path's end to
+// the clicked cell (along x, then y); Escape returns to the Events workspace
+nav.pickCell = (mapId, picked) => {
+  const back = nav.workspace;
+  setWorkspace("maps");
+  view.openMap(mapId);
+  toast("Click a cell on the map (Escape cancels)", "info");
+  view.pickCell((cx, cy) => {
+    setWorkspace(back);
+    picked(cx, cy);
+  });
+};
+nav.drawPath = (mapId, start, dirs, changed, done) => {
+  setWorkspace("maps");
+  view.openMap(mapId);
+  const path = [...dirs];
+  const end = () => {
+    let x = start.x;
+    let y = start.y;
+    for (const d of path) {
+      if (d === "up") y--;
+      else if (d === "down") y++;
+      else if (d === "left") x--;
+      else if (d === "right") x++;
+    }
+    return { x, y };
+  };
+  view.setPathOverlay({ ...start, dirs: path });
+  toast("Click cells to walk there; Escape when done", "info");
+  view.pickCells(
+    (cx, cy) => {
+      const e = end();
+      for (let i = 0; i < Math.abs(cx - e.x); i++) path.push(cx > e.x ? "right" : "left");
+      for (let i = 0; i < Math.abs(cy - e.y); i++) path.push(cy > e.y ? "down" : "up");
+      view.setPathOverlay({ ...start, dirs: path });
+      changed([...path]);
+    },
+    () => {
+      view.setPathOverlay(null);
+      setWorkspace("events");
+      done();
+    },
+  );
+};
 nav.selectEntity = (mapId, layer, index) => {
   setWorkspace("maps");
   view.openMap(mapId);

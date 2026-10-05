@@ -16,11 +16,21 @@ export type Block =
   | { t: "cmd"; row: EventRow }
   | { t: "if"; cond: EventRow | null; not: boolean; then: Block[]; else: Block[] | null }
   | { t: "choice"; labels: string[]; branches: Block[][] }
+  // an NPC walks a path and the player follows one step behind; `from` is
+  // where the player stands next to the NPC when it starts (below = "down")
+  | { t: "follow"; npc: number; path: string[]; from: string }
   | { t: "stop" }
   | { t: "goto"; label: string; when?: boolean } // when: only if the last result is true/false
   | { t: "label"; name: string };
 
 const JUMPS = new Set(["jump", "jump_if_true", "jump_if_false"]);
+const OPPOSITE: Record<string, string> = { up: "down", down: "up", left: "right", right: "left" };
+
+// the player's steps when following: into the NPC's starting cell, then
+// every cell the NPC leaves (all of its path but the last step)
+export function followerPath(from: string, path: string[]): string[] {
+  return path.length ? [OPPOSITE[from] ?? "up", ...path.slice(0, -1)] : [];
+}
 
 export interface Verbs {
   checks: Set<string>; // verbs that set the last result (check_flag, ask, ...)
@@ -55,6 +65,12 @@ export function compile(blocks: Block[], verbs: Verbs): EventRow[] {
           break;
         case "label":
           out.push(["label", b.name]);
+          break;
+        case "follow":
+          // both walks start together: the NPC's doesn't wait, the player's does
+          // playerSide keeps the block's setting even with no steps yet (the
+          // engine reads only wait/stepFrames from these options)
+          out.push(["walk_npc", b.npc, [...b.path], { wait: false, playerSide: b.from }], ["walk_npc", "player", followerPath(b.from, b.path)]);
           break;
         case "if": {
           const id = fresh("if");
@@ -150,6 +166,19 @@ export function parse(input: EventRow[], verbs: Verbs): Block[] {
     while (i < hi) {
       const r = rows[i];
       const verb = String(r[0]);
+      // Follow: walk_npc <npc> P {wait=false}; walk_npc "player" <behind P>
+      const nr = rows[i + 1];
+      if (verb === "walk_npc" && typeof r[1] === "number" && Array.isArray(r[2]) && (r[3] as { wait?: unknown } | undefined)?.wait === false && i + 1 < hi && nr?.[0] === "walk_npc" && nr[1] === "player" && Array.isArray(nr[2])) {
+        const path = (r[2] as unknown[]).map(String);
+        const mine = (nr[2] as unknown[]).map(String);
+        const side = (r[3] as { playerSide?: unknown }).playerSide;
+        const from = typeof side === "string" && side in OPPOSITE ? side : mine.length ? OPPOSITE[mine[0]] : "down";
+        if (from && mine.length === path.length && JSON.stringify(followerPath(from, path)) === JSON.stringify(mine)) {
+          out.push({ t: "follow", npc: r[1], path, from });
+          i += 2;
+          continue;
+        }
+      }
       // Choice
       if (verb === "choice" && Array.isArray(r[1])) {
         const got = choiceAt(i, hi);

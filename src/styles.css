@@ -811,6 +811,8 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 dialog.modal { min-width: 420px; }
 .conn-nudge { padding: 0 6px; }
 .conn-unit { font-size: 11px; }
+.path-widget { display: flex; flex-direction: column; gap: 4px; }
+.path-arrows { font-size: 15px; letter-spacing: 1px; }
 .mart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 16px; }
 .mart-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .mart-row .btn { padding: 0 6px; height: 20px; }

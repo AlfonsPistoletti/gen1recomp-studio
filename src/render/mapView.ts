@@ -478,6 +478,7 @@ export class MapView {
       const land = f.flyWarps?.[map.id];
       if (land) this.markerIcon("plane-landing", PlaneLanding, LANDING_ICON, land);
     }
+    if (this.pathOverlay) this.drawPath(this.pathOverlay);
     const sel = store.selection;
     const e = sel ? store.entities(map, sel.layer)[sel.index] : undefined;
     if (e) {
@@ -721,8 +722,11 @@ export class MapView {
     // "pick on map": this click answers the inspector instead of the tool
     if (this.cellPick && e.button === 0) {
       const pick = this.cellPick;
-      this.cancelPick();
+      const multi = this.pickDone !== null;
+      if (!multi) this.cancelPick();
+      else this.cellPick = null;
       if (h.inside) pick(h.cx, h.cy);
+      else if (multi) this.cellPick = pick;
       return;
     }
     const tool = e.altKey || e.button === 2 ? "pick" : store.tool;
@@ -880,6 +884,59 @@ export class MapView {
   // The next left click on the current map reports its cell instead of
   // using the tool (Escape cancels).
   private cellPick: ((cx: number, cy: number) => void) | null = null;
+  private pickDone: (() => void) | null = null;
+
+  // An event's walking path, drawn over the map: from a start cell, one
+  // cell per direction (up/down/left/right).
+  private pathOverlay: { x: number; y: number; dirs: string[] } | null = null;
+
+  setPathOverlay(path: { x: number; y: number; dirs: string[] } | null): void {
+    this.pathOverlay = path;
+    this.invalidate();
+  }
+
+  private drawPath(path: { x: number; y: number; dirs: string[] }): void {
+    const ctx = this.ctx;
+    const step: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+    const pts: [number, number][] = [[path.x, path.y]];
+    for (const d of path.dirs) {
+      const [dx, dy] = step[d] ?? [0, 0];
+      const [x, y] = pts[pts.length - 1];
+      pts.push([x + dx, y + dy]);
+    }
+    const c = (v: number) => v * CELL + CELL / 2;
+    ctx.save();
+    ctx.lineWidth = 3 / this.zoom;
+    ctx.strokeStyle = "#2f7dff";
+    ctx.fillStyle = "#2f7dff";
+    ctx.beginPath();
+    pts.forEach(([x, y], i) => (i ? ctx.lineTo(c(x), c(y)) : ctx.moveTo(c(x), c(y))));
+    ctx.stroke();
+    for (const [x, y] of pts) {
+      ctx.beginPath();
+      ctx.arc(c(x), c(y), 2.5 / this.zoom + 1, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    // the end of the path: a ring
+    const [ex, ey] = pts[pts.length - 1];
+    ctx.beginPath();
+    ctx.arc(c(ex), c(ey), CELL / 3, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Picks cell after cell until Escape (then `done`): drawing a path.
+  pickCells(onPick: (cx: number, cy: number) => void, done: () => void): void {
+    const again = (cx: number, cy: number) => {
+      onPick(cx, cy);
+      this.cellPick = again;
+      this.canvas.style.cursor = "crosshair";
+    };
+    this.cellPick = again;
+    this.pickDone = done;
+    this.canvas.style.cursor = "crosshair";
+    this.canvas.focus();
+  }
 
   pickCell(onPick: (cx: number, cy: number) => void): void {
     this.cellPick = onPick;
@@ -889,6 +946,9 @@ export class MapView {
 
   cancelPick(): void {
     this.cellPick = null;
+    const done = this.pickDone;
+    this.pickDone = null;
+    done?.();
     this.canvas.style.cursor = "";
   }
 

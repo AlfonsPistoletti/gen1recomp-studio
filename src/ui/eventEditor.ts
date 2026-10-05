@@ -18,6 +18,8 @@ import { gameEvents } from "../project/gameEvents.ts";
 import { clear, comboInput, errorText, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
+import { arrows } from "../games/gen1/events.ts";
+import { followerPath } from "../core/eventBlocks.ts";
 import { mountRecordList } from "./recordList.ts";
 
 export interface StudioEvent {
@@ -281,12 +283,21 @@ function newEventDialog(): void {
       let x = 0;
       let y = 0;
       const once = h("input", { type: "checkbox", checked: true });
+      // a ready-made cutscene to adapt: an NPC comes to the player and leads them
+      const npcs = store.entities(map, "objects");
+      const template = h("select", {}, h("option", { value: "" }, "Empty"), ...npcs.map((e) => h("option", { value: String(e.index) }, `Escort: NPC ${String(e.index)}${typeof e.name === "string" ? ` · ${e.name}` : ""} comes and leads the player`)));
       who.append(
         h("div", { class: "row two" }, field("X", numberInput(0, (v) => (x = v), 0, map.width * 2 - 1)), field("Y", numberInput(0, (v) => (y = v), 0, map.height * 2 - 1))),
         h("label", { class: "inline-check" }, once, "Only once"),
+        field("Start with", template, "Escort: like Prof. Oak stopping the player at the grass: the NPC appears, walks up, talks, then the player follows it. Draw where it leads afterwards."),
         h("p", { class: "hint" }, "Cells as in the map view (two per block). The map's properties can also place one by clicking the map."),
       );
-      pickWho = () => ({ key: `at_${x}_${y}`, init: { x, y, once: once.checked || undefined } });
+      pickWho = () => {
+        const init: Partial<StudioEvent> = { x, y, once: once.checked || undefined };
+        const npc = npcs.find((e) => String(e.index) === template.value);
+        if (npc) init.rows = escortRows(map, npc, x, y);
+        return { key: `at_${x}_${y}`, init };
+      };
     } else {
       const once = h("input", { type: "checkbox", checked: false });
       who.append(h("label", { class: "inline-check" }, once, "Only once"));
@@ -364,6 +375,7 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
 
   const ev = events()[id];
   if (!ev) return [h("p", { class: "hint" }, "This event no longer exists.")];
+  eventCell = info.kind === "step" && typeof ev.x === "number" && typeof ev.y === "number" ? { x: ev.x, y: ev.y } : null;
   const editEv = (label: string, mutate: (d: StudioEvent) => void) => {
     store.editRecord<StudioEvent>(s.registry, id, label, mutate);
     store.seal();
@@ -423,6 +435,8 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
 
   // commands
   const root = parse(ev.rows ?? [], verbs(s));
+  currentRoot = root;
+  currentMap = info.mapId;
   const commit = (label: string) => editEv(label, (d) => (d.rows = compile(root, verbs(s))));
   out.push(h("section", { class: "card event-card" }, h("h4", {}, "Commands"), blockList(s, info.mapId, root, "", commit, selected, select)));
   return out;
@@ -433,7 +447,9 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
 type Commit = ((label: string) => void) | null;
 
 function findCommand(s: EventSpec, row: EventRow): EventCommand | undefined {
-  return s.commands.find((c) => c.verb === row[0] && (c.fixed ?? []).every((f, i) => row[1 + i] === f));
+  // a command with fixed arguments ("Camera back" = pan_camera "reset") wins
+  const fits = s.commands.filter((c) => c.verb === row[0] && (c.fixed ?? []).every((f, i) => row[1 + i] === f));
+  return fits.sort((a, b) => (b.fixed?.length ?? 0) - (a.fixed?.length ?? 0))[0];
 }
 
 function argsOf(c: EventCommand, row: EventRow): Record<string, unknown> {
@@ -497,13 +513,15 @@ function describe(s: EventSpec, b: Block): string {
       return `If ${describeCondition(s, b.cond, b.not)}`;
     case "choice":
       return `Choice: ${b.labels.join(" / ")}`;
+    case "follow":
+      return `NPC ${b.npc} leads ${arrows(b.path)}, the player follows`;
   }
 }
 
 // a select that inserts a new block into `list` at `at`
 function addMenu(s: EventSpec, mapId: string, list: Block[], at: number, commit: Commit, onAdded: (i: number) => void, text = "+ Add command"): HTMLElement {
   const sel = h("select", { class: "add-command" }, h("option", { value: "" }, text));
-  const flow = h("optgroup", { label: "Flow" }, h("option", { value: "#if" }, "If … (condition)"), h("option", { value: "#ifelse" }, "If … Else …"), h("option", { value: "#choice" }, "Choice (menu)"), h("option", { value: "#stop" }, "Stop the event"));
+  const flow = h("optgroup", { label: "Flow" }, h("option", { value: "#if" }, "If … (condition)"), h("option", { value: "#ifelse" }, "If … Else …"), h("option", { value: "#choice" }, "Choice (menu)"), h("option", { value: "#follow" }, "NPC leads, player follows"), h("option", { value: "#stop" }, "Stop the event"));
   sel.append(flow);
   for (const cat of s.categories) {
     if (cat === "Conditions") continue;
@@ -518,6 +536,10 @@ function addMenu(s: EventSpec, mapId: string, list: Block[], at: number, commit:
     if (v === "#if" || v === "#ifelse") block = { t: "if", cond: freshRow(first, mapId), not: false, then: [], else: v === "#ifelse" ? [] : null };
     else if (v === "#choice") block = { t: "choice", labels: ["YES", "NO"], branches: [[], []] };
     else if (v === "#stop") block = { t: "stop" };
+    else if (v === "#follow") {
+      const npc = Number(store.entities(store.maps[mapId], "objects")[0]?.index ?? 1);
+      block = { t: "follow", npc, path: [], from: "down" };
+    }
     else {
       const c = s.commands.find((x) => x.id === v)!;
       block = { t: "cmd", row: freshRow(c, mapId) };
@@ -623,7 +645,7 @@ function blockEditor(s: EventSpec, mapId: string, b: Block, commit: Commit, list
       box.append(...paramFields(s, mapId, c.params, args, ro, () => {
         b.row = rowOf(c, args);
         done(`Edit ${c.label}`);
-      }));
+      }, b));
       box.append(h("p", { class: "hint" }, c.help));
     }
   } else if (b.t === "if") {
@@ -679,6 +701,35 @@ function blockEditor(s: EventSpec, mapId: string, b: Block, commit: Commit, list
       done("Choice options");
     });
     box.append(field("Options", labels, "Separated by commas, 2 to 6. The last one is also what B picks."));
+  } else if (b.t === "follow") {
+    const map = store.maps[mapId];
+    const npcs = map ? store.entities(map, "objects") : [];
+    const npcSel = selectInput(String(b.npc), npcs.map((e) => String(e.index ?? "")), (v) => {
+      b.npc = Number(v);
+      done("Follow: NPC");
+    });
+    for (const o of npcSel.options) {
+      const e = npcs.find((n) => String(n.index) === o.value);
+      if (e) o.textContent = `NPC ${o.value}${typeof e.name === "string" ? ` · ${e.name}` : ""}`;
+    }
+    npcSel.disabled = ro;
+    const fromSel = selectInput(b.from, ["down", "up", "left", "right"], (v) => {
+      b.from = v;
+      done("Follow: player");
+    });
+    for (const o of fromSel.options) o.textContent = { down: "below the NPC", up: "above the NPC", left: "left of the NPC", right: "right of the NPC" }[o.value] ?? o.value;
+    fromSel.disabled = ro;
+    const start = positionsAt(b).npcs.get(b.npc) ?? null;
+    box.append(
+      field("Leader", npcSel),
+      field("The player starts", fromSel, "Right next to the NPC; the player first steps into its spot, then walks every cell it leaves."),
+      field("Path", pathWidget(mapId, start, b.path, ro, (path) => {
+        b.path = path;
+        done("Follow: path");
+      })),
+      h("p", { class: "hint" }, `The player walks ${arrows(followerPath(b.from, b.path))}.${start ? ` The NPC starts at ${start.x}, ${start.y} here (after the event's earlier moves).` : ""}`),
+      ...(b.path[0] === b.from ? [h("p", { class: "hint warn" }, "The NPC's first step goes toward the player: start the path in another direction, or put the player on the other side.")] : []),
+    );
   } else if (b.t === "goto" || b.t === "label") {
     box.append(h("p", { class: "hint" }, "A jump from the game's script that the studio can't turn into blocks. It still works; move or delete it with care."));
   }
@@ -690,7 +741,7 @@ function blockEditor(s: EventSpec, mapId: string, b: Block, commit: Commit, list
 
 const DIRS = ["up", "down", "left", "right"];
 
-function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: Record<string, unknown>, ro: boolean, changed: () => void): HTMLElement[] {
+function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: Record<string, unknown>, ro: boolean, changed: () => void, owner: Block | null = null): HTMLElement[] {
   return params.map((p) => {
     const set = (v: unknown) => {
       args[p.key] = v;
@@ -733,6 +784,44 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "number":
         input = numberInput(Number(value ?? p.default ?? 0), (v) => set(Math.max(p.min ?? -1e9, Math.min(p.max ?? 1e9, v))), p.min, p.max);
         break;
+      case "path": {
+        // walks from where the walker stands at this point of the event
+        const walker = args.who ?? args.npc;
+        const at = positionsAt(owner);
+        const start = walker === "player" ? at.player : typeof walker === "number" ? (at.npcs.get(walker) ?? null) : null;
+        input = pathWidget(mapId, start, Array.isArray(value) ? value.map(String) : [], ro, (path) => set(path));
+        break;
+      }
+      case "together": {
+        const cb = h("input", { type: "checkbox", checked: !!(value && (value as { wait?: unknown }).wait === false), disabled: ro });
+        cb.addEventListener("change", () => set(cb.checked ? { wait: false } : undefined));
+        input = h("label", { class: "inline-check" }, cb, "At the same time as the next command (don't wait for this walk)");
+        break;
+      }
+      case "cellX": {
+        // x and the following y, picked together on the map
+        const yKey = params[params.indexOf(p) + 1]?.key ?? "y";
+        const x = numberInput(Number(value ?? 0), (v) => set(Math.max(0, v)), 0, 255);
+        const y = numberInput(Number(args[yKey] ?? 0), (v) => {
+          args[yKey] = Math.max(0, v);
+          changed();
+        }, 0, 255);
+        const pick = h("button", {
+          class: "btn small",
+          disabled: ro,
+          title: "Click a cell on the map",
+          onclick: () =>
+            nav.pickCell(mapId, (cx, cy) => {
+              args[p.key] = cx;
+              args[yKey] = cy;
+              changed();
+            }),
+        }, "Pick on map");
+        input = h("div", { class: "row nowrap" }, h("span", { class: "muted" }, "x"), x, h("span", { class: "muted" }, "y"), y, pick);
+        break;
+      }
+      case "cellY":
+        return h("span", {});
       case "dir":
         input = selectInput(String(value ?? "down"), DIRS, set);
         break;
@@ -802,6 +891,113 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
     if (ro && (input instanceof HTMLInputElement || input instanceof HTMLSelectElement)) input.disabled = true;
     return field(p.label, input);
   });
+}
+
+// The escort template: "Hey! Wait!", the player turns, the NPC appears and
+// walks up below the player, talks, then leads the way (path left to draw).
+function escortRows(map: MapDef, npc: EntityRecord, x: number, y: number): EventRow[] {
+  const s = spec()!;
+  const idx = Number(npc.index ?? 1);
+  const blocks: Block[] = [
+    { t: "cmd", row: ["show_text", "Hey! Wait!\nDon't go out!{DONE}"] },
+    { t: "cmd", row: ["emote", "player", "shock"] },
+    { t: "cmd", row: ["face_player_dir", "down"] },
+    ...(typeof npc.name === "string" ? [{ t: "cmd", row: ["show_object", map.id, npc.name] } as Block] : []),
+    { t: "cmd", row: ["move_npc_to", idx, x, y + 1] },
+    { t: "cmd", row: ["show_text", "It's unsafe!\nCome with me!{DONE}"] },
+    { t: "follow", npc: idx, path: [], from: "up" },
+  ];
+  return compile(blocks, verbs(s));
+}
+
+// the step event's cell: where the player stands when it starts
+let eventCell: { x: number; y: number } | null = null;
+let currentRoot: Block[] = [];
+let currentMap = "";
+
+type Pos = { x: number; y: number };
+const STEP: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+
+// Where the player and the NPCs stand when `target` runs: replays the
+// movement commands before it, in order (an If's or Choice's branches as
+// if they ran; a best guess for drawing paths, not the game's truth).
+export function positionsAt(target: Block | null): { player: Pos | null; npcs: Map<number, Pos> } {
+  const map = store.maps[currentMap];
+  const npcs = new Map<number, Pos>();
+  for (const e of map ? store.entities(map, "objects") : []) if (typeof e.index === "number") npcs.set(e.index, { x: e.x, y: e.y });
+  let player: Pos | null = eventCell ? { ...eventCell } : null;
+  const walk = (p: Pos | null | undefined, dirs: unknown[]): Pos | null => {
+    if (!p) return null;
+    let { x, y } = p;
+    for (const d of dirs) {
+      const [dx, dy] = STEP[String(d)] ?? [0, 0];
+      x += dx;
+      y += dy;
+    }
+    return { x, y };
+  };
+  const setNpc = (i: unknown, p: Pos | null) => typeof i === "number" && p && npcs.set(i, p);
+  let found = false;
+  const run = (list: Block[]) => {
+    for (const b of list) {
+      if (found) return;
+      if (b === target) {
+        found = true;
+        return;
+      }
+      if (b.t === "if") {
+        run(b.then);
+        if (b.else) run(b.else);
+      } else if (b.t === "choice") b.branches.forEach(run);
+      else if (b.t === "follow") {
+        // the player ends where the NPC was one step before its end
+        const start = npcs.get(b.npc);
+        if (b.path.length && start) {
+          player = walk(start, b.path.slice(0, -1));
+          setNpc(b.npc, walk(start, b.path));
+        }
+      } else if (b.t === "cmd") {
+        const r = b.row;
+        const v = r[0];
+        if (v === "place_npc" || v === "move_npc_to") setNpc(r[1], { x: Number(r[2]), y: Number(r[3]) });
+        else if (v === "walk_npc" && Array.isArray(r[2])) {
+          if (r[1] === "player") player = walk(player, r[2]);
+          else setNpc(r[1], walk(npcs.get(Number(r[1])), r[2]));
+        } else if (v === "move_npc") setNpc(r[1], walk(npcs.get(Number(r[1])), Array(Number(r[3] ?? 1)).fill(r[2])));
+        else if (v === "move_player") player = walk(player, Array(Number(r[2] ?? 1)).fill(r[1]));
+        else if (v === "warp") player = null;
+      }
+    }
+  };
+  run(currentRoot);
+  return { player, npcs };
+}
+
+const DIR_BUTTONS: [string, string][] = [["up", "↑"], ["down", "↓"], ["left", "←"], ["right", "→"]];
+
+// a walking path: arrows, buttons to add/remove steps, and drawing on the map
+function pathWidget(mapId: string, start: { x: number; y: number } | null, path: string[], ro: boolean, set: (path: string[]) => void): HTMLElement {
+  const wrap = h("div", { class: "path-widget" }, h("code", { class: "path-arrows" }, `${arrows(path)}  (${path.length} step${path.length === 1 ? "" : "s"})`));
+  if (ro) return wrap;
+  wrap.append(
+    h(
+      "div",
+      { class: "row nowrap" },
+      ...DIR_BUTTONS.map(([d, a]) => h("button", { class: "btn small", title: `Add a step ${d}`, onclick: () => set([...path, d]) }, a)),
+      h("button", { class: "btn small ghost", title: "Remove the last step", disabled: !path.length, onclick: () => set(path.slice(0, -1)) }, "⌫"),
+      h("button", { class: "btn small ghost", disabled: !path.length, onclick: () => set([]) }, "Clear"),
+      h("button", {
+        class: "btn small primary-ish",
+        title: start ? "Click cells on the map; the path walks there" : "Draws from the event's cell",
+        onclick: () => {
+          let latest = path;
+          nav.drawPath(mapId, start ?? eventCell ?? { x: 0, y: 0 }, path, (next) => (latest = next), () => set(latest));
+        },
+      }, "Draw on map"),
+    ),
+  );
+  if (!start) wrap.append(h("p", { class: "hint" }, "Where the walk starts isn't known here (the player's position): the map drawing starts at the event's cell."));
+  return wrap;
 }
 
 function combo(options: string[], value: unknown, set: (v: string) => void): HTMLInputElement {

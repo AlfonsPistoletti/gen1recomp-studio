@@ -34,4 +34,8 @@ export const nav = {
   // an event: a studio_events id, or game:<MAP>:talk:<TEXT> for the game's own
   openEvent: (_id: string): void => {},
   openGlobal: (_section: string): void => {},
+  // pick one cell on a map, then come back
+  pickCell: (_mapId: string, _picked: (x: number, y: number) => void): void => {},
+  // draw a walking path on a map: clicks extend it, Escape finishes
+  drawPath: (_mapId: string, _start: { x: number; y: number }, _dirs: string[], _changed: (dirs: string[]) => void, _done: () => void): void => {},
 };

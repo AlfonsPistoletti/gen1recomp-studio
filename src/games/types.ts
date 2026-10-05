@@ -404,7 +404,11 @@ export type EventParamType =
   | "song"
   | "sound"
   | "bubble"
-  | "fade";
+  | "fade"
+  | "path" // a list of directions, one step each
+  | "together" // { wait = false }: don't wait for this walk to finish
+  | "cellX" // a map cell (x, then a "cellY" param right after)
+  | "cellY";
 
 export interface EventParam {
   key: string;

@@ -217,6 +217,14 @@ renamed before players have saves with it.
   - An event runs when the player talks to an NPC or sign (Maps: select it,
     Role: Event), steps on a cell (only once, if wanted) or enters a map
     (both from the map's properties, or **+ New**).
+  - Cutscenes: **Walk along a path** (the player or an NPC; drawn by clicking
+    the map, or with arrow buttons; "at the same time as the next command"
+    lets two people walk together), **NPC walks to a cell** (finds its way),
+    **Place NPC**, **Turn an NPC / the player**, **Move the camera**, and the
+    **NPC leads, player follows** block. Paths start where that person stands
+    at that point of the event (the earlier moves are replayed). A step event
+    can start from the **Escort** template (like Prof. Oak stopping the player
+    at the grass).
   - Commands: text, yes/no questions, choices, flags, give/take items, money
     and Pokémon, heal, trainer and wild battles, moving the player and NPCs,
     showing/hiding NPCs, warps, waits, fades, music and sounds.

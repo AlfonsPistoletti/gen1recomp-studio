@@ -197,6 +197,10 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
     { t: "choice", labels: ["A", "B", "C"], branches: [[{ t: "cmd", row: ["show_text", "a"] }], [], [{ t: "stop" }]] },
   ], verbs);
   check("event blocks round-trip", deepEqual(compile(parse(rows, verbs), verbs), rows));
+  const walk = compile([{ t: "follow", npc: 1, path: ["down", "down", "right"], from: "up" }, { t: "follow", npc: 2, path: [], from: "left" }], verbs);
+  const back = parse(walk, verbs);
+  check("follow block round-trips (also with no steps yet)", deepEqual(back, [{ t: "follow", npc: 1, path: ["down", "down", "right"], from: "up" }, { t: "follow", npc: 2, path: [], from: "left" }]), JSON.stringify(back));
+  check("the follower steps into the leader's cell first", deepEqual(walk[1], ["walk_npc", "player", ["down", "down", "down"]]), JSON.stringify(walk[1]));
   const events = {
     "PALLET_TOWN:talk:TEXT_PALLETTOWN_GIRL": { rows },
     "PALLET_TOWN:step:gate": { x: 10, y: 1, once: true, rows: [["show_text", "Stop!"], ["move_player", "down", 1]] },

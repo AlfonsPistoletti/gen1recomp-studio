@@ -270,7 +270,7 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Size (blocks)"), h("div", { class: "row" }, w, h("span", { class: "x" }, "×"), hgt, anchor, resize)),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Border block"), h("div", { class: "row" }, border, useStamp)),
     h("h4", {}, "Connections"),
-    h("p", { class: "hint" }, "Offsets are in blocks. Setting a connection also writes the return connection on the other map."),
+    h("p", { class: "hint" }, "The number shifts the neighbour along the shared edge, in blocks (the arrows move it one block). Setting a connection also writes the return connection on the other map."),
     ...DIRECTIONS.map((dir) => connectionRow(map, dir, ids, view)),
     ...townSection(map, view),
     h("h4", {}, "Contents"),
@@ -324,10 +324,30 @@ function connectionRow(map: MapDef, dir: Direction, ids: string[], view: MapView
   const apply = () => setConnection(map.id, dir, select.value || null, Math.trunc(Number(offset.value) || 0));
   select.addEventListener("change", apply);
   offset.addEventListener("change", apply);
+  offset.title = "How far the neighbour is shifted along this edge, in blocks";
   const open = conn && store.maps[conn.map]
     ? h("button", { class: "btn small ghost", title: `Open ${conn.map}`, onclick: () => view.openMap(conn.map) }, "→")
     : null;
-  return h("div", { class: "conn-row" }, h("span", { class: "conn-dir" }, dir), select, offset, open);
+  // push the neighbour one block along the shared edge
+  const vertical = dir === "east" || dir === "west";
+  const nudge = (by: number, arrow: string, where: string) =>
+    h("button", {
+      class: "btn small ghost conn-nudge",
+      disabled: !conn,
+      title: conn ? `Move ${conn.map} one block ${where}` : "Pick a map first",
+      onclick: () => conn && setConnection(map.id, dir, conn.map, conn.offset + by),
+    }, arrow);
+  return h(
+    "div",
+    { class: "conn-row" },
+    h("span", { class: "conn-dir" }, dir),
+    select,
+    vertical ? nudge(-1, "▲", "up") : nudge(-1, "◀", "left"),
+    offset,
+    vertical ? nudge(1, "▼", "down") : nudge(1, "▶", "right"),
+    h("span", { class: "muted conn-unit" }, "blocks"),
+    open,
+  );
 }
 
 // A connection lives on both maps; the return side mirrors the offset

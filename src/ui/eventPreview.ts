@@ -105,6 +105,13 @@ export async function playEvent(stage: Stage, mapId: string, blocks: Block[], st
       }
       if (b.t === "follow") {
         const lead = key(b.npc);
+        // the player stands on the side the block says, facing the leader
+        const n = actors[lead];
+        const [dx, dy] = STEP[b.from] ?? [0, 1];
+        if (n) {
+          Object.assign(actors.player, { x: n.x + dx, y: n.y + dy, facing: ({ up: "down", down: "up", left: "right", right: "left" } as Record<string, string>)[b.from] ?? "up" });
+          redraw();
+        }
         await Promise.all([walk(lead, b.path), walk("player", followerPath(b.from, b.path))]);
         continue;
       }

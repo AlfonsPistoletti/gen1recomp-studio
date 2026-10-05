@@ -726,6 +726,12 @@ export class MapView {
     const h = this.hoverInfo();
     if (!h) return;
     // "pick on map": this click answers the inspector instead of the tool
+    // drawing a path: right click takes it back (to that cell, or one click)
+    if (this.cellPick && this.pickDone && e.button === 2) {
+      // outside the map: no cell, so it undoes the last click
+      this.pickBack?.(h.inside ? h.cx : -1, h.inside ? h.cy : -1);
+      return;
+    }
     if (this.cellPick && e.button === 0) {
       const pick = this.cellPick;
       const multi = this.pickDone !== null;
@@ -891,6 +897,7 @@ export class MapView {
   // using the tool (Escape cancels).
   private cellPick: ((cx: number, cy: number) => void) | null = null;
   private pickDone: (() => void) | null = null;
+  private pickBack: ((cx: number, cy: number) => void) | null = null;
 
   // An event preview: where the player and NPCs are right now (cells, may
   // be fractional mid-step) and an emotion bubble over one of them.
@@ -967,7 +974,8 @@ export class MapView {
   }
 
   // Picks cell after cell until Escape (then `done`): drawing a path.
-  pickCells(onPick: (cx: number, cy: number) => void, done: () => void): void {
+  pickCells(onPick: (cx: number, cy: number) => void, done: () => void, back?: (cx: number, cy: number) => void): void {
+    this.pickBack = back ?? null;
     const again = (cx: number, cy: number) => {
       onPick(cx, cy);
       this.cellPick = again;
@@ -987,6 +995,7 @@ export class MapView {
 
   cancelPick(): void {
     this.cellPick = null;
+    this.pickBack = null;
     const done = this.pickDone;
     this.pickDone = null;
     done?.();

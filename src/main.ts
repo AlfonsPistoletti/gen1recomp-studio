@@ -375,19 +375,42 @@ nav.drawPath = (mapId, start, dirs, changed, done) => {
     return { x, y };
   };
   view.setPathOverlay({ ...start, dirs: path });
-  toast("Click cells to walk there; Escape when done", "info");
+  toast("Click cells to walk there; right click takes it back; Escape when done", "info");
+  // how long the path was before each click, for taking clicks back
+  const marks: number[] = [];
+  const update = () => {
+    view.setPathOverlay({ ...start, dirs: path });
+    changed([...path]);
+  };
   view.pickCells(
     (cx, cy) => {
       const e = end();
+      marks.push(path.length);
       for (let i = 0; i < Math.abs(cx - e.x); i++) path.push(cx > e.x ? "right" : "left");
       for (let i = 0; i < Math.abs(cy - e.y); i++) path.push(cy > e.y ? "down" : "up");
-      view.setPathOverlay({ ...start, dirs: path });
-      changed([...path]);
+      update();
     },
     () => {
       view.setPathOverlay(null);
       setWorkspace("events");
       done();
+    },
+    (cx, cy) => {
+      // on the path: cut it back to that cell; elsewhere: undo the last click
+      let x = start.x;
+      let y = start.y;
+      let at = x === cx && y === cy ? 0 : -1;
+      path.forEach((d, i) => {
+        if (d === "up") y--;
+        else if (d === "down") y++;
+        else if (d === "left") x--;
+        else if (d === "right") x++;
+        if (x === cx && y === cy) at = i + 1;
+      });
+      if (at >= 0 && at < path.length) path.length = at;
+      else path.length = marks.pop() ?? Math.max(0, path.length - 1);
+      while (marks.length && marks[marks.length - 1] > path.length) marks.pop();
+      update();
     },
   );
 };

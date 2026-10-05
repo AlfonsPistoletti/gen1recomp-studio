@@ -190,7 +190,13 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       else if (info.kind === "talk") {
         // the player stands in front of whoever is talked to
         const t = talker(info.mapId, info.key);
-        if (t) start = { x: t.e.x, y: t.e.y + 1, facing: "up" };
+        if (t) {
+          // in front of it: the side a standing NPC looks at (below otherwise)
+          const look = t.e.movement === "STAY" ? String(t.e.range ?? "DOWN").toLowerCase() : "down";
+          const [dx, dy] = ({ up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] } as Record<string, [number, number]>)[look] ?? [0, 1];
+          const back = ({ up: "down", down: "up", left: "right", right: "left" } as Record<string, string>)[look] ?? "up";
+          start = { x: t.e.x + dx, y: t.e.y + dy, facing: back };
+        }
       }
       nav.playEvent(info.mapId, parse(rows, verbs(s)), start);
     },

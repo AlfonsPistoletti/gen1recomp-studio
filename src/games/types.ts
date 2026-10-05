@@ -406,7 +406,7 @@ export type EventParamType =
   | "bubble"
   | "fade"
   | "path" // a list of directions, one step each
-  | "together" // { wait = false }: don't wait for this walk to finish
+  | "together" // walk options: { wait = false } (don't wait), stepFrames (NPC speed)
   | "cellX" // a map cell (x, then a "cellY" param right after)
   | "cellY";
 

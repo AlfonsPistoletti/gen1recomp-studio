@@ -20,7 +20,10 @@ export interface Stage {
 
 type Actor = { x: number; y: number; facing: string; hidden?: boolean };
 const STEP: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
-const STEP_MS = 16 * (1000 / 60); // a walking step: 16 frames
+const FRAME_MS = 1000 / 60;
+// a walking step: the player 16 frames, an NPC 32 (src/world/NPC.lua)
+const PLAYER_FRAMES = 16;
+const NPC_FRAMES = 32;
 
 function textOf(v: unknown): string {
   const raw = typeof v === "string" && /^_\w+$/.test(v) ? String(store.table("text")[v] ?? v) : String(v ?? "");
@@ -47,9 +50,10 @@ export async function playEvent(stage: Stage, mapId: string, blocks: Block[], st
   };
 
   // one actor walks a list of directions, smoothly, a step at a time
-  const walk = async (k: string, dirs: unknown[]) => {
+  const walk = async (k: string, dirs: unknown[], frames?: unknown) => {
     const a = actors[k];
     if (!a) return;
+    const stepMs = (k === "player" ? PLAYER_FRAMES : typeof frames === "number" ? frames : NPC_FRAMES) * FRAME_MS;
     for (const d of dirs) {
       if (stage.stopped()) return;
       const [dx, dy] = STEP[String(d)] ?? [0, 0];
@@ -58,7 +62,7 @@ export async function playEvent(stage: Stage, mapId: string, blocks: Block[], st
       const y0 = a.y;
       const t0 = performance.now();
       for (;;) {
-        const t = Math.min(1, (performance.now() - t0) / STEP_MS);
+        const t = Math.min(1, (performance.now() - t0) / stepMs);
         a.x = x0 + dx * t;
         a.y = y0 + dy * t;
         redraw();
@@ -112,7 +116,7 @@ export async function playEvent(stage: Stage, mapId: string, blocks: Block[], st
           Object.assign(actors.player, { x: n.x + dx, y: n.y + dy, facing: ({ up: "down", down: "up", left: "right", right: "left" } as Record<string, string>)[b.from] ?? "up" });
           redraw();
         }
-        await Promise.all([walk(lead, b.path), walk("player", followerPath(b.from, b.path))]);
+        await Promise.all([walk(lead, b.path, b.stepFrames ?? PLAYER_FRAMES), walk("player", followerPath(b.from, b.path))]);
         continue;
       }
       if (b.t === "cmd") await step(b.row, false);
@@ -146,7 +150,7 @@ export async function playEvent(stage: Stage, mapId: string, blocks: Block[], st
         actors.player.facing = String(r[1]);
         return redraw();
       case "walk_npc": {
-        const p = walk(key(r[1]), Array.isArray(r[2]) ? r[2] : []);
+        const p = walk(key(r[1]), Array.isArray(r[2]) ? r[2] : [], (r[3] as { stepFrames?: unknown } | undefined)?.stepFrames);
         if ((r[3] as { wait?: unknown } | undefined)?.wait === false) running.push(p);
         else await p;
         return;

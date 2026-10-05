@@ -18,7 +18,7 @@ export type Block =
   | { t: "choice"; labels: string[]; branches: Block[][] }
   // an NPC walks a path and the player follows one step behind; `from` is
   // where the player stands next to the NPC when it starts (below = "down")
-  | { t: "follow"; npc: number; path: string[]; from: string }
+  | { t: "follow"; npc: number; path: string[]; from: string; stepFrames?: number }
   | { t: "stop" }
   | { t: "goto"; label: string; when?: boolean } // when: only if the last result is true/false
   | { t: "label"; name: string };
@@ -70,7 +70,9 @@ export function compile(blocks: Block[], verbs: Verbs): EventRow[] {
           // both walks start together: the NPC's doesn't wait, the player's does
           // playerSide keeps the block's setting even with no steps yet (the
           // engine reads only wait/stepFrames from these options)
-          out.push(["walk_npc", b.npc, [...b.path], { wait: false, playerSide: b.from }], ["walk_npc", "player", followerPath(b.from, b.path)]);
+          // the leader steps at the player's pace (NPCs walk at half speed by
+          // default), so the two stay one cell apart
+          out.push(["walk_npc", b.npc, [...b.path], { wait: false, playerSide: b.from, stepFrames: b.stepFrames ?? 16 }], ["walk_npc", "player", followerPath(b.from, b.path)]);
           break;
         case "if": {
           const id = fresh("if");
@@ -174,7 +176,8 @@ export function parse(input: EventRow[], verbs: Verbs): Block[] {
         const side = (r[3] as { playerSide?: unknown }).playerSide;
         const from = typeof side === "string" && side in OPPOSITE ? side : mine.length ? OPPOSITE[mine[0]] : "down";
         if (from && mine.length === path.length && JSON.stringify(followerPath(from, path)) === JSON.stringify(mine)) {
-          out.push({ t: "follow", npc: r[1], path, from });
+          const frames = (r[3] as { stepFrames?: unknown }).stepFrames;
+          out.push({ t: "follow", npc: r[1], path, from, ...(typeof frames === "number" && frames !== 16 ? { stepFrames: frames } : {}) });
           i += 2;
           continue;
         }

@@ -593,6 +593,15 @@ function blockList(s: EventSpec, mapId: string, list: Block[], path: string, com
       ? h(
           "span",
           { class: "block-tools" },
+          h("button", {
+            class: "btn small ghost",
+            title: "Add a command right below this one",
+            onclick: (e: Event) => {
+              e.stopPropagation();
+              addAfter = addAfter === p ? null : p;
+              select(null);
+            },
+          }, "＋"),
           h("button", { class: "btn small ghost", title: "Move up", disabled: i === 0, onclick: (e: Event) => (e.stopPropagation(), move(i - 1)) }, "↑"),
           h("button", { class: "btn small ghost", title: "Move down", disabled: i === list.length - 1, onclick: (e: Event) => (e.stopPropagation(), move(i + 1)) }, "↓"),
           h("button", {
@@ -624,7 +633,17 @@ function blockList(s: EventSpec, mapId: string, list: Block[], path: string, com
       tools,
     );
     wrap.append(head);
-    if (isSel) wrap.append(blockEditor(s, mapId, b, commit, list, i, select, p));
+    if (isSel) wrap.append(blockEditor(s, mapId, b, commit));
+    // the ＋ of this row: a picker for the command that goes right below it
+    if (commit && addAfter === p) {
+      const menu = addMenu(s, mapId, list, i + 1, commit, (at) => {
+        addAfter = null;
+        select(`${path}${path ? "." : ""}${at}`);
+      }, "＋ Add a command here…");
+      menu.classList.add("add-here");
+      wrap.append(menu);
+      requestAnimationFrame(() => menu.focus());
+    }
     if (b.t === "if") {
       wrap.append(h("div", { class: "block-indent" }, blockList(s, mapId, b.then, `${p}.t`, commit, selected, select)));
       if (b.else) {
@@ -647,7 +666,7 @@ function blockList(s: EventSpec, mapId: string, list: Block[], path: string, com
 }
 
 // the inline editor of the selected block
-function blockEditor(s: EventSpec, mapId: string, b: Block, commit: Commit, list: Block[], i: number, select: (p: string | null) => void, path: string): HTMLElement {
+function blockEditor(s: EventSpec, mapId: string, b: Block, commit: Commit): HTMLElement {
   const box = h("div", { class: "block-editor" });
   const ro = !commit;
   const done = (label: string) => commit?.(label);
@@ -755,12 +774,26 @@ function blockEditor(s: EventSpec, mapId: string, b: Block, commit: Commit, list
       })),
       h("p", { class: "hint" }, `The player walks ${arrows(followerPath(b.from, b.path))}.${start ? ` The NPC starts at ${start.x}, ${start.y} here (after the event's earlier moves).` : ""}`),
       ...(b.path[0] === b.from ? [h("p", { class: "hint warn" }, "The NPC's first step goes toward the player: start the path in another direction, or put the player on the other side.")] : []),
+      field("Leader's speed", (() => {
+        const sel = selectInput(String(b.stepFrames ?? 16), ["16", "32", "8"], (v) => {
+          if (Number(v) === 16) delete b.stepFrames;
+          else b.stepFrames = Number(v);
+          done("Follow: speed");
+        });
+        sel.options[0].textContent = "The player's speed (stays one step ahead)";
+        sel.options[1].textContent = "NPC speed (slower: the player catches up)";
+        sel.options[2].textContent = "Running";
+        sel.disabled = ro;
+        return sel;
+      })()),
+      h(
+        "p",
+        { class: "hint warn" },
+        "Careful: the path only fits if everyone stands where you planned. Make the leader a standing NPC (Movement: STAY); one that wanders is somewhere else when this runs. And if the player starts below the NPC, make sure the event can only start from below (a step event on that cell, or an NPC the player can only face from that side); otherwise the player's path ends up different.",
+      ),
     );
   } else if (b.t === "goto" || b.t === "label") {
     box.append(h("p", { class: "hint" }, "A jump from the game's script that the studio can't turn into blocks. It still works; move or delete it with care."));
-  }
-  if (!ro) {
-    box.append(h("div", { class: "row" }, addMenu(s, mapId, list, i, commit, (at) => select(path.replace(/\d+$/, String(at))), "+ Insert above")));
   }
   return box;
 }
@@ -819,9 +852,29 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
         break;
       }
       case "together": {
-        const cb = h("input", { type: "checkbox", checked: !!(value && (value as { wait?: unknown }).wait === false), disabled: ro });
-        cb.addEventListener("change", () => set(cb.checked ? { wait: false } : undefined));
-        input = h("label", { class: "inline-check" }, cb, "At the same time as the next command (don't wait for this walk)");
+        // { wait = false, stepFrames = n }: timing, and an NPC's speed
+        const opts = { ...((value as Record<string, unknown> | undefined) ?? {}) };
+        const put = () => set(Object.keys(opts).length ? { ...opts } : undefined);
+        const cb = h("input", { type: "checkbox", checked: opts.wait === false, disabled: ro });
+        cb.addEventListener("change", () => {
+          if (cb.checked) opts.wait = false;
+          else delete opts.wait;
+          put();
+        });
+        const parts: HTMLElement[] = [h("label", { class: "inline-check" }, cb, "At the same time as the next command (don't wait for this walk)")];
+        if (args.who !== "player") {
+          const speed = selectInput(String(opts.stepFrames ?? ""), ["", "16", "8"], (v) => {
+            if (v) opts.stepFrames = Number(v);
+            else delete opts.stepFrames;
+            put();
+          });
+          speed.options[0].textContent = "NPC speed (slow, 32 frames a step)";
+          speed.options[1].textContent = "The player's speed (16)";
+          speed.options[2].textContent = "Running (8)";
+          speed.disabled = ro;
+          parts.push(h("div", { class: "row nowrap" }, h("span", {}, "Speed"), speed));
+        } else parts.push(h("p", { class: "hint" }, "The player always walks at their own speed."));
+        input = h("div", {}, ...parts);
         break;
       }
       case "cellX": {
@@ -935,6 +988,9 @@ function escortRows(map: MapDef, npc: EntityRecord, x: number, y: number): Event
   ];
   return compile(blocks, verbs(s));
 }
+
+// the row whose ＋ was clicked: its add-command picker shows below it
+let addAfter: string | null = null;
 
 // the step event's cell: where the player stands when it starts
 let eventCell: { x: number; y: number } | null = null;

@@ -807,6 +807,7 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .block-tools .btn { padding: 0 5px; height: 20px; }
 .block-indent { margin-left: 18px; padding-left: 8px; border-left: 2px solid var(--line-2); }
 .block-editor { margin: 2px 0 8px 20px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; }
+.add-command.add-here { margin: 2px 0 6px 20px; color: var(--text); border-color: var(--accent); }
 .add-command { margin: 4px 0 2px 20px; width: auto; max-width: 260px; color: var(--muted); }
 dialog.modal { min-width: 420px; }
 .conn-nudge { padding: 0 6px; }

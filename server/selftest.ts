@@ -200,6 +200,9 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   const walk = compile([{ t: "follow", npc: 1, path: ["down", "down", "right"], from: "up" }, { t: "follow", npc: 2, path: [], from: "left" }], verbs);
   const walkBack = parse(walk, verbs);
   check("follow block round-trips (also with no steps yet)", deepEqual(walkBack, [{ t: "follow", npc: 1, path: ["down", "down", "right"], from: "up" }, { t: "follow", npc: 2, path: [], from: "left" }]), JSON.stringify(walkBack));
+  check("the leader walks at the player's speed", (walk[0][3] as { stepFrames?: unknown }).stepFrames === 16, JSON.stringify(walk[0]));
+  const slow = parse(compile([{ t: "follow", npc: 1, path: ["up"], from: "down", stepFrames: 32 }], verbs), verbs);
+  check("a follow block's speed round-trips", deepEqual(slow, [{ t: "follow", npc: 1, path: ["up"], from: "down", stepFrames: 32 }]), JSON.stringify(slow));
   check("the follower steps into the leader's cell first", deepEqual(walk[1], ["walk_npc", "player", ["down", "down", "down"]]), JSON.stringify(walk[1]));
   const events = {
     "PALLET_TOWN:talk:TEXT_PALLETTOWN_GIRL": { rows },

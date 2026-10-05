@@ -8,7 +8,7 @@ import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../co
 import { store, type Selection, type Stamp } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
-import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, Signpost, Sparkles, Zap, type IconNode } from "lucide";
+import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
 import { atlasRect, blockAtlas, BLOCK, CELL, markerIcon, spriteFrame, type BlockAtlas } from "./graphics.ts";
 
 interface CachedMap {
@@ -469,7 +469,10 @@ export class MapView {
       const evReg = store.adapter.events?.registry;
       if (evReg) {
         for (const [id, ev] of Object.entries(store.table(evReg) as Record<string, EntityRecord>)) {
-          if (id.startsWith(`${map.id}:step:`) && typeof ev.x === "number") this.markerIcon("zap", Zap, "#d4357a", ev);
+          if (!id.startsWith(`${map.id}:step:`) || typeof ev.x !== "number") continue;
+          // a trainer's line of sight (built from step events) vs other step events
+          if (id.startsWith(`${map.id}:step:trainer`)) this.markerIcon("scan-eye", ScanEye, "#c2410c", ev);
+          else this.markerIcon("zap", Zap, "#d4357a", ev);
         }
       }
       const land = f.flyWarps?.[map.id];

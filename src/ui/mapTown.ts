@@ -525,7 +525,7 @@ function trainerFields(map: MapDef, entity: EntityRecord, index: number, setText
     h("span", { class: "field-label" }, "When talked to after losing"),
     textEditor(setup.after, { rows: 3, compact: true, label: setup.after }),
     h("div", { class: "kv" }, h("span", {}, "Beaten flag"), h("code", {}, setup.flag)),
-    h("p", { class: "hint" }, "Built from events (talk, plus a step event per cell it sees): the gen1recomp way for mod trainers. Edits to these events in the Events workspace are replaced when these settings change."),
+    h("p", { class: "hint" }, "The cells it sees show an eye on the map and move with the NPC. Built from events (talk, plus a step event per cell it sees): the gen1recomp way for mod trainers. Edits to these events in the Events workspace are replaced when these settings change."),
   );
   const e = npcNow(map, index);
   if (e && isStale(map, e, setup)) {

@@ -182,6 +182,20 @@ export class Store {
     this.record(label, { registry, id, before: current, after: next }, merge);
   }
 
+  // A change that follows from the edit just made (a trainer's sight cells
+  // after its NPC moved): it joins that edit's undo step, whatever its label.
+  follow(registry: string, id: string, next: unknown): void {
+    const current = this.table(registry)[id];
+    if (next === current || (next !== undefined && current !== undefined && deepEqual(next, current))) return;
+    const top = this.grouping ?? this.undoStack[this.undoStack.length - 1];
+    if (!top) return this.record("Update", { registry, id, before: current, after: next }, false);
+    const existing = top.changes.find((c) => c.registry === registry && c.id === id);
+    if (existing) existing.after = next;
+    else top.changes.push({ registry, id, before: current, after: next });
+    this.redoStack = [];
+    this.put(registry, id, next);
+  }
+
   // Applies `mutate` to a copy of the record (or of `create()` when absent).
   editRecord<T>(registry: string, id: string, label: string, mutate: (draft: T) => void, opts: { merge?: boolean; create?: () => T } = {}): void {
     const current = this.table(registry)[id] as T | undefined;
@@ -320,12 +334,21 @@ export class Store {
     else this.emit("reveal", change.id, change.registry);
   }
 
+  // true while undo/redo puts recorded values back: listeners that derive
+  // changes from edits (trainer sight) must not add to history then
+  replaying = false;
+
   undo(): void {
     const cmd = this.undoStack.pop();
     if (!cmd) return;
     this.redoStack.push(cmd);
     this.selection = null;
-    for (const c of [...cmd.changes].reverse()) this.put(c.registry, c.id, c.before);
+    this.replaying = true;
+    try {
+      for (const c of [...cmd.changes].reverse()) this.put(c.registry, c.id, c.before);
+    } finally {
+      this.replaying = false;
+    }
     this.show(cmd.changes[0], cmd.changes[0]?.before);
   }
 
@@ -335,7 +358,12 @@ export class Store {
     this.undoStack.push(cmd);
     cmd.sealed = true;
     this.selection = null;
-    for (const c of cmd.changes) this.put(c.registry, c.id, c.after);
+    this.replaying = true;
+    try {
+      for (const c of cmd.changes) this.put(c.registry, c.id, c.after);
+    } finally {
+      this.replaying = false;
+    }
     this.show(cmd.changes[0], cmd.changes[0]?.after);
   }
 

@@ -143,24 +143,26 @@ export function isStale(map: MapDef, e: EntityRecord, t: TrainerSetup): boolean 
 
 // Writes (or rewrites) the trainer's talk and line-of-sight events. Call
 // inside a store.group. `setText` points the NPC at a text id when it has none.
-export function buildTrainer(map: MapDef, e: EntityRecord, index: number, setup: TrainerSetup, setText: (id: string) => void): void {
+type Write = (registry: string, id: string, label: string, value: unknown) => void;
+const write: Write = (registry, id, label, value) => store.setRecord(registry, id, label, value);
+
+export function buildTrainer(map: MapDef, e: EntityRecord, index: number, setup: TrainerSetup, setText: (id: string) => void, put: Write = write): void {
   let textId = typeof e.text === "string" && /^TEXT_[A-Z0-9_]+$/.test(e.text) && e.text !== "TEXT_" ? e.text : "";
   if (!textId) {
     textId = newTextId(map, typeof map.label === "string" ? map.label : map.id, idBase(map, e, "npc", index));
     setText(textId);
   }
   const text = store.table("text");
-  if (text[setup.before] === undefined) store.setRecord("text", setup.before, "Trainer text", "Hey! You there!\nLet's battle!{DONE}");
-  if (text[setup.after] === undefined) store.setRecord("text", setup.after, "Trainer text", "I need to train\nmore...{DONE}");
-  if (setup.won && text[setup.won] === undefined) store.setRecord("text", setup.won, "Trainer text", "Oh no!\nI lost!{PROMPT}");
+  if (text[setup.before] === undefined) put("text", setup.before, "Trainer text", "Hey! You there!\nLet's battle!{DONE}");
+  if (text[setup.after] === undefined) put("text", setup.after, "Trainer text", "I need to train\nmore...{DONE}");
+  if (setup.won && text[setup.won] === undefined) put("text", setup.won, "Trainer text", "Oh no!\nI lost!{PROMPT}");
   const talk: TrainerEvent = { rows: talkRows(setup), trainer: setup };
-  store.setRecord(reg(), eventId(map.id, "talk", textId), "Trainer events", talk);
+  put(reg(), eventId(map.id, "talk", textId), "Trainer events", talk);
   // line of sight: drop the old cells, write the new ones
   const prefix = stepPrefix(map, setup.index);
-  for (const id of studioEventsOf(map.id)) if (id.startsWith(prefix)) store.setRecord(reg(), id, "Trainer events", undefined);
-  for (const c of sightCells(map, setup.x, setup.y, setup.facing, setup.range)) {
-    store.setRecord(reg(), `${prefix}${c.k}`, "Trainer events", { x: c.x, y: c.y, rows: sightRows(setup, c.k) });
-  }
+  const cells = sightCells(map, setup.x, setup.y, setup.facing, setup.range);
+  for (const id of studioEventsOf(map.id)) if (id.startsWith(prefix) && Number(id.slice(prefix.length)) > cells.length) put(reg(), id, "Trainer events", undefined);
+  for (const c of cells) put(reg(), `${prefix}${c.k}`, "Trainer events", { x: c.x, y: c.y, rows: sightRows(setup, c.k) });
 }
 
 // Removes the trainer's events (call inside a store.group).
@@ -171,4 +173,43 @@ export function removeTrainer(map: MapDef, e: EntityRecord): void {
     const prefix = stepPrefix(map, e.index);
     for (const id of studioEventsOf(map.id)) if (id.startsWith(prefix)) store.setRecord(reg(), id, "Remove trainer events", undefined);
   }
+}
+
+// Keeps studio trainers' events in step with their NPCs: after a map edit
+// (dragging, turning, deleting an NPC), stale trainers are rebuilt and the
+// events of a trainer whose NPC is gone are removed, inside the same undo step.
+export function syncTrainers(mapId: string): void {
+  const map = store.maps[mapId];
+  const events = store.adapter?.events;
+  if (!map || !events) return;
+  const follow: Write = (registry, id, _label, value) => store.follow(registry, id, value);
+  for (const id of studioEventsOf(mapId)) {
+    const [, kind, textId] = id.split(":");
+    if (kind !== "talk") continue;
+    const ev = studioEvent(id) as TrainerEvent | undefined;
+    const t = ev?.trainer;
+    if (!t) continue;
+    const npcs = store.entities(map, "objects");
+    const index = npcs.findIndex((n) => n.text === textId);
+    const e = index >= 0 ? npcs[index] : undefined;
+    if (!e || typeof e.trainerClass !== "string") {
+      follow(events.registry, id, "", undefined);
+      const prefix = stepPrefix(map, t.index);
+      for (const sid of studioEventsOf(mapId)) if (sid.startsWith(prefix)) follow(events.registry, sid, "", undefined);
+      continue;
+    }
+    if (!isStale(map, e, t)) continue;
+    const next = currentSetup(map, e, t);
+    if (next) buildTrainer(map, e, index, next, () => {}, follow);
+  }
+}
+
+let installed = false;
+
+export function installTrainerSync(): void {
+  if (installed) return;
+  installed = true;
+  store.on((reason, id) => {
+    if (reason === "edit" && typeof id === "string" && !store.replaying) syncTrainers(id);
+  });
 }

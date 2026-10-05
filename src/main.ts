@@ -29,6 +29,7 @@ import { mountTrainerWorkspace } from "./ui/trainerEditor.ts";
 import { mountMoveWorkspace } from "./ui/moveEditor.ts";
 import { mountItemWorkspace } from "./ui/itemEditor.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
+import { installTrainerSync } from "./ui/trainerEvents.ts";
 
 configureLua(wasmUrl);
 // the desktop shell when running inside it, the dev server otherwise
@@ -263,6 +264,8 @@ mountPokemonWorkspace($("#pokemon-left"), $("#pokemon-center"), $("#pokemon-righ
 mountMoveWorkspace($("#moves-left"), $("#moves-center"), $("#moves-right"));
 mountItemWorkspace($("#items-left"), $("#items-center"), $("#items-right"));
 mountEventWorkspace($("#events-left"), $("#events-center"), $("#events-right"));
+// a trainer's line of sight moves with its NPC
+installTrainerSync();
 mountTrainerWorkspace($("#trainers-left"), $("#trainers-center"), $("#trainers-right"));
 mountTextWorkspace($("#text-left"), $("#text-center"), $("#text-right"));
 mountGlobalWorkspace($("#global-left"), $("#global-center"), $("#global-right"));

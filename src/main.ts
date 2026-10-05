@@ -2,7 +2,8 @@ import wasmUrl from "wasmoon/dist/glue.wasm?url";
 import { saveAssets, syncTransforms } from "./core/assets.ts";
 import { brokenWarps, romReferences } from "./core/checks.ts";
 import { store, type Overlays, type Tool } from "./core/store.ts";
-import { MOD_MAP_INDEX_BASE, type ModInfo } from "./core/types.ts";
+import { clone } from "./core/merge.ts";
+import { MOD_MAP_INDEX_BASE, type MapDef, type ModInfo } from "./core/types.ts";
 import { adapterFor, GAME_NAMES, GAME_OF_VERSION } from "./games/index.ts";
 import { httpHost } from "./host/httpHost.ts";
 import { chooseGameRoot, isTauri, tauriHost } from "./host/tauriHost.ts";
@@ -351,11 +352,46 @@ function newModDialog(): void {
 
 function newMapDialog(): void {
   const tilesets = Object.keys(store.project.data.tilesets).sort();
+  const mapIds = Object.keys(store.maps).sort();
   const id = h("input", { type: "text", placeholder: "MY_NEW_ROUTE", spellcheck: false });
+  // start from an empty map, or from a copy of one (a Pokémon Center, a Mart, ...)
+  const from = h(
+    "select",
+    {},
+    h("option", { value: "empty" }, "An empty map"),
+    h("option", { value: "copy" }, "A copy of a map"),
+  );
+  const source = h("select", {}, ...mapIds.map((m) => h("option", { value: m, selected: m === store.currentMap }, m)));
   const tileset = h("select", {}, ...tilesets.map((t) => h("option", { value: t, selected: t === store.map?.tileset }, t)));
   let width = 10;
   let height = 9;
   const fill = h("input", { type: "number", value: store.stamp.blocks[0] ?? 0, min: 0, max: 255 });
+  const emptyFields = h(
+    "div",
+    {},
+    field("Tileset", tileset),
+    h(
+      "div",
+      { class: "row two" },
+      field("Width (blocks)", numberInput(width, (v) => (width = Math.max(1, Math.min(255, v))), 1, 255)),
+      field("Height (blocks)", numberInput(height, (v) => (height = Math.max(1, Math.min(255, v))), 1, 255)),
+    ),
+    field("Fill block", fill, "Defaults to the selected palette block"),
+  );
+  const copyFields = h(
+    "div",
+    { hidden: true },
+    field("Copy of", source),
+    h(
+      "p",
+      { class: "hint" },
+      "Copies the blocks, warps, NPCs, signs and their texts and roles (nurse, shop clerk, ...), the PC tiles, music and wild Pokémon. Not copied: connections to other maps, and any hand-written script the game runs on the original.",
+    ),
+  );
+  from.addEventListener("change", () => {
+    emptyFields.hidden = from.value === "copy";
+    copyFields.hidden = from.value !== "copy";
+  });
   const create = h("button", {
     class: "btn primary",
     onclick: () => {
@@ -364,8 +400,14 @@ function newMapDialog(): void {
       if (store.maps[mapId]) return toast(`${mapId} already exists`, "error");
       const used = Object.values(store.maps).map((m) => m.index ?? 0);
       const index = Math.max(MOD_MAP_INDEX_BASE - 1, ...used) + 1;
-      const block = Math.max(0, Math.trunc(Number(fill.value) || 0));
-      store.createMap(store.adapter.newMap({ id: mapId, tileset: tileset.value, width, height, fill: block, index }));
+      if (from.value === "copy") {
+        const src = store.maps[source.value];
+        if (!src) return toast("Pick a map to copy", "error");
+        copyMap(src, mapId, index);
+      } else {
+        const block = Math.max(0, Math.trunc(Number(fill.value) || 0));
+        store.createMap(store.adapter.newMap({ id: mapId, tileset: tileset.value, width, height, fill: block, index }));
+      }
       dialog.close();
       view.openMap(mapId);
       view.fitMap();
@@ -373,20 +415,40 @@ function newMapDialog(): void {
   }, "Create map");
   openDialog(
     "New map",
-    [
-      field("Map id", id, "UPPER_SNAKE_CASE; registered at index ≥ 1000"),
-      field("Tileset", tileset),
-      h(
-        "div",
-        { class: "row two" },
-        field("Width (blocks)", numberInput(width, (v) => (width = Math.max(1, Math.min(255, v))), 1, 255)),
-        field("Height (blocks)", numberInput(height, (v) => (height = Math.max(1, Math.min(255, v))), 1, 255)),
-      ),
-      field("Fill block", fill, "Defaults to the selected palette block"),
-    ],
+    [field("Map id", id, "UPPER_SNAKE_CASE; registered at index ≥ 1000"), field("Start from", from), emptyFields, copyFields],
     [h("button", { class: "btn", onclick: () => dialog.close() }, "Cancel"), create],
   );
   id.focus();
+}
+
+// A new map that starts as a copy of `src`. Its texts, NPC roles, PC tiles,
+// music and wild Pokémon are keyed by map id or label elsewhere, so they are
+// copied over to the new id/label too (one undo step). Connections stay
+// behind: they would point into the original's neighbours one way only.
+function copyMap(src: MapDef, mapId: string, index: number): void {
+  const label = String(store.adapter.newMap({ id: mapId, tileset: src.tileset, width: 1, height: 1, fill: 0, index }).label ?? mapId);
+  const map = clone(src);
+  map.id = mapId;
+  map.label = label;
+  map.index = index;
+  map.connections = {};
+  const srcLabel = typeof src.label === "string" ? src.label : "";
+  store.group(`New map ${mapId} (copy of ${src.id})`, () => {
+    store.createMap(store.adapter.normalizeMap(map));
+    const pointers = srcLabel ? store.table("text_pointers")[srcLabel] : undefined;
+    if (pointers) store.setRecord("text_pointers", label, "Copy texts", clone(pointers));
+    const song = store.table("map_songs")[src.id];
+    if (song !== undefined) store.setRecord("map_songs", mapId, "Copy music", song);
+    const wild = store.table("encounters")[src.id];
+    if (wild !== undefined) store.setRecord("encounters", mapId, "Copy wild Pokémon", clone(wild));
+    const towns = store.adapter.towns;
+    const pcs = towns ? (store.table(towns.fieldRegistry).hiddenExtras as { pcTiles?: Record<string, unknown[]> } | undefined)?.pcTiles?.[src.id] : undefined;
+    if (towns && pcs?.length) {
+      store.editRecord<Record<string, unknown>>(towns.fieldRegistry, "hiddenExtras", "Copy PCs", (d) => {
+        d.pcTiles = { ...((d.pcTiles as Record<string, unknown[]> | undefined) ?? {}), [mapId]: clone(pcs) };
+      }, { create: () => ({}) });
+    }
+  });
 }
 
 // ---------------------------------------------------------------- save / validate

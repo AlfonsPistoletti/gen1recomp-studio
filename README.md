@@ -72,6 +72,10 @@ kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
     text id, pointer and string; existing texts are never changed. An NPC that
     shows an original game line can get **New text for this one**: its own
     copy to edit, while the original stays as it is.
+  - **New map** starts empty or as a **copy of a map**: blocks, warps, NPCs,
+    signs with their texts and roles, PC tiles, music and wild Pokémon come
+    along (e.g. copy a Pokémon Center or Mart for a new town). Connections and
+    the game's hand-written scripts for the original are not copied.
   - **Role** (NPCs and signs): normal, **shop clerk** (with its stock list,
     the same one the Items workspace's "Sold at" edits), **nurse** (heals;
     the town outside becomes the Teleport/Dig/blackout return point), **PC**,

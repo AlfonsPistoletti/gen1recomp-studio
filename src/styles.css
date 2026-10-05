@@ -790,6 +790,7 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .prize-counter { display: flex; flex-direction: column; gap: 4px; }
 .prize-row { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
 .prize-row input[type="number"] { width: 72px; }
+.id-input { width: 180px; text-transform: uppercase; }
 .mart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 16px; }
 .mart-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .mart-row .btn { padding: 0 6px; height: 20px; }

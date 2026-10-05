@@ -62,6 +62,14 @@ The changes button next to Validate shows how many records differ from the
 game, with a dot while something is unsaved. Click it for the list, grouped by
 kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
 
+
+Records a mod adds (Pokémon, moves, items, trainer classes) can get a new
+**id** in their editor's Id field; when the display name suggests another id
+(STEELIX renamed to ICELIX), a button offers it. Every reference follows:
+evolutions, trainer teams, wild slots, shops, prizes, NPCs on maps, the
+Pokédex text key. Vanilla ids never change, and a mod's own id should only be
+renamed before players have saves with it.
+
 - **Maps**: the map editor. The tabs at the bottom of the right panel switch
   what the panel shows. **Base** has the block palette and the properties of
   the map or the selected warp/NPC/sign. For NPCs and signs it also shows and

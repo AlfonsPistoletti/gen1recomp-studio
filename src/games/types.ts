@@ -168,6 +168,20 @@ export interface ItemSpec {
   marts(ctx: GameContext): MartRef[];
 }
 
+// ------------------------------------------------------------------ ids
+
+// Where a registry's ids are referenced, so a mod's own record can get a new
+// id with every reference following: string values under `fields`, entries of
+// arrays under `lists`, records of `keyed` registries stored under the same
+// id, and an optional text key derived from the id.
+export interface RenameSpec {
+  fields: string[];
+  lists: string[];
+  keyed: string[];
+  prefix?: string; // new ids must start with it (OPP_ for trainer classes)
+  derivedText?: { field: string[]; key: (id: string) => string };
+}
+
 // ------------------------------------------------------------------ towns
 
 // One Game Corner prize: an item or a Pokémon at a level, for coins.
@@ -426,4 +440,5 @@ export interface GameAdapter {
   moves?: MoveSpec;
   items?: ItemSpec;
   towns?: TownSpec;
+  renames?: Record<string, RenameSpec>;
 }

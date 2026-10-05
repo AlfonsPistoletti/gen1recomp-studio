@@ -8,6 +8,7 @@ import { store } from "../core/store.ts";
 import type { EffectSpec, EffectStep, MoveSpec } from "../games/types.ts";
 import { clear, field, h, numberInput, onFocusLeave, rerender, selectInput } from "./dom.ts";
 import { nav } from "./nav.ts";
+import { idRow } from "./renameId.ts";
 import { promptNewRecord } from "./newRecord.ts";
 import { mountRecordList } from "./recordList.ts";
 
@@ -198,7 +199,7 @@ function moveForm(s: MoveSpec, id: string, r: Rec): HTMLElement[] {
     "section",
     { class: "card" },
     h("h4", {}, "Move"),
-    h("div", { class: "kv" }, h("span", {}, "Id"), h("code", {}, id)),
+    idRow(s.registry, id, String(r.name ?? ""), (to) => nav.openMove(to)),
     field("Name", name, `Up to ${s.nameMax} characters, as shown in battle.`),
     h(
       "div",

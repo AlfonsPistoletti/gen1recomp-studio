@@ -10,6 +10,7 @@ import { importArt, placeholderArt } from "./artImport.ts";
 import { clear, comboInput, field, h, numberInput, rerender, selectInput, onFocusLeave, toast } from "./dom.ts";
 import { promptNewRecord } from "./newRecord.ts";
 import { nav } from "./nav.ts";
+import { idRow } from "./renameId.ts";
 import { mountRecordList } from "./recordList.ts";
 import { textEditor } from "./textField.ts";
 
@@ -248,7 +249,7 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
     h(
       "div",
       { class: "mon-ident" },
-      h("div", { class: "kv" }, h("span", {}, "Id"), h("code", {}, id), h("span", {}, "Dex"), h("code", {}, `#${String(r.dex ?? "?").padStart(3, "0")}`)),
+      idRow(REG, id, String(r.name ?? ""), (to) => nav.openPokemon(to), [h("span", { class: "muted" }, `Dex #${String(r.dex ?? "?").padStart(3, "0")}`)]),
       field("Name", name, "Up to 10 characters"),
       h(
         "div",

@@ -9,6 +9,7 @@ import type { BallRecord, ItemEffectSpec, ItemEffectStep, ItemSpec, MartRef } fr
 import { describeItemEffect } from "../games/gen1/items.ts";
 import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput } from "./dom.ts";
 import { nav } from "./nav.ts";
+import { idRow } from "./renameId.ts";
 import { promptNewRecord } from "./newRecord.ts";
 import { counterLabel, countersGiving, showCounter } from "./prizeEditor.ts";
 import { mountRecordList } from "./recordList.ts";
@@ -259,7 +260,7 @@ function itemForm(s: ItemSpec, id: string, r: Rec): HTMLElement[] {
     "section",
     { class: "card" },
     h("h4", {}, "Item"),
-    h("div", { class: "kv" }, h("span", {}, "Id"), h("code", {}, id)),
+    idRow(s.registry, id, String(r.name ?? ""), (to) => nav.openItem(to)),
     field("Name", name, `Up to ${s.nameMax} characters, as shown in the bag.`),
     h(
       "div",

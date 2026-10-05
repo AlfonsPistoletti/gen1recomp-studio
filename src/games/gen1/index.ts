@@ -6,7 +6,7 @@
 //   color:    one SGB palette per map (vanilla cascade, see palette.ts)
 
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
 import { vanillaPrizes } from "./prizes.ts";
 import { internalItem, isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
@@ -340,6 +340,22 @@ const items: ItemSpec = {
     for (const m of out) if (out.filter((x) => x.map === m.map).length > 1) m.label += ` (${(m.text.split("_").pop() ?? m.text).toLowerCase().replace(/(\D)(\d+)$/, "$1 $2")})`;
     return out.sort((a, b) => a.label.localeCompare(b.label));
   },
+};
+
+// ------------------------------------------------------------------ ids
+
+const pascal = (id: string) => id.toLowerCase().replace(/(^|_)(\w)/g, (_m, _s, c: string) => c.toUpperCase());
+
+// where each registry's ids are referenced (see RenameSpec)
+const renames: Record<string, RenameSpec> = {
+  // evolutions, trainer teams, wild slots, prizes; static encounters on maps; cries
+  pokemon: { fields: ["species", "pokemon", "cry"], lists: [], keyed: [], derivedText: { field: ["dexEntry", "text"], key: (id) => `_${pascal(id)}DexEntry` } },
+  // learnsets, TM/HM machines; start moves, TM/HM lists, trainer slot moves
+  moves: { fields: ["move"], lists: ["level1Moves", "tmhm", "moves"], keyed: ["battle_anims"] },
+  // evolution items, item balls, hidden items, prizes, trainer AI; shop stock
+  items: { fields: ["item"], lists: ["mart"], keyed: ["balls"] },
+  // trainer NPCs on maps; portraits borrowed from another class
+  trainers: { fields: ["trainerClass", "basePic"], lists: [], keyed: ["ai_classes"], prefix: "OPP_" },
 };
 
 // ------------------------------------------------------------------ towns
@@ -716,6 +732,7 @@ export const gen1: GameAdapter = {
   moves,
   items,
   towns,
+  renames,
 };
 
 function blockAt(map: MapDef, bx: number, by: number): number {

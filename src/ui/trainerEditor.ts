@@ -11,6 +11,7 @@ import { importArt } from "./artImport.ts";
 import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
 import { promptNewRecord } from "./newRecord.ts";
 import { nav } from "./nav.ts";
+import { idRow } from "./renameId.ts";
 import { spriteUrl } from "./pokemonEditor.ts";
 import { mountRecordList } from "./recordList.ts";
 
@@ -264,7 +265,7 @@ function mainForm(s: TrainerSpec, id: string, r: Rec): HTMLElement[] {
     h(
       "div",
       { class: "mon-ident" },
-      h("div", { class: "kv" }, h("span", {}, "Id"), h("code", {}, id)),
+      idRow(s.registry, id, String(r.name ?? ""), (to) => nav.openTrainer(to)),
       field("Name", name, `Up to ${s.nameMax} characters, shown as "${String(r.name ?? id)} wants to fight!"`),
       field("Prize money", money, "The game pays this × the level of the team's last Pokémon."),
       ...s.notes(id, store.ctx).map((n) => h("p", { class: "hint" }, n)),

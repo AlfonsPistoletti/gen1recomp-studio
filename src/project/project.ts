@@ -346,10 +346,7 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   const editable = new Set(editableRegistries(adapter));
   // registries the generated helper code writes (custom move effects) are
   // regenerated below, never copied from the old file
-  const generated = new Set(adapter.content.map((c) => c.generates).filter((g): g is string => !!g));
-  const kept: ContentCall[] = layers.studioOps
-    .filter((op) => !editable.has(op.registry) && !generated.has(op.registry))
-    .map((op) => ({ registry: op.registry, op: op.op, id: op.id, value: op.value }));
+  const kept = keptOps(adapter, layers.studioOps);
   const order = [...editable];
   calls.sort((a, b) => order.indexOf(a.registry) - order.indexOf(b.registry) || rank(a) - rank(b) || a.id.localeCompare(b.id));
   // data-file registries: write the file whole (or remove it) and the code
@@ -380,15 +377,30 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   return { file, patched, registered, wiredUp, snippet: wiredUp ? undefined : requireLine(modId) };
 }
 
+// What the old studio file says that saving must carry over unchanged: calls
+// to registries the studio doesn't edit (a tileset it registered earlier, ...).
+// Never what the generated helpers register (re-generated on every save):
+// those values hold functions, which can't be written back as data.
+export function keptOps(adapter: GameAdapter, ops: RegistryOp[]): ContentCall[] {
+  const editable = new Set(editableRegistries(adapter));
+  const generated = new Set(adapter.content.map((c) => c.generates).filter((g): g is string => !!g));
+  for (const g of Object.values(GENERATORS)) for (const r of g.writes) generated.add(r);
+  return ops
+    .filter((op) => !editable.has(op.registry) && !generated.has(op.registry))
+    .map((op) => ({ registry: op.registry, op: op.op, id: op.id, value: op.value }));
+}
+
 // the fixed helpers that turn a data file's specs into engine records, by
-// the studio registry that holds the specs
-export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string; internals?: boolean }> = {
+// the studio registry that holds the specs; `writes`: every registry the
+// helper's code registers into
+export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string; writes: string[]; internals?: boolean }> = {
   // map events: talk rows, step/enter triggers (plain Lua)
   studio_events: {
     what: "map events",
     order: ["x", "y", "once", "rows"],
     runtime: EVENT_RUNTIME,
     registration: eventRegistration,
+    writes: ["map_scripts", "commands"],
   },
   // prize counters use the engine's prize window: engine_internals
   prize_counters: {
@@ -396,6 +408,7 @@ export const GENERATORS: Record<string, { what: string; order: string[]; runtime
     order: ["prizes", "item", "species", "level", "cost"],
     runtime: PRIZE_RUNTIME,
     registration: prizeRegistration,
+    writes: ["map_scripts"],
     internals: true,
   },
   studio_effects: {
@@ -403,12 +416,14 @@ export const GENERATORS: Record<string, { what: string; order: string[]; runtime
     order: ["kind", "canMiss", "neverMiss", "hits", "damage", "recoil", "drain", "steps"],
     runtime: EFFECT_RUNTIME,
     registration: effectRegistration,
+    writes: ["move_effects"],
   },
   studio_item_effects: {
     what: "custom item effects",
     order: ["target", "where", "keep", "steps", "act", "amount", "percent", "full", "statuses", "all", "stat", "delta", "cap"],
     runtime: ITEM_EFFECT_RUNTIME,
     registration: itemEffectRegistration,
+    writes: ["item_effects"],
   },
 };
 

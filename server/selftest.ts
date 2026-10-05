@@ -18,7 +18,7 @@ import { compile, parse } from "../src/core/eventBlocks.ts";
 import { gameEvents } from "../src/project/gameEvents.ts";
 import { loadLuaData, runMod } from "../src/lua/vm.ts";
 import { dataFile, studioContentFile } from "../src/lua/writer.ts";
-import { contentCalls, fieldOrders, isDeep, listMods, openProject } from "../src/project/project.ts";
+import { contentCalls, fieldOrders, isDeep, keptOps, listMods, openProject } from "../src/project/project.ts";
 import { nodeHost } from "./nodeHost.ts";
 
 let failures = 0;
@@ -210,6 +210,8 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   const back = await loadLuaData<Record<string, unknown>>(dataSrc, "studio_events.lua");
   check("studio_events.lua round-trips", deepEqual(back, events), JSON.stringify(back).slice(0, 200));
   check("event helper has no backticks or ${", !EVENT_RUNTIME.includes("`") && !EVENT_RUNTIME.includes("${"));
+  // saving again must not copy what the helper registered (it holds functions)
+  check("helper registrations are never kept on save", keptOps(adapter, evRun.ops).length === 0, keptOps(adapter, evRun.ops).map((c) => `${c.registry}:${c.id}`).join(", "));
 }
 
 // the game's own events (checkout): Oak's talk is a list, cutscenes are code

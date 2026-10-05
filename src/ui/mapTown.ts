@@ -18,10 +18,11 @@ import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
 import { counterId, counters, freshCounter, prizeCounterEditor } from "./prizeEditor.ts";
 import { createEvent, eventId, gameTalkEvent, splitEventId, studioEvent, studioEventsOf } from "./eventEditor.ts";
+import { buildTrainer, currentSetup, facingOf, isStale, removeTrainer, trainerEventOf, type TrainerSetup } from "./trainerEvents.ts";
 
-type Role = "" | "mart" | "nurse" | "pc" | "prizes" | "event";
+type Role = "" | "mart" | "nurse" | "pc" | "prizes" | "event" | "trainer";
 
-const ROLE_LABEL: Record<Role, string> = { "": "Normal (says its text)", event: "Event (runs commands)", mart: "Shop clerk", nurse: "Nurse (heals)", pc: "PC", prizes: "Prize counter" };
+const ROLE_LABEL: Record<Role, string> = { "": "Normal (says its text)", trainer: "Trainer (battles)", event: "Event (runs commands)", mart: "Shop clerk", nurse: "Nurse (heals)", pc: "PC", prizes: "Prize counter" };
 
 function spec(): TownSpec | undefined {
   return store.adapter?.towns;
@@ -45,7 +46,7 @@ function editPointer(s: TownSpec, label: string, textId: string, what: string, m
   }, { create: () => ({}) });
 }
 
-export function roleSection(map: MapDef, entity: EntityRecord, kind: string, index: number, setTextId: (id: string) => void): HTMLElement | null {
+export function roleSection(map: MapDef, entity: EntityRecord, kind: string, index: number, setTextId: (id: string) => void, editEntity?: (label: string, mutate: (e: EntityRecord) => void) => void): HTMLElement | null {
   const s = spec();
   if (!s) return null;
   const label = typeof map.label === "string" ? map.label : "";
@@ -55,12 +56,13 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
     return wrap;
   }
   const textId = typeof entity.text === "string" && /^TEXT_[A-Z0-9_]+$/.test(entity.text) ? entity.text : "";
-  const role = textId ? roleOf(s, map.id, label, textId) : "";
+  const role: Role = kind === "npc" && typeof entity.trainerClass === "string" ? "trainer" : textId ? roleOf(s, map.id, label, textId) : "";
   const cid = textId ? counterId(map.id, textId) : "";
   const vanillaCounter = !!cid && store.baseTable(s.prizeRegistry)[cid] !== undefined;
-  const roles: Role[] = kind === "sign" ? ["", "event", "prizes"] : ["", "event", "mart", "nurse", "pc", "prizes"];
+  const roles: Role[] = kind === "sign" ? ["", "event", "prizes"] : ["", "trainer", "event", "mart", "nurse", "pc", "prizes"];
 
   const setRole = (next: Role) => {
+    if (next === "trainer" || role === "trainer") return setTrainerRole(map, entity, index, next === "trainer", setTextId, editEntity);
     store.group(`Role: ${ROLE_LABEL[next]}`, () => {
       let id = textId;
       if (!id) {
@@ -97,6 +99,7 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
     wrap.append(sel);
   }
 
+  if (role === "trainer") wrap.append(...trainerFields(map, entity, index, setTextId, editEntity));
   if (role === "event") {
     const ev = studioEvent(eventId(map.id, "talk", textId));
     wrap.append(
@@ -415,5 +418,104 @@ function mapEventsSection(map: MapDef, view: MapView): HTMLElement[] {
     ),
     h("p", { class: "hint" }, "Commands that run when the player steps on a cell or enters the map. NPC and sign events: select one, Role: Event."),
   );
+  return out;
+}
+
+// ------------------------------------------------------------------ trainers
+
+type EditEntity = ((label: string, mutate: (e: EntityRecord) => void) => void) | undefined;
+
+const npcNow = (map: MapDef, index: number): EntityRecord | undefined => store.entities(store.maps[map.id] ?? map, "objects")[index];
+
+// a trainer of the game itself: its header (sight, texts) comes from the game
+function isGameTrainer(map: MapDef, e: EntityRecord): boolean {
+  const base = store.base[map.id];
+  return !!base && store.entities(base, "objects").some((o) => o.index === e.index && typeof o.trainerClass === "string");
+}
+
+function setTrainerRole(map: MapDef, entity: EntityRecord, index: number, on: boolean, setTextId: (id: string) => void, editEntity: EditEntity): void {
+  if (!editEntity) return;
+  const classes = Object.keys(store.table(store.adapter.trainers?.registry ?? "trainers")).sort();
+  store.group(on ? "Make trainer" : "Remove trainer", () => {
+    if (on) {
+      editEntity("Make trainer", (e) => {
+        e.trainerClass = classes.includes("OPP_YOUNGSTER") ? "OPP_YOUNGSTER" : classes[0];
+        e.trainerParty = 1;
+        delete e.text_asm;
+      });
+      const e = npcNow(map, index);
+      const setup = e && currentSetup(map, e);
+      if (e && setup && !isGameTrainer(map, e)) buildTrainer(map, e, index, setup, setTextId);
+    } else {
+      removeTrainer(map, entity);
+      editEntity("Remove trainer", (e) => {
+        delete e.trainerClass;
+        delete e.trainerParty;
+      });
+    }
+  });
+  store.seal();
+}
+
+// class, team, line of sight and texts of a trainer NPC
+function trainerFields(map: MapDef, entity: EntityRecord, index: number, setTextId: (id: string) => void, editEntity: EditEntity): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  const classes = Object.keys(store.table(store.adapter.trainers?.registry ?? "trainers")).sort();
+  const game = isGameTrainer(map, entity);
+  const ev = trainerEventOf(map, entity);
+  const setup = ev?.trainer;
+  // rebuild the events from the NPC as it is now (plus setup changes)
+  const rebuild = (label: string, change?: Partial<TrainerSetup>, mutate?: (e: EntityRecord) => void) => {
+    store.group(label, () => {
+      if (mutate && editEntity) editEntity(label, mutate);
+      const e = npcNow(map, index);
+      const next = e && currentSetup(map, e, setup ? { ...setup, ...change } : undefined);
+      if (e && next && !game) buildTrainer(map, e, index, { ...next, ...change }, setTextId);
+    });
+    store.seal();
+  };
+  const cls = comboInput(String(entity.trainerClass ?? ""), "dl-trainer-classes", classes, (v) => rebuild("Trainer class", undefined, (e) => (e.trainerClass = v)));
+  const team = numberInput(Number(entity.trainerParty ?? 1), (v) => rebuild("Trainer team", undefined, (e) => (e.trainerParty = Math.max(1, v))), 1, 99);
+  out.push(h("div", { class: "row nowrap" }, cls, h("span", { class: "muted" }, "team"), team, h("button", { class: "btn small ghost", onclick: () => nav.openTrainer(String(entity.trainerClass), Number(entity.trainerParty ?? 1)) }, "Team →")));
+  if (game) {
+    out.push(h("p", { class: "hint" }, "One of the game's trainers: its line of sight and battle texts come from the game's own data, which mods can't change."));
+    return out;
+  }
+  if (!setup) {
+    out.push(
+      h(
+        "div",
+        { class: "row" },
+        h("span", { class: "hint" }, "No line of sight or battle texts yet."),
+        h("button", { class: "btn small primary-ish", onclick: () => rebuild("Trainer events") }, "Set up"),
+      ),
+    );
+    return out;
+  }
+  const facing = facingOf(entity);
+  const range = selectInput(String(setup.range), ["0", "1", "2", "3", "4", "5"], (v) => rebuild("Line of sight", { range: Number(v) }));
+  for (const o of range.options) o.textContent = o.value === "0" ? "0 (only when talked to)" : `${o.value} cell${o.value === "1" ? "" : "s"}`;
+  range.disabled = !facing;
+  out.push(
+    h("div", { class: "row nowrap" }, h("span", {}, "Line of sight"), range, h("span", { class: "muted" }, facing ? `looking ${facing}` : "")),
+    ...(facing ? [] : [h("p", { class: "hint" }, "Only a standing NPC (Movement: STAY) can spot the player; this one walks around.")]),
+    h("span", { class: "field-label" }, "Before the battle"),
+    textEditor(setup.before, { rows: 3, compact: true, label: setup.before }),
+    h("span", { class: "field-label" }, "When talked to after losing"),
+    textEditor(setup.after, { rows: 3, compact: true, label: setup.after }),
+    h("div", { class: "kv" }, h("span", {}, "Beaten flag"), h("code", {}, setup.flag)),
+    h("p", { class: "hint" }, "Built from events (talk, plus a step event per cell it sees): the gen1recomp way for mod trainers. Mods can't give a trainer a line inside the battle when it loses. Edits to these events in the Events workspace are replaced when these settings change."),
+  );
+  const e = npcNow(map, index);
+  if (e && isStale(map, e, setup)) {
+    out.push(
+      h(
+        "div",
+        { class: "row" },
+        h("span", { class: "hint warn" }, "The trainer moved, turned or changed since its events were built."),
+        h("button", { class: "btn small primary-ish", onclick: () => rebuild("Update trainer events") }, "Update"),
+      ),
+    );
+  }
   return out;
 }

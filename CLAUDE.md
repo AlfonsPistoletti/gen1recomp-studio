@@ -111,6 +111,9 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   `studio:check_choice` command. The game's own events come from `data/scripts` via
   `loadGameScripts` (checkout only, stubbed GameVersion/MapScripts). GENERATORS are keyed by
   studio registry (prize counters and events both write map_scripts).
+- Mod trainers (`src/ui/trainerEvents.ts`): no registry writes trainer_headers, so a studio trainer
+  is a talk event + one step event per sight cell (ids `<MAP>:step:trainer<objIndex>_<k>`); the
+  settings live in the talk event's `trainer` field and the events are rebuilt from them.
 - `applyOps` stamps `id` only in registries whose records carry one (an `id` in a
   text_pointers record broke the engine's schema); on load it drops such a stray id.
 - `applyOps` must not stamp `id` onto `{ __ref }` values (a reloaded reference was re-saved as a

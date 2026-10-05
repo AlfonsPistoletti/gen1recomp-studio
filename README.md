@@ -84,6 +84,12 @@ renamed before players have saves with it.
     signs with their texts and roles, PC tiles, music and wild Pokémon come
     along (e.g. copy a Pokémon Center or Mart for a new town). Connections and
     the game's hand-written scripts for the original are not copied.
+  - **Role: Trainer** (NPCs): trainer class and team, plus a line of sight
+    (0–5 cells in the direction a standing NPC looks) and its before-battle
+    and after-battle texts. Mods can't write the game's trainer headers, so
+    the studio builds the trainer from events (gen1recomp wiki recipe R51): a
+    talk event and one step event per cell it sees ("!", it walks up, then the
+    battle), with a beaten flag. The game's own trainers keep their header.
   - **Role** (NPCs and signs): normal, **shop clerk** (with its stock list,
     the same one the Items workspace's "Sold at" edits), **nurse** (heals;
     the town outside becomes the Teleport/Dig/blackout return point), **PC**,

@@ -394,7 +394,7 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
   if (fights) fields.splice(fields.indexOf(says ?? fields[fields.length - 1]), 0, fights);
   // what it does (shop, nurse, PC, prizes) goes right above what it says
   const role = layer.kind === "npc" || layer.kind === "sign"
-    ? roleSection(map, record, layer.kind, index, (id) => store.edit(map.id, "Text id", (d) => (store.entities(d, layer.key)[index].text = id)))
+    ? roleSection(map, record, layer.kind, index, (id) => store.edit(map.id, "Text id", (d) => (store.entities(d, layer.key)[index].text = id)), (label, mutate) => store.edit(map.id, label, (d) => mutate(store.entities(d, layer.key)[index])))
     : null;
   if (role) fields.splice(says ? fields.indexOf(says) : fields.length, 0, role);
   return [pos, ...fields, actions];

@@ -21,6 +21,9 @@ export interface TrainerSetup {
   flag: string; // set once beaten
   before: string; // text key
   after: string; // text key
+  won?: string; // text key: its line inside the battle when it loses
+  // encounter music: missing = the game's choice for the class, "" = none
+  music?: string;
   // what the events were built for (rebuilt when these change)
   class: string;
   team: number;
@@ -70,9 +73,22 @@ function verbs() {
   return { checks: new Set(s.commands.filter((c) => c.condition).map((c) => c.verb)), choiceVerb: s.choiceVerb };
 }
 
+// the song that starts when the trainer engages
+export function musicOf(t: TrainerSetup): string | null {
+  if (t.music !== undefined) return t.music || null;
+  return store.adapter.trainers?.meetTheme?.(t.class) ?? null;
+}
+
+function sting(t: TrainerSetup): Block[] {
+  const song = musicOf(t);
+  return song ? [{ t: "cmd", row: ["play_music", song] }] : [];
+}
+
 function fight(t: TrainerSetup): Block[] {
   return [
     { t: "cmd", row: ["show_text", t.before] },
+    // its own line inside the battle when it loses (PrintEndBattleText)
+    ...(t.won ? [{ t: "cmd", row: ["save_end_battle_text", t.won] } as Block] : []),
     { t: "cmd", row: ["start_battle", "trainer", t.class, t.team] },
     { t: "if", cond: ["check_battle_result", "win"], not: false, then: [{ t: "cmd", row: ["set_flag", t.flag] }], else: null },
   ];
@@ -84,14 +100,15 @@ export function talkRows(t: TrainerSetup): EventRow[] {
       t: "if",
       cond: ["check_flag", t.flag],
       not: true,
-      then: [{ t: "cmd", row: ["face_player"] }, ...fight(t)],
+      then: [{ t: "cmd", row: ["face_player"] }, ...sting(t), ...fight(t)],
       else: [{ t: "cmd", row: ["face_player"] }, { t: "cmd", row: ["show_text", t.after] }],
     },
   ], verbs());
 }
 
 export function sightRows(t: TrainerSetup, k: number): EventRow[] {
-  const approach: Block[] = [{ t: "cmd", row: ["emote", t.index, "shock"] }];
+  // the sting starts with the "!", ahead of the walk-up (trainer_sight.asm:224)
+  const approach: Block[] = [...sting(t), { t: "cmd", row: ["emote", t.index, "shock"] }];
   if (k > 1) approach.push({ t: "cmd", row: ["move_npc", t.index, t.facing, k - 1] });
   return compile([{ t: "if", cond: ["check_flag", t.flag], not: true, then: [...approach, ...fight(t)], else: null }], verbs());
 }
@@ -108,6 +125,8 @@ export function currentSetup(map: MapDef, e: EntityRecord, prev?: TrainerSetup):
     flag: prev?.flag ?? `${mod}_BEAT_${map.id}_${e.index}`,
     before: prev?.before ?? `_${label}Trainer${e.index}BattleText`,
     after: prev?.after ?? `_${label}Trainer${e.index}AfterText`,
+    won: prev?.won ?? `_${label}Trainer${e.index}EndBattleText`,
+    ...(prev?.music !== undefined ? { music: prev.music } : {}),
     class: cls,
     team: Number(e.trainerParty ?? 1),
     index: e.index,
@@ -133,6 +152,7 @@ export function buildTrainer(map: MapDef, e: EntityRecord, index: number, setup:
   const text = store.table("text");
   if (text[setup.before] === undefined) store.setRecord("text", setup.before, "Trainer text", "Hey! You there!\nLet's battle!{DONE}");
   if (text[setup.after] === undefined) store.setRecord("text", setup.after, "Trainer text", "I need to train\nmore...{DONE}");
+  if (setup.won && text[setup.won] === undefined) store.setRecord("text", setup.won, "Trainer text", "Oh no!\nI lost!{PROMPT}");
   const talk: TrainerEvent = { rows: talkRows(setup), trainer: setup };
   store.setRecord(reg(), eventId(map.id, "talk", textId), "Trainer events", talk);
   // line of sight: drop the old cells, write the new ones

@@ -410,6 +410,16 @@ const towns: TownSpec = {
 
 // ------------------------------------------------------------------ trainers
 
+// gen1recomp OverworldController meetTrainerTheme (home/trainers.asm
+// PlayTrainerMusic, data/trainers/encounter_types.asm): the sting when a
+// trainer engages; rivals keep their own theme
+const FEMALE_TRAINERS = new Set(["OPP_LASS", "OPP_JR_TRAINER_F", "OPP_BEAUTY", "OPP_COOLTRAINER_F"]);
+const EVIL_TRAINERS = new Set(["OPP_UNUSED_JUGGLER", "OPP_GAMBLER", "OPP_ROCKER", "OPP_JUGGLER", "OPP_CHIEF", "OPP_SCIENTIST", "OPP_GIOVANNI", "OPP_ROCKET"]);
+function meetTheme(cls: string): string | null {
+  if (cls.includes("RIVAL")) return null;
+  return EVIL_TRAINERS.has(cls) ? "Music_MeetEvilTrainer" : FEMALE_TRAINERS.has(cls) ? "Music_MeetFemaleTrainer" : "Music_MeetMaleTrainer";
+}
+
 // gen1recomp data/scripts/ai_classes.lua (from pokered ai_pointers.asm):
 // item use and switching per trainer class. chance is out of 256; hpBelow
 // N means "only below max HP / N"; onStatus = only with a status condition.
@@ -495,6 +505,12 @@ const trainers: TrainerSpec = {
   },
   objectClassKey: "trainerClass",
   objectPartyKey: "trainerParty",
+  meetTheme,
+  meetThemes: [
+    { id: "Music_MeetMaleTrainer", label: "Trainer (male)" },
+    { id: "Music_MeetFemaleTrainer", label: "Trainer (female)" },
+    { id: "Music_MeetEvilTrainer", label: "Trainer (villain)" },
+  ],
   aiLayers: [
     { value: 1, label: "Avoid useless status moves", about: "Strongly avoids sleep/poison/paralysis moves when your Pokémon already has a status condition." },
     { value: 2, label: "Set up on the 2nd turn", about: "Prefers stat-changing moves (and a few neighbours like Swift, Haze, Reflect) on its Pokémon's second move choice." },

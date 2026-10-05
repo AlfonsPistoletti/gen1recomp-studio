@@ -44,6 +44,7 @@ const commands: EventCommand[] = [
 
   // ---- Battle
   { id: "battle_trainer", verb: "start_battle", fixed: ["trainer"], label: "Trainer battle", category: "Battle", help: "Fights a trainer class with one of its teams. Use 'Won the battle' in an If right after.", params: [{ key: "trainer", label: "Trainer", type: "trainer", default: "OPP_YOUNGSTER" }, { key: "team", label: "Team", type: "number", default: 1, min: 1, max: 99 }], describe: (a) => `Battle ${nice(String(a.trainer ?? "").replace(/^OPP_/, ""))} (team ${s(a.team)})` },
+  { id: "save_end_battle_text", verb: "save_end_battle_text", label: "Trainer's lost line", category: "Battle", help: "The line the next trainer battle's opponent says inside the battle when it loses; put it right before the battle. Use a text key (_SomeText) from the Text workspace.", params: [{ key: "text", label: "Text key", type: "text", default: "_" }], describe: (a) => `Lost line: "${short(a.text, 30)}"` },
   { id: "battle_wild", verb: "start_battle", fixed: ["wild"], label: "Wild battle", category: "Battle", help: "Starts a wild battle.", params: [{ key: "species", label: "Pokémon", type: "species", default: "PIKACHU" }, { key: "level", label: "Level", type: "number", default: 10, min: 1, max: 100 }], describe: (a) => `Wild ${nice(a.species)} Lv ${s(a.level)}` },
 
   // ---- Movement

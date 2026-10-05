@@ -457,6 +457,23 @@ function setTrainerRole(map: MapDef, entity: EntityRecord, index: number, on: bo
   store.seal();
 }
 
+// the encounter music: the game's choice for the class, another one, or none
+function musicSelect(setup: TrainerSetup, set: (music: string | undefined) => void): HTMLElement {
+  const t = store.adapter.trainers;
+  const auto = t?.meetTheme?.(setup.class) ?? null;
+  const themes = t?.meetThemes ?? [];
+  const label = (id: string | null) => (id ? (themes.find((x) => x.id === id)?.label ?? id.replace(/^Music_/, "")) : "none");
+  const sel = h(
+    "select",
+    {},
+    h("option", { value: "#auto", selected: setup.music === undefined }, `Game's choice for the class (${label(auto)})`),
+    ...themes.map((x) => h("option", { value: x.id, selected: setup.music === x.id }, x.label)),
+    h("option", { value: "", selected: setup.music === "" }, "None"),
+  );
+  sel.addEventListener("change", () => set(sel.value === "#auto" ? undefined : sel.value));
+  return h("div", { class: "row nowrap" }, h("span", {}, "Encounter music"), sel);
+}
+
 // class, team, line of sight and texts of a trainer NPC
 function trainerFields(map: MapDef, entity: EntityRecord, index: number, setTextId: (id: string) => void, editEntity: EditEntity): HTMLElement[] {
   const out: HTMLElement[] = [];
@@ -499,12 +516,16 @@ function trainerFields(map: MapDef, entity: EntityRecord, index: number, setText
   out.push(
     h("div", { class: "row nowrap" }, h("span", {}, "Line of sight"), range, h("span", { class: "muted" }, facing ? `looking ${facing}` : "")),
     ...(facing ? [] : [h("p", { class: "hint" }, "Only a standing NPC (Movement: STAY) can spot the player; this one walks around.")]),
+    musicSelect(setup, (music) => rebuild("Encounter music", { music })),
     h("span", { class: "field-label" }, "Before the battle"),
     textEditor(setup.before, { rows: 3, compact: true, label: setup.before }),
+    ...(setup.won
+      ? [h("span", { class: "field-label" }, "In the battle, when it loses"), textEditor(setup.won, { rows: 3, compact: true, label: setup.won })]
+      : [h("div", { class: "row" }, h("span", { class: "hint" }, "No line inside the battle yet."), h("button", { class: "btn small", onclick: () => rebuild("Lost line", { won: `_${typeof map.label === "string" ? map.label : map.id}Trainer${setup.index}EndBattleText` }) }, "Add"))]),
     h("span", { class: "field-label" }, "When talked to after losing"),
     textEditor(setup.after, { rows: 3, compact: true, label: setup.after }),
     h("div", { class: "kv" }, h("span", {}, "Beaten flag"), h("code", {}, setup.flag)),
-    h("p", { class: "hint" }, "Built from events (talk, plus a step event per cell it sees): the gen1recomp way for mod trainers. Mods can't give a trainer a line inside the battle when it loses. Edits to these events in the Events workspace are replaced when these settings change."),
+    h("p", { class: "hint" }, "Built from events (talk, plus a step event per cell it sees): the gen1recomp way for mod trainers. Edits to these events in the Events workspace are replaced when these settings change."),
   );
   const e = npcNow(map, index);
   if (e && isStale(map, e, setup)) {

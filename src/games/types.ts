@@ -230,6 +230,10 @@ export interface TrainerSlot {
 // What the Trainers workspace needs to know about a generation.
 export interface TrainerSpec {
   registry: string; // trainer classes, each with a list of parties
+  // the song the game plays when a trainer of this class spots the player
+  // (null: none, e.g. rivals); the choices offered to override it
+  meetTheme?(cls: string): string | null;
+  meetThemes?: { id: string; label: string }[];
   picSize: number; // portrait, square
   maxPartySize: number;
   nameMax: number;

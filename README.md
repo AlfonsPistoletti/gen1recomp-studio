@@ -80,6 +80,11 @@ renamed before players have saves with it.
     text id, pointer and string; existing texts are never changed. An NPC that
     shows an original game line can get **New text for this one**: its own
     copy to edit, while the original stays as it is.
+  - **Revert map to base** (or **Delete map** for a new one) lists everything
+    that belongs to the map and differs from the game: layout, events, music,
+    wild Pokémon, NPC texts and roles, hidden events and landing spot, prize
+    counters. Untick what to keep; it's one undo step. A talk event whose
+    NPC is gone shows ⚠ in the Events list.
   - **New map** starts empty or as a **copy of a map**: blocks, warps, NPCs,
     signs with their texts and roles, PC tiles, music and wild Pokémon come
     along (e.g. copy a Pokémon Center or Mart for a new town). Connections and

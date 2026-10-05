@@ -46,6 +46,12 @@ export function splitEventId(id: string): { mapId: string; kind: EventKind; key:
 
 export const eventId = (mapId: string, kind: EventKind, key: string) => `${mapId}:${kind}:${key}`;
 
+// a talk event no NPC or sign on its map uses any more (it does nothing)
+export function orphan(id: string): boolean {
+  const { mapId, kind, key, game } = splitEventId(id);
+  return !game && kind === "talk" && (!store.maps[mapId] || !talker(mapId, key));
+}
+
 function verbs(s: EventSpec): Verbs {
   return { checks: new Set(s.commands.filter((c) => c.condition).map((c) => c.verb)), choiceVerb: s.choiceVerb };
 }
@@ -133,7 +139,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       if (!s) return [];
       const own = Object.keys(events())
         .sort()
-        .map((id) => ({ id, label: eventTitle(id), meta: splitEventId(id).mapId, search: id, edited: true, isNew: store.baseTable(s.registry)[id] === undefined }));
+        .map((id) => ({ id, label: `${orphan(id) ? "⚠ " : ""}${eventTitle(id)}`, meta: splitEventId(id).mapId, search: id, edited: true, isNew: store.baseTable(s.registry)[id] === undefined }));
       const game: { id: string; label: string; meta: string; search: string; edited: boolean; folded: boolean }[] = [];
       for (const [mapId, m] of Object.entries(gameCache ?? {})) {
         for (const [text, rows] of Object.entries(m.talk)) {
@@ -147,7 +153,8 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
     },
     current: () => current,
     pick: (id) => open(id),
-    refreshOn: (reason, _id, registry) => reason === "content" && registry === spec()?.registry,
+    // map edits too: removing an NPC can leave its talk event without one
+    refreshOn: (reason, _id, registry) => (reason === "content" && registry === spec()?.registry) || reason === "edit",
   });
 
   const main = h("div", { class: "ws-scroll" });
@@ -371,9 +378,25 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
       h(
         "div",
         { class: "row" },
-        h("span", {}, t ? `The player talks to ${t.layer === "signs" ? "sign" : "NPC"} ${t.index + 1}${typeof t.e.name === "string" ? ` (${t.e.name})` : ""}` : `The player talks to ${info.key} (not on the map any more)`),
+        h("span", {}, t ? `The player talks to ${t.layer === "signs" ? "sign" : "NPC"} ${t.index + 1}${typeof t.e.name === "string" ? ` (${t.e.name})` : ""}` : `The player talks to whoever has the text id ${info.key}`),
         t ? h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(info.mapId, t.layer, t.index) }, "Show on map") : null,
       ),
+      ...(t
+        ? []
+        : [
+            h(
+              "div",
+              { class: "row" },
+              h("span", { class: "hint warn" }, `No NPC or sign on ${info.mapId} has the text id ${info.key} any more, so this event never runs. Give one that text id again, or delete the event.`),
+              h("button", {
+                class: "btn small danger",
+                onclick: () => {
+                  store.setRecord(s.registry, id, "Delete event", undefined);
+                  store.seal();
+                },
+              }, "Delete event"),
+            ),
+          ]),
       ...(game !== undefined ? [h("p", { class: "hint" }, `Replaces the game's own event for ${info.key}${game ? "" : " (code in the game)"}.`)] : []),
     );
   } else if (info.kind === "step") {

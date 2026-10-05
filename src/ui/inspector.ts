@@ -11,6 +11,7 @@ import type { MapView } from "../render/mapView.ts";
 import { clear, field, h, numberInput, rerender, selectInput, toast, errorText, onFocusLeave } from "./dom.ts";
 import { npcTextSection } from "./mapText.ts";
 import { roleSection, townSection } from "./mapTown.ts";
+import { changedParts, resetMapDialog } from "./mapReset.ts";
 import { nav } from "./nav.ts";
 import { warpProblem } from "../core/checks.ts";
 
@@ -281,14 +282,11 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
       ),
     ),
     h("p", { class: "hint" }, "Select tool (V): click to select, drag to move. Double-click a warp to follow it, a neighbouring map to open it."),
-    isNew || store.isEdited(map.id)
+    isNew || changedParts(map, true).length
       ? h("button", {
           class: "btn danger small",
-          onclick: () => {
-            if (!confirm(isNew ? `Delete new map ${map.id}?` : `Revert all edits to ${map.id}?`)) return;
-            if (isNew) store.deleteMap(map.id);
-            else revertMap(map.id, store.base[map.id]);
-          },
+          // layout plus what belongs to the map elsewhere (events, music, ...)
+          onclick: () => resetMapDialog(map, isNew, () => revertMap(map.id, store.base[map.id]), () => store.deleteMap(map.id)),
         }, isNew ? "Delete map" : "Revert map to base")
       : null,
   ].filter((e): e is HTMLElement => !!e);
@@ -317,7 +315,6 @@ function revertMap(id: string, to: MapDef): void {
     for (const k of Object.keys(d)) delete d[k];
     Object.assign(d, clone(to));
   });
-  store.seal();
 }
 
 function connectionRow(map: MapDef, dir: Direction, ids: string[], view: MapView): HTMLElement {

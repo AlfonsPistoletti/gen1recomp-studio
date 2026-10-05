@@ -30,6 +30,7 @@ import { mountMoveWorkspace } from "./ui/moveEditor.ts";
 import { mountItemWorkspace } from "./ui/itemEditor.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
+import { playEvent } from "./ui/eventPreview.ts";
 
 configureLua(wasmUrl);
 // the desktop shell when running inside it, the dev server otherwise
@@ -288,6 +289,66 @@ nav.openMap = (mapId) => {
 };
 // draws an event's walking path: each click walks from the path's end to
 // the clicked cell (along x, then y); Escape returns to the Events workspace
+// an event preview over the map view: a caption box, Stop, and a click or
+// key to move on from a caption; leaving it restores the map
+nav.playEvent = (mapId, blocks, start) => {
+  const back = nav.workspace;
+  setWorkspace("maps");
+  view.openMap(mapId);
+  store.select(null);
+  const host = $("#viewport");
+  let stopped = false;
+  let wake: (() => void) | null = null;
+  const caption = h("div", { class: "preview-caption", hidden: true, onclick: () => wake?.() });
+  const stop = () => {
+    stopped = true;
+    wake?.();
+  };
+  const bar = h(
+    "div",
+    { class: "preview-bar" },
+    h("span", {}, "Event preview"),
+    h("span", { class: "muted" }, "click or a key: next · Esc: stop"),
+    h("button", { class: "btn small", onclick: stop }, "Stop"),
+  );
+  host.append(bar, caption);
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") stop();
+    else wake?.();
+  };
+  window.addEventListener("keydown", onKey, true);
+  playEvent(
+    {
+      show: (state) => view.setPreview(state),
+      caption: (text) => {
+        caption.hidden = !text;
+        caption.textContent = text ?? "";
+      },
+      stopped: () => stopped,
+      pause: (ms) =>
+        new Promise<void>((resolve) => {
+          const done = () => {
+            clearTimeout(timer);
+            wake = null;
+            resolve();
+          };
+          const timer = setTimeout(done, stopped ? 0 : ms);
+          wake = done;
+        }),
+    },
+    mapId,
+    blocks,
+    start,
+  )
+    .catch((err) => toast(errorText(err), "error"))
+    .finally(() => {
+      window.removeEventListener("keydown", onKey, true);
+      view.setPreview(null);
+      bar.remove();
+      caption.remove();
+      if (back !== "maps") setWorkspace(back);
+    });
+};
 nav.pickCell = (mapId, picked) => {
   const back = nav.workspace;
   setWorkspace("maps");

@@ -175,7 +175,27 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       render(true);
     },
   }, "Delete event");
-  center.append(h("div", { class: "panel-head" }, title, del), main);
+  // play the event on its map
+  const play = h("button", {
+    class: "btn small",
+    title: "Play this event on the map (a preview: Ifs take their first branch)",
+    onclick: () => {
+      const s = spec();
+      if (!s || !current) return;
+      const info = splitEventId(current);
+      const rows = info.game ? gameTalkEvent(info.mapId, info.key) || [] : events()[current]?.rows ?? [];
+      const ev = events()[current];
+      let start: { x: number; y: number; facing: string } | null = null;
+      if (info.kind === "step" && ev && typeof ev.x === "number") start = { x: ev.x, y: ev.y ?? 0, facing: "up" };
+      else if (info.kind === "talk") {
+        // the player stands in front of whoever is talked to
+        const t = talker(info.mapId, info.key);
+        if (t) start = { x: t.e.x, y: t.e.y + 1, facing: "up" };
+      }
+      nav.playEvent(info.mapId, parse(rows, verbs(s)), start);
+    },
+  }, "▶ Preview");
+  center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, play, del)), main);
   right.append(h("div", { class: "panel-head" }, h("span", {}, "Help")), side);
 
   const open = (id: string) => {

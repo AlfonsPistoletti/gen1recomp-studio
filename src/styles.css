@@ -813,6 +813,8 @@ dialog.modal { min-width: 420px; }
 .conn-unit { font-size: 11px; }
 .path-widget { display: flex; flex-direction: column; gap: 4px; }
 .path-arrows { font-size: 15px; letter-spacing: 1px; }
+.preview-bar { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: 6px; background: var(--panel); border: 1px solid var(--accent); font-size: 12px; }
+.preview-caption { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 20; min-width: 320px; max-width: 70%; padding: 10px 14px; white-space: pre-line; background: #f8f8f8; color: #202020; border: 3px double #202020; border-radius: 4px; font: 14px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace; cursor: pointer; }
 .mart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 16px; }
 .mart-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .mart-row .btn { padding: 0 6px; height: 20px; }

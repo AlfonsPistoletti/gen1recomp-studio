@@ -1,3 +1,5 @@
+import type { Block } from "../core/eventBlocks.ts";
+
 // Cross-links between workspaces ("open in Pokémon", "edit this text", ...)
 // without the workspaces importing each other. main.ts and the workspaces
 // fill in the handlers when they mount.
@@ -34,6 +36,8 @@ export const nav = {
   // an event: a studio_events id, or game:<MAP>:talk:<TEXT> for the game's own
   openEvent: (_id: string): void => {},
   openGlobal: (_section: string): void => {},
+  // play an event's blocks on its map (start: where the player stands)
+  playEvent: (_mapId: string, _blocks: Block[], _start: { x: number; y: number; facing: string } | null): void => {},
   // pick one cell on a map, then come back
   pickCell: (_mapId: string, _picked: (x: number, y: number) => void): void => {},
   // draw a walking path on a map: clicks extend it, Escape finishes

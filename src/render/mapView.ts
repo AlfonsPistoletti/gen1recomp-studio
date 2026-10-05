@@ -431,7 +431,12 @@ export class MapView {
     for (const layer of byKind(store.adapter.layers, ["warp", "trigger", "sign", "npc"])) {
       store.entities(map, layer.key).forEach((e, i) => {
         ctx.lineWidth = lw;
-        if (layer.kind === "npc") this.drawNpc(layer, e);
+        if (layer.kind === "npc") {
+          // an event preview moves NPCs around (and hides or shows them)
+          const a = this.preview?.actors[`npc${String(e.index)}`];
+          if (!a) this.drawNpc(layer, e);
+          else if (!a.hidden) this.drawNpc(layer, { ...e, x: a.x, y: a.y, movement: "STAY", range: a.facing.toUpperCase(), hidden: false });
+        }
         else if (layer.kind === "sign") {
           ctx.globalAlpha = 0.5;
           ctx.fillStyle = layer.color;
@@ -479,6 +484,7 @@ export class MapView {
       if (land) this.markerIcon("plane-landing", PlaneLanding, LANDING_ICON, land);
     }
     if (this.pathOverlay) this.drawPath(this.pathOverlay);
+    if (this.preview) this.drawPreviewExtras(map);
     const sel = store.selection;
     const e = sel ? store.entities(map, sel.layer)[sel.index] : undefined;
     if (e) {
@@ -886,6 +892,41 @@ export class MapView {
   private cellPick: ((cx: number, cy: number) => void) | null = null;
   private pickDone: (() => void) | null = null;
 
+  // An event preview: where the player and NPCs are right now (cells, may
+  // be fractional mid-step) and an emotion bubble over one of them.
+  private preview: EventPreviewState | null = null;
+
+  setPreview(state: EventPreviewState | null): void {
+    this.preview = state;
+    this.invalidate();
+  }
+
+  private drawPreviewExtras(map: MapDef): void {
+    const p = this.preview!;
+    const npcLayer = store.adapter.layers.find((l) => l.kind === "npc");
+    const player = p.actors.player;
+    if (npcLayer && player && !player.hidden) {
+      this.drawNpc(npcLayer, { x: player.x, y: player.y, sprite: p.playerSprite ?? "SPRITE_RED", movement: "STAY", range: player.facing.toUpperCase() });
+    }
+    const who = p.emote ? p.actors[p.emote] : undefined;
+    if (who) {
+      const ctx = this.ctx;
+      const x = who.x * CELL;
+      const y = who.y * CELL - CELL - 2;
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = "#202020";
+      ctx.lineWidth = 1;
+      ctx.fillRect(x + 2, y + 2, CELL - 4, CELL - 4);
+      ctx.strokeRect(x + 2.5, y + 2.5, CELL - 5, CELL - 5);
+      ctx.fillStyle = "#202020";
+      ctx.font = "bold 11px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(p.emoteText ?? "!", x + CELL / 2, y + CELL - 4);
+      ctx.textAlign = "start";
+    }
+    void map;
+  }
+
   // An event's walking path, drawn over the map: from a start cell, one
   // cell per direction (up/down/left/right).
   private pathOverlay: { x: number; y: number; dirs: string[] } | null = null;
@@ -1020,6 +1061,13 @@ function outline(ctx: CanvasRenderingContext2D, x: number, y: number, w: number,
   ctx.lineWidth = 1 / zoom;
   ctx.strokeStyle = color;
   ctx.strokeRect(x, y, w, h);
+}
+
+export interface EventPreviewState {
+  actors: Record<string, { x: number; y: number; facing: string; hidden?: boolean }>;
+  playerSprite?: string;
+  emote?: string | null; // actor key
+  emoteText?: string;
 }
 
 export function isTyping(e: KeyboardEvent): boolean {

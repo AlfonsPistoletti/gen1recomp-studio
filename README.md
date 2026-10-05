@@ -225,6 +225,11 @@ renamed before players have saves with it.
     at that point of the event (the earlier moves are replayed). A step event
     can start from the **Escort** template (like Prof. Oak stopping the player
     at the grass).
+  - **▶ Preview** plays the event on its map: people walk their paths at the
+    game's step speed, texts show as captions (click or a key for the next),
+    "!" bubbles pop up, NPCs appear and disappear. It's a sketch, not the
+    game: Ifs take their first branch, Choices their first option, and
+    battles, warps and items only show a caption.
   - Commands: text, yes/no questions, choices, flags, give/take items, money
     and Pokémon, heal, trainer and wild battles, moving the player and NPCs,
     showing/hiding NPCs, warps, waits, fades, music and sounds.

@@ -11,6 +11,7 @@ import { clear, comboInput, field, h, numberInput, rerender, selectInput, onFocu
 import { promptNewRecord } from "./newRecord.ts";
 import { nav } from "./nav.ts";
 import { idRow } from "./renameId.ts";
+import { cryCard, cryFor } from "./cryCard.ts";
 import { mountRecordList } from "./recordList.ts";
 import { textEditor } from "./textField.ts";
 
@@ -170,6 +171,9 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     store.group(`New Pokémon ${res.id}`, () => {
       if (textKey) store.setRecord("text", textKey, "New dex text", typeof dexText === "string" ? dexText : "");
       store.setRecord(REG, res.id, `New Pokémon ${res.id}`, rec);
+      // the game plays cries[<species id>]: start with the source's cry
+      const cry = cryFor(res.source);
+      if (cry) store.setRecord("cries", res.id, "New cry", cry);
     });
     open(res.id);
   };
@@ -201,8 +205,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (reason === "project") {
       if (!current || !species()[current]) current = dexOrder()[0] ?? null;
       schedule();
-    } else if (reason === "content" && (registry === REG || registry === "text")) {
-      if (registry === REG && id !== current) return;
+    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries")) {
+      if ((registry === REG || registry === "cries") && id !== current) return;
       schedule();
     } else if (reason === "reveal" && registry === REG && id) {
       nav.openPokemon(id);
@@ -275,6 +279,7 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
   return [
     header,
     artCard(id, r, spec),
+    cryCard(id),
     card("Base stats", ...statRows, h("div", { class: "stat-row total" }, h("span", { class: "stat-label" }, "Total"), h("strong", {}, String(total)))),
     card(
       "Battle",

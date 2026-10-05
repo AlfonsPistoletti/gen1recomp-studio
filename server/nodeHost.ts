@@ -107,5 +107,7 @@ export const nodeHost: Host = {
     const file = resolveImage(version, rel);
     return file ? pathToFileURL(file).href : "";
   },
+  // only the web front opens links (httpHost.openUrl); the server never does
+  async openUrl() {},
   modkit: runModkit,
 };

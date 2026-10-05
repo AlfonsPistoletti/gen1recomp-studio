@@ -112,6 +112,10 @@ const content: ContentSpec[] = [
   // each map's song (audio.lua mapSongs), and the songs to pick from; a
   // song id is a record of the engine's `music` registry
   { registry: "map_songs", file: "audio.lua", editable: true, build: (f) => ((f as { mapSongs?: Record<string, unknown> }).mapSongs ?? {}) },
+  // each species' cry: the game's synth data ({ header, pitch, length }),
+  // another species' ({ base }), or a sound file ({ file }); written with
+  // override since switching between those shapes can't be a patch
+  { registry: "cries", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { cries?: Record<string, unknown> }).cries ?? {}) },
   { registry: "music", file: "audio.lua", editable: false, build: (f) => ((f as { songs?: Record<string, unknown> }).songs ?? {}) },
   // catch numbers per ball id; the vanilla records live in the engine
   // (src/battle/Catching.lua), so they are restated (written with override)
@@ -349,7 +353,7 @@ const pascal = (id: string) => id.toLowerCase().replace(/(^|_)(\w)/g, (_m, _s, c
 // where each registry's ids are referenced (see RenameSpec)
 const renames: Record<string, RenameSpec> = {
   // evolutions, trainer teams, wild slots, prizes; static encounters on maps; cries
-  pokemon: { fields: ["species", "pokemon", "cry"], lists: [], keyed: [], derivedText: { field: ["dexEntry", "text"], key: (id) => `_${pascal(id)}DexEntry` } },
+  pokemon: { fields: ["species", "pokemon", "cry", "base"], lists: [], keyed: ["cries"], derivedText: { field: ["dexEntry", "text"], key: (id) => `_${pascal(id)}DexEntry` } },
   // learnsets, TM/HM machines; start moves, TM/HM lists, trainer slot moves
   moves: { fields: ["move"], lists: ["level1Moves", "tmhm", "moves"], keyed: ["battle_anims"] },
   // evolution items, item balls, hidden items, prizes, trainer AI; shop stock

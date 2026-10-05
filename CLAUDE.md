@@ -94,6 +94,10 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
 - Renaming a mod's own record id (`src/ui/renameId.ts`, `adapter.renames`): references are found
   only through each registry's RenameSpec fields/lists (never blind string replacement), plus
   `keyed` registries, an id-derived text key and `{ __ref }`s; maps included, `text` prose never.
+- Cries: the engine plays `cries[<species id>]` (the pokemon record's `cry` field is not read in
+  Gen 1), so new species get a `cries` record (`{ base }` or a copied `{ file }`). `cries` is a
+  `replace` registry (chip data / base / file shapes). Imported sounds use the art asset pipeline
+  (`addAsset(..., ext)`, `ASSET_TYPES`); `host.openUrl` opens https links (Tauri `open_url`).
 - `applyOps` stamps `id` only in registries whose records carry one (an `id` in a
   text_pointers record broke the engine's schema); on load it drops such a stray id.
 - `applyOps` must not stamp `id` onto `{ __ref }` values (a reloaded reference was re-saved as a

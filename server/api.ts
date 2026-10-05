@@ -79,7 +79,8 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, next:
         const file = resolveImage(version, url.searchParams.get("path") || "");
         if (!file) return send(res, 404, { error: "image not found" });
         res.statusCode = 200;
-        res.setHeader("Content-Type", file.endsWith(".png") ? "image/png" : "application/octet-stream");
+        const types: Record<string, string> = { png: "image/png", wav: "audio/wav", ogg: "audio/ogg", mp3: "audio/mpeg", flac: "audio/flac" };
+        res.setHeader("Content-Type", types[file.split(".").pop() ?? ""] ?? "application/octet-stream");
         res.setHeader("Cache-Control", "no-cache");
         fs.createReadStream(file).pipe(res);
         return;

@@ -184,6 +184,21 @@ fn write_binary(app: AppHandle, state: State<Studio>, path: String, data: Vec<u8
     fs::write(&full, data).map_err(|e| format!("{}: {e}", display(&full)))
 }
 
+// Opens a web page in the system browser (https only).
+#[tauri::command]
+fn open_url(url: String) -> CmdResult<()> {
+    if !url.starts_with("https://") || url.chars().any(|c| c.is_whitespace() || c == '"') {
+        return Err("only https:// links can be opened".into());
+    }
+    #[cfg(target_os = "windows")]
+    let result = std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).spawn();
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("open").arg(&url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = std::process::Command::new("xdg-open").arg(&url).spawn();
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn delete_file(app: AppHandle, state: State<Studio>, path: String) -> CmdResult<()> {
     let full = mods_file(&app, &state, &path)?;
@@ -277,7 +292,14 @@ fn image_response(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u
     for base in bases {
         let Ok(full) = paths::within(&base, rel) else { return not_found() };
         if let Ok(bytes) = fs::read(&full) {
-            let mime = if rel.ends_with(".png") { "image/png" } else { "application/octet-stream" };
+            let mime = match rel.rsplit('.').next() {
+                Some("png") => "image/png",
+                Some("wav") => "audio/wav",
+                Some("ogg") => "audio/ogg",
+                Some("mp3") => "audio/mpeg",
+                Some("flac") => "audio/flac",
+                _ => "application/octet-stream",
+            };
             return Response::builder()
                 .header("Content-Type", mime)
                 .header("Access-Control-Allow-Origin", "*")
@@ -295,7 +317,7 @@ fn main() {
         .register_uri_scheme_protocol("studio", |ctx: UriSchemeContext<'_, tauri::Wry>, request| {
             image_response(ctx.app_handle(), &request)
         })
-        .invoke_handler(tauri::generate_handler![host_info, set_game_root, read_text, write_text, write_binary, delete_file, list_dir, modkit])
+        .invoke_handler(tauri::generate_handler![host_info, set_game_root, read_text, write_text, write_binary, delete_file, open_url, list_dir, modkit])
         .run(tauri::generate_context!())
         .expect("error while running Gen1Recomp Studio");
 }

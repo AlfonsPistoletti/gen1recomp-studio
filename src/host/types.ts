@@ -46,6 +46,8 @@ export interface Host {
   writeBinary(path: string, data: Uint8Array): Promise<void>;
   // removes one file under game/mods/ (missing files are fine)
   deleteFile(path: string): Promise<void>;
+  // opens an https:// link in the system browser
+  openUrl(url: string): Promise<void>;
   list(root: Root, path: string): Promise<DirEntry[]>;
   // A URL the page can load an image from. `rel` resolves the way the game's
   // merged filesystem does: the version's cache first, then the game root.

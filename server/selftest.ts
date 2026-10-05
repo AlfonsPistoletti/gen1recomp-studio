@@ -175,6 +175,15 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   check("map song written as override", src.includes('map_songs:override("PALLET_TOWN", "Music_Routes1")'), src.slice(-200));
 }
 
+// cries: switching between chip data and a file is an override
+{
+  check("vanilla cries loaded", !!(content.cries?.ONIX as { header?: unknown } | undefined)?.header);
+  const calls = contentCalls(adapter, { maps: base, ...content }, { cries: { ONIX: { file: "mods/studio_selftest/assets/studio/onix_cry_00000000.wav" }, STEELIX: { base: "ONIX" } } }).calls;
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("cry file written as override", src.includes('cries:override("ONIX", { file = "mods/studio_selftest/assets/studio/onix_cry_00000000.wav" })'), src.slice(-300));
+  check("new species' cry registered", src.includes('cries:register("STEELIX", { base = "ONIX" })') || src.includes('cries:override("STEELIX", { base = "ONIX" })'));
+}
+
 // prize counters: data file + helper register a talk handler per counter
 {
   const id = "GAME_CORNER_PRIZE_ROOM:TEXT_GAMECORNERPRIZEROOM_PRIZE_VENDOR_1";

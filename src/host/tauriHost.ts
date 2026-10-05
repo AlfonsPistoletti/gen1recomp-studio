@@ -13,6 +13,7 @@ export const tauriHost: Host = {
   writeText: (path: string, text: string) => invoke<void>("write_text", { path, text }),
   writeBinary: (path: string, data: Uint8Array) => invoke<void>("write_binary", { path, data: Array.from(data) }),
   deleteFile: (path: string) => invoke<void>("delete_file", { path }),
+  openUrl: (url: string) => invoke<void>("open_url", { url }),
   list: (root: Root, path: string) => invoke<DirEntry[]>("list_dir", { root, path }),
   // served by the shell's studio:// protocol (http://studio.localhost/ on Windows)
   imageUrl: (version: string, rel: string) => convertFileSrc(`image/${version}/${rel}`, "studio"),

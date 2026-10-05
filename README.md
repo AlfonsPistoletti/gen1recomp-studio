@@ -100,6 +100,12 @@ renamed before players have saves with it.
     towns isn't supported yet (it would also need the Town Map).
   - The **Wild** overlay (W) shows which cells roll encounters.
   - A green dot in the map list marks maps with wild Pokémon.
+- **Pokémon** (cries): the **Cry** card imports a WAV, OGG, MP3 or FLAC
+  file, or borrows another Pokémon's cry; imported sounds can be played in
+  the studio. The game's own cries are synthesized by the game while it runs,
+  so they can't be previewed. For a new Gen 1 style cry, the card links to the
+  Gen 1 cry synthesizer (export a .wav there, import it here). New Pokémon
+  start with the cry of the one they were copied from.
 - **Pokémon**: base stats, types, catch rate, EXP, growth, evolutions,
   starting and level-up moves, TM/HM compatibility and the Pokédex entry.
 - **New Pokémon and trainers**: **+ New** in the Pokémon or Trainers list

@@ -28,6 +28,10 @@ export const httpHost: Host = {
   writeBinary: async (path: string, data: Uint8Array) => {
     await call("/api/host/write-binary", { path, base64: toBase64(data) });
   },
+  // the browser opens it itself
+  openUrl: async (url: string) => {
+    window.open(url, "_blank", "noopener");
+  },
   deleteFile: async (path: string) => {
     await call("/api/host/delete", { path });
   },

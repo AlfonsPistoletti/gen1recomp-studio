@@ -13,6 +13,7 @@ const NAMES: Record<string, [string, string]> = {
   encounters: ["Wild tables", "wild table"],
   text_pointers: ["Map text pointers", "text pointer"],
   pokemon: ["Pokémon", "Pokémon"],
+  cries: ["Cries", "cry"],
   moves: ["Moves", "move"],
   studio_effects: ["Custom move effects", "custom effect"],
   battle_anims: ["Move animations", "move animation"],
@@ -71,6 +72,8 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     }
     case "pokemon":
       return removed ? null : () => nav.openPokemon(id);
+    case "cries":
+      return store.table("pokemon")[id] ? () => nav.openPokemon(id) : null;
     case "moves":
     case "battle_anims":
       return store.table("moves")[id] ? () => nav.openMove(id) : null;

@@ -19,11 +19,21 @@ function hash(data: Uint8Array): string {
   return h.toString(16).padStart(8, "0");
 }
 
-// Registers an imported PNG for `mod` and returns the path records use.
-export function addAsset(mod: string, name: string, data: Uint8Array): string {
+// file types the studio imports, by extension: PNG art; cries and other
+// sounds in the formats LÖVE plays
+export const ASSET_TYPES: Record<string, string> = {
+  png: "image/png",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  mp3: "audio/mpeg",
+  flac: "audio/flac",
+};
+
+// Registers an imported file for `mod` and returns the path records use.
+export function addAsset(mod: string, name: string, data: Uint8Array, ext = "png"): string {
   const safe = name.toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "") || "art";
-  const path = `mods/${mod}/${STUDIO_ASSETS}/${safe}_${hash(data)}.png`;
-  if (!pending.has(path)) pending.set(path, { data, url: URL.createObjectURL(new Blob([data as BlobPart], { type: "image/png" })) });
+  const path = `mods/${mod}/${STUDIO_ASSETS}/${safe}_${hash(data)}.${ext}`;
+  if (!pending.has(path)) pending.set(path, { data, url: URL.createObjectURL(new Blob([data as BlobPart], { type: ASSET_TYPES[ext] ?? "application/octet-stream" })) });
   return path;
 }
 
@@ -119,7 +129,7 @@ export async function saveAssets(host: Host, mod: string, referenced: string): P
     written++;
   }
   for (const e of await host.list("game", prefix.slice(0, -1))) {
-    if (e.dir || !e.name.endsWith(".png")) continue;
+    if (e.dir || !(e.name.split(".").pop()! in ASSET_TYPES)) continue;
     const path = prefix + e.name;
     if (referenced.includes(path)) continue;
     await host.deleteFile(path);

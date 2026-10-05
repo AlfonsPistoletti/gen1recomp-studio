@@ -63,7 +63,7 @@ export class Store {
   maps: Record<string, MapDef> = {};
   palettes: Record<string, string> = {};
   currentMap = "PALLET_TOWN";
-  tool: Tool = "brush";
+  tool: Tool = "select";
   stamp: Stamp = { w: 1, h: 1, blocks: [0] };
   selection: Selection = null;
   overlays: Overlays = { grid: false, collision: false, entities: true, neighbors: true, wild: false };

@@ -50,21 +50,32 @@ export function textEditor(key: string, opts: { rows?: number; label?: string; c
   let toolbar: HTMLElement | null = null;
   let legend: HTMLElement | null = null;
   if (opts.commands) {
+    // Replaces [from, to) with `text` the way typing does, so Ctrl+Z in the
+    // box undoes it (setting area.value would wipe the box's undo history).
+    const replace = (from: number, to: number, text: string) => {
+      area.focus();
+      area.setSelectionRange(from, to);
+      if (!document.execCommand("insertText", false, text)) {
+        area.value = area.value.slice(0, from) + text + area.value.slice(to);
+        area.setSelectionRange(from + text.length, from + text.length);
+      }
+    };
     // inserting keeps the caret where it was and counts as typing
     const insert = (token: string, end: boolean) => {
       const { selectionStart: a, selectionEnd: b, value } = area;
       if (end) {
-        area.value = withEnding(value, token);
-        area.setSelectionRange(area.value.length, area.value.length);
+        // swap only the part that differs: the old ending (if any) at the end
+        const next = withEnding(value, token);
+        let common = 0;
+        while (common < value.length && common < next.length && value[common] === next[common]) common++;
+        replace(common, value.length, next.slice(common));
       } else {
         // never after the ending: {DONE}/{PROMPT} must stay last
         const endAt = value.search(/\s*\{(DONE|PROMPT)\}\s*$/);
         const at = endAt >= 0 && a > endAt ? endAt : a;
         const to = endAt >= 0 && b > endAt ? endAt : b;
-        area.value = value.slice(0, at) + token + value.slice(to);
-        area.setSelectionRange(at + token.length, at + token.length);
+        replace(at, to, token);
       }
-      area.focus();
       area.dataset.dirty = "1";
       save();
     };

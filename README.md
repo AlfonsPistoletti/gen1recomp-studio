@@ -55,7 +55,7 @@ and text written to Lua and read back must come out identical.
 
 ## Workspaces
 
-The tabs in the top bar switch between workspaces (Alt+1 to Alt+7). Game, mod,
+The tabs in the top bar switch between workspaces (Alt+1 to Alt+8). Game, mod,
 undo/redo and Save are shared: one undo history and one save cover every tab.
 
 The changes button next to Validate shows how many records differ from the
@@ -200,6 +200,21 @@ renamed before players have saves with it.
   and the maps, NPCs and Pokédex entries that use it. Write one line per row,
   with a blank line between pages. Buttons insert `{PLAYER}`, `{RIVAL}`,
   `{DONE}`, `{PROMPT}` and the like, and "What the commands do" explains each.
+- **Events**: map events built from commands, like RPG Maker's event lists.
+  - An event runs when the player talks to an NPC or sign (Maps: select it,
+    Role: Event), steps on a cell (only once, if wanted) or enters a map
+    (both from the map's properties, or **+ New**).
+  - Commands: text, yes/no questions, choices, flags, give/take items, money
+    and Pokémon, heal, trainer and wild battles, moving the player and NPCs,
+    showing/hiding NPCs, warps, waits, fades, music and sounds.
+  - **If** blocks check a flag, an item, money, caught Pokémon, a YES answer or
+    a won battle, with an optional **Else**; **Choice** gives a menu with one
+    branch per option. Flags are free names (name new ones after your mod).
+  - With a gen1recomp source checkout, the game's own events are listed too
+    (folded at the bottom). Command-list ones open read-only with **Edit a
+    copy**; ones that are code in the game can be replaced by a new event.
+  - Events are saved as the engine's own command rows in
+    `mods/<id>/studio_events.lua`; a fixed helper registers them.
 - **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
   reads.
   - Wild slot chances.

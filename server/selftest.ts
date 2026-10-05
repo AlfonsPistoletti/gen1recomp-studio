@@ -13,6 +13,9 @@ import { adapterFor } from "../src/games/index.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../src/lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../src/lua/itemEffectRuntime.ts";
 import { PRIZE_RUNTIME, prizeRegistration } from "../src/lua/prizeRuntime.ts";
+import { EVENT_RUNTIME, eventRegistration } from "../src/lua/eventRuntime.ts";
+import { compile, parse } from "../src/core/eventBlocks.ts";
+import { gameEvents } from "../src/project/gameEvents.ts";
 import { loadLuaData, runMod } from "../src/lua/vm.ts";
 import { dataFile, studioContentFile } from "../src/lua/writer.ts";
 import { contentCalls, fieldOrders, isDeep, listMods, openProject } from "../src/project/project.ts";
@@ -182,6 +185,44 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
   check("cry file written as override", src.includes('cries:override("ONIX", { file = "mods/studio_selftest/assets/studio/onix_cry_00000000.wav" })'), src.slice(-300));
   check("new species' cry registered", src.includes('cries:register("STEELIX", { base = "ONIX" })') || src.includes('cries:override("STEELIX", { base = "ONIX" })'));
+}
+
+// events: blocks <-> rows, data file + helper register talk/step/enter
+{
+  const spec = adapter.events!;
+  const verbs = { checks: new Set(spec.commands.filter((c) => c.condition).map((c) => c.verb)), choiceVerb: spec.choiceVerb };
+  const rows = compile([
+    { t: "cmd", row: ["face_player"] },
+    { t: "if", cond: ["check_flag", "STUDIO_SELFTEST_GOT"], not: true, then: [{ t: "cmd", row: ["give_item", "POTION", 1] }, { t: "cmd", row: ["set_flag", "STUDIO_SELFTEST_GOT"] }], else: [{ t: "cmd", row: ["show_text", "Bye!"] }] },
+    { t: "choice", labels: ["A", "B", "C"], branches: [[{ t: "cmd", row: ["show_text", "a"] }], [], [{ t: "stop" }]] },
+  ], verbs);
+  check("event blocks round-trip", deepEqual(compile(parse(rows, verbs), verbs), rows));
+  const events = {
+    "PALLET_TOWN:talk:TEXT_PALLETTOWN_GIRL": { rows },
+    "PALLET_TOWN:step:gate": { x: 10, y: 1, once: true, rows: [["show_text", "Stop!"], ["move_player", "down", 1]] },
+    "PALLET_TOWN:enter:welcome": { rows: [["show_text", "Welcome!"]] },
+  };
+  const dataSrc = dataFile("studio_selftest", "map events", events, ["x", "y", "once", "rows"]);
+  const contentSrc = studioContentFile("studio_selftest", [], {}, EVENT_RUNTIME + "\n" + eventRegistration("studio_selftest", "studio_events.lua"));
+  const evRun = await runMod(new Map([[file, contentSrc], ["mods/studio_selftest/studio_events.lua", dataSrc]]), "studio_selftest", file, null);
+  check("event helper runs", evRun.errors.length === 0, evRun.errors.join("; "));
+  check("events registered", evRun.ops.some((o) => o.registry === "map_scripts" && o.id === "PALLET_TOWN") && evRun.ops.some((o) => o.registry === "commands" && o.id === "studio:check_choice"), evRun.ops.map((o) => `${o.registry}:${o.id}`).join(", "));
+  const back = await loadLuaData<Record<string, unknown>>(dataSrc, "studio_events.lua");
+  check("studio_events.lua round-trips", deepEqual(back, events), JSON.stringify(back).slice(0, 200));
+  check("event helper has no backticks or ${", !EVENT_RUNTIME.includes("`") && !EVENT_RUNTIME.includes("${"));
+}
+
+// the game's own events (checkout): Oak's talk is a list, cutscenes are code
+{
+  const game = await gameEvents(nodeHost, version);
+  if (game) {
+    const oak = game.PALLET_TOWN?.talk?.TEXT_PALLETTOWN_OAK;
+    check("game events: Oak's talk is a command list", Array.isArray(oak) && (oak as unknown[][]).some((r) => r[0] === "start_battle"), JSON.stringify(oak)?.slice(0, 80));
+    const maps = Object.keys(game).length;
+    const lists = Object.values(game).reduce((n, m) => n + Object.values(m.talk).filter(Boolean).length, 0);
+    const code = Object.values(game).reduce((n, m) => n + Object.values(m.talk).filter((t) => !t).length + m.code.length, 0);
+    check("game events loaded", maps > 50 && lists > 20, `${maps} maps, ${lists} talk lists, ${code} code`);
+  } else console.log("skip game events (no data/scripts)");
 }
 
 // prize counters: data file + helper register a talk handler per counter

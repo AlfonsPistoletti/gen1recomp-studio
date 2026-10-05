@@ -793,6 +793,22 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .id-input { width: 180px; text-transform: uppercase; }
 .battle-preview-wrap { display: flex; gap: 12px; align-items: flex-end; margin: 8px 0; }
 .battle-preview { width: 320px; height: 288px; image-rendering: pixelated; border: 1px solid var(--line-2); border-radius: 4px; flex: none; }
+.block-list { display: flex; flex-direction: column; gap: 1px; }
+.block-row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 13px; min-height: 26px; }
+.block-row:hover { background: var(--panel-2); }
+.block-row.selected { background: #1f2a44; outline: 1px solid var(--accent); }
+.block-row.block-flow .block-text { color: #9fc1ff; }
+.block-row.block-else, .block-row.block-end { cursor: default; }
+.block-row.block-end { min-height: 20px; font-size: 12px; }
+.block-bullet { color: var(--muted); width: 12px; flex: none; }
+.block-text { flex: 1; min-width: 0; }
+.block-tools { display: none; gap: 2px; }
+.block-row:hover .block-tools, .block-row.selected .block-tools { display: inline-flex; }
+.block-tools .btn { padding: 0 5px; height: 20px; }
+.block-indent { margin-left: 18px; padding-left: 8px; border-left: 2px solid var(--line-2); }
+.block-editor { margin: 2px 0 8px 20px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-2); display: flex; flex-direction: column; gap: 6px; }
+.add-command { margin: 4px 0 2px 20px; width: auto; max-width: 260px; color: var(--muted); }
+dialog.modal { min-width: 420px; }
 .mart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 16px; }
 .mart-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .mart-row .btn { padding: 0 6px; height: 20px; }

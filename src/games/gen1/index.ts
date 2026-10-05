@@ -9,6 +9,7 @@ import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
 import { vanillaPrizes } from "./prizes.ts";
+import { GEN1_EVENTS } from "./events.ts";
 import { internalItem, isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
 import { paletteColors, paletteNames, resolveMapPalettes, type PaletteData } from "./palette.ts";
 
@@ -116,7 +117,11 @@ const content: ContentSpec[] = [
   // another species' ({ base }), or a sound file ({ file }); written with
   // override since switching between those shapes can't be a patch
   { registry: "cries", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { cries?: Record<string, unknown> }).cries ?? {}) },
+  { registry: "sfx", file: "audio.lua", editable: false, build: (f) => ((f as { sfx?: Record<string, unknown> }).sfx ?? {}) },
   { registry: "music", file: "audio.lua", editable: false, build: (f) => ((f as { songs?: Record<string, unknown> }).songs ?? {}) },
+  // map events made in the studio: plain data in studio_events.lua, turned
+  // into map_scripts (talk rows, onStep/onEnter) by the generated helper
+  { registry: "studio_events", editable: true, build: () => ({}), studioFile: "studio_events.lua", generates: "map_scripts" },
   // catch numbers per ball id; the vanilla records live in the engine
   // (src/battle/Catching.lua), so they are restated (written with override)
   { registry: "balls", editable: true, replace: true, build: () => structuredClone(VANILLA_BALLS), fieldOrder: ["randMax", "hpFactor", "wobbleFactor", "autoCatch", "flicker", "tossAnim"] },
@@ -741,6 +746,7 @@ export const gen1: GameAdapter = {
   items,
   towns,
   renames,
+  events: GEN1_EVENTS,
 };
 
 function blockAt(map: MapDef, bx: number, by: number): number {

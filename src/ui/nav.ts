@@ -2,7 +2,7 @@
 // without the workspaces importing each other. main.ts and the workspaces
 // fill in the handlers when they mount.
 
-export type WorkspaceId = "maps" | "pokemon" | "moves" | "items" | "trainers" | "text" | "global";
+export type WorkspaceId = "maps" | "pokemon" | "moves" | "items" | "trainers" | "text" | "events" | "global";
 
 export const WORKSPACES: { id: WorkspaceId; label: string; key: string }[] = [
   { id: "maps", label: "Maps", key: "1" },
@@ -11,7 +11,8 @@ export const WORKSPACES: { id: WorkspaceId; label: string; key: string }[] = [
   { id: "items", label: "Items", key: "4" },
   { id: "trainers", label: "Trainers", key: "5" },
   { id: "text", label: "Text", key: "6" },
-  { id: "global", label: "Global", key: "7" },
+  { id: "events", label: "Events", key: "7" },
+  { id: "global", label: "Global", key: "8" },
 ];
 
 export type PropsTab = "base" | "encounters";
@@ -30,5 +31,7 @@ export const nav = {
   openMove: (_id: string): void => {},
   openItem: (_id: string): void => {},
   openText: (_key: string): void => {},
+  // an event: a studio_events id, or game:<MAP>:talk:<TEXT> for the game's own
+  openEvent: (_id: string): void => {},
   openGlobal: (_section: string): void => {},
 };

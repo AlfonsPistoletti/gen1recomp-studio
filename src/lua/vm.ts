@@ -257,3 +257,78 @@ export async function runMod(files: Map<string, string>, modId: string, entry: s
     };
   }, true);
 }
+
+// ------------------------------------------------------------------ game events
+
+// What the game's own map scripts (gen1recomp data/scripts, a source
+// checkout only) attach to each map: talk entries as command lists, or false
+// where the game runs code; which other hooks (onStep, onEnter, ...) are code.
+export interface GameScripts {
+  [mapId: string]: { talk: Record<string, unknown[][] | false>; code: string[] };
+}
+
+const GAME_SCRIPTS_RUNNER = String.raw`
+local version = ...
+local attached, loaded = {}, {}
+-- a list that holds a function (a callback argument) can't be edited as data
+local function plain(v, depth)
+  if type(v) == "function" then return false end
+  if type(v) ~= "table" or depth > 6 then return true end
+  for _, x in pairs(v) do if not plain(x, depth + 1) then return false end end
+  return true
+end
+local function attach(mapId, mod)
+  if type(mod) ~= "table" then return end
+  local m = attached[mapId]
+  if not m then m = { talk = {}, code = {} } attached[mapId] = m end
+  for k, v in pairs(mod) do
+    if k == "talk" and type(v) == "table" then
+      for text, script in pairs(v) do
+        if type(script) == "table" and plain(script, 0) then m.talk[text] = script else m.talk[text] = false end
+      end
+    elseif type(v) == "function" then
+      m.code[#m.code + 1] = k
+    end
+  end
+end
+local GameVersion = setmetatable({
+  isYellow = function() return version == "yellow" end,
+  isBlue = function() return version == "blue" end,
+  isGold = function() return false end,
+  get = function() return version end,
+  current = version,
+}, { __index = function() return function() return false end end })
+local stubs = {
+  ["src.core.GameVersion"] = GameVersion,
+  ["src.script.MapScripts"] = { attachBase = attach },
+}
+local function req(name)
+  if stubs[name] then return stubs[name] end
+  if loaded[name] ~= nil then return loaded[name] end
+  local rel = string.gsub(name, "%.", "/") .. ".lua"
+  local src = __read(rel)
+  -- engine modules the scripts only use while the game runs
+  if src == nil then return __dummy end
+  local env = setmetatable({ require = req }, { __index = _G })
+  local chunk = assert(load(src, "@" .. rel, "t", env))
+  local result = chunk()
+  if result == nil then result = true end
+  loaded[name] = result
+  return result
+end
+req("data.scripts.init")
+return __json(attached)
+`;
+
+// files: "data/scripts/....lua" -> source
+export async function loadGameScripts(files: Map<string, string>, version: string): Promise<GameScripts> {
+  return withEngine(files, async (engine) => {
+    engine.global.setMemoryMax(256 * 1024 * 1024);
+    engine.global.setTimeout(Date.now() + 10000);
+    engine.global.set("__version", version);
+    engine.global.set("__runner", GAME_SCRIPTS_RUNNER);
+    const json: string = await engine.doString(`local f = assert(load(__runner, "=studio_game_scripts")) return f(__version)`);
+    const parsed = JSON.parse(json) as GameScripts | unknown[];
+    return Array.isArray(parsed) ? {} : parsed;
+  }, true);
+}

@@ -381,6 +381,60 @@ export interface SpriteRef {
   moving: boolean; // wanders; drawn with a dashed outline
 }
 
+// ------------------------------------------------------------------ events
+
+// An event's command list in the engine's own format: { "verb", args... }.
+export type EventRow = unknown[];
+
+export type EventParamType =
+  | "text" // a line of text, or a text key ("_SomeText")
+  | "flag"
+  | "item"
+  | "species"
+  | "number"
+  | "trainer" // trainer class id
+  | "map"
+  | "dir" // up / down / left / right
+  | "npcIndex" // an NPC of the event's map, by object index
+  | "npcName" // an NPC (of any map), by object name
+  | "song"
+  | "sound"
+  | "bubble"
+  | "fade";
+
+export interface EventParam {
+  key: string;
+  label: string;
+  type: EventParamType;
+  default?: unknown;
+  min?: number;
+  max?: number;
+}
+
+// One command the event editor offers.
+export interface EventCommand {
+  id: string; // unique in the catalog
+  verb: string; // row[0]
+  fixed?: unknown[]; // arguments that always follow the verb (start_battle "trainer")
+  label: string;
+  category: string;
+  help: string;
+  params: EventParam[];
+  // a check that sets the "last result" an If tests (check_flag, ask, ...)
+  condition?: string; // how an If reads it: "{flag} is set"
+  describe(args: Record<string, unknown>): string;
+}
+
+// What the Events workspace needs to know about a generation.
+export interface EventSpec {
+  registry: string; // the studio's own events (studio_events)
+  categories: string[];
+  commands: EventCommand[];
+  // the helper's command for "the player picked option N" (choices of 3+)
+  choiceVerb: string;
+  stopVerb: string; // jump
+}
+
 export interface EntityLayer {
   key: string; // the map record field holding the list
   kind: "warp" | "npc" | "sign" | "trigger";
@@ -445,4 +499,5 @@ export interface GameAdapter {
   items?: ItemSpec;
   towns?: TownSpec;
   renames?: Record<string, RenameSpec>;
+  events?: EventSpec;
 }

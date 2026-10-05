@@ -17,16 +17,18 @@ import { idBase, newTextId, pointerEntry, type PointerEntry } from "./mapText.ts
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
 import { counterId, counters, freshCounter, prizeCounterEditor } from "./prizeEditor.ts";
+import { createEvent, eventId, gameTalkEvent, splitEventId, studioEvent, studioEventsOf } from "./eventEditor.ts";
 
-type Role = "" | "mart" | "nurse" | "pc" | "prizes";
+type Role = "" | "mart" | "nurse" | "pc" | "prizes" | "event";
 
-const ROLE_LABEL: Record<Role, string> = { "": "Normal (says its text)", mart: "Shop clerk", nurse: "Nurse (heals)", pc: "PC", prizes: "Prize counter" };
+const ROLE_LABEL: Record<Role, string> = { "": "Normal (says its text)", event: "Event (runs commands)", mart: "Shop clerk", nurse: "Nurse (heals)", pc: "PC", prizes: "Prize counter" };
 
 function spec(): TownSpec | undefined {
   return store.adapter?.towns;
 }
 
 function roleOf(s: TownSpec, mapId: string, label: string, textId: string): Role {
+  if (studioEvent(eventId(mapId, "talk", textId))) return "event";
   const e = pointerEntry(label, textId);
   if (Array.isArray(e?.mart)) return "mart";
   if (e?.nurse) return "nurse";
@@ -56,7 +58,7 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
   const role = textId ? roleOf(s, map.id, label, textId) : "";
   const cid = textId ? counterId(map.id, textId) : "";
   const vanillaCounter = !!cid && store.baseTable(s.prizeRegistry)[cid] !== undefined;
-  const roles: Role[] = kind === "sign" ? ["", "prizes"] : ["", "mart", "nurse", "pc", "prizes"];
+  const roles: Role[] = kind === "sign" ? ["", "event", "prizes"] : ["", "event", "mart", "nurse", "pc", "prizes"];
 
   const setRole = (next: Role) => {
     store.group(`Role: ${ROLE_LABEL[next]}`, () => {
@@ -74,6 +76,13 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
         if (next === "pc") e.pc = true;
       });
       const c = counterId(map.id, id);
+      // an event: starts by saying what the NPC said so far
+      const ev = eventId(map.id, "talk", id);
+      if (next === "event" && !studioEvent(ev)) {
+        const said = pointerEntry(label, id)?.text;
+        createEvent(map.id, "talk", id, { rows: [...(kind === "sign" ? [] : [["face_player"]]), ["show_text", typeof said === "string" ? said : "..."]] });
+      }
+      if (next !== "event" && studioEvent(ev)) store.setRecord(store.adapter.events!.registry, ev, "Remove event", undefined);
       if (next === "prizes" && !counters(s)[c]) store.setRecord(s.prizeRegistry, c, "Prize counter", freshCounter(s));
       if (next !== "prizes" && counters(s)[c] && store.baseTable(s.prizeRegistry)[c] === undefined) store.setRecord(s.prizeRegistry, c, "Remove prize counter", undefined);
     });
@@ -88,6 +97,27 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
     wrap.append(sel);
   }
 
+  if (role === "event") {
+    const ev = studioEvent(eventId(map.id, "talk", textId));
+    wrap.append(
+      h(
+        "div",
+        { class: "row" },
+        h("span", { class: "hint" }, `Runs ${ev?.rows.length ?? 0} command row(s) instead of just saying its text.`),
+        h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(eventId(map.id, "talk", textId)) }, "Edit event →"),
+      ),
+    );
+  }
+  if (role === "" && textId && gameTalkEvent(map.id, textId) !== undefined) {
+    wrap.append(
+      h(
+        "div",
+        { class: "row" },
+        h("span", { class: "hint" }, `The game runs its own event here${gameTalkEvent(map.id, textId) ? "" : " (code)"}.`),
+        h("button", { class: "btn small ghost", onclick: () => nav.openEvent(`game:${map.id}:talk:${textId}`) }, "View →"),
+      ),
+    );
+  }
   if (role === "mart") wrap.append(stockEditor(s, label, textId));
   if (role === "nurse") wrap.append(h("p", { class: "hint" }, "Heals the party. The town outside this center becomes where Teleport, Dig, Escape Rope and blacking out return to: set its landing spot in that town's map properties."));
   if (role === "pc") wrap.append(h("p", { class: "hint" }, "Opens the PC when talked to. A Pokémon Center's PC is usually a tile instead: add it in the map properties."));
@@ -193,6 +223,7 @@ export function townSection(map: MapDef, view: MapView): HTMLElement[] {
   const f = fieldTable(s);
 
   out.push(h("h4", {}, "Hidden events"), ...hiddenSection(s, map, view));
+  if (store.adapter.events) out.push(h("h4", {}, "Events"), ...mapEventsSection(map, view));
 
   // landing spot (outdoor towns)
   if (s.isTown(map)) {
@@ -341,4 +372,48 @@ function benchText(s: TownSpec, map: MapDef, label: string, e: Spot, setLabel: (
     ),
   );
   return wrap;
+}
+
+// ------------------------------------------------------------------ map events
+
+// The map's step and enter events (talk events live on their NPC or sign).
+function mapEventsSection(map: MapDef, view: MapView): HTMLElement[] {
+  const out: HTMLElement[] = [];
+  for (const id of studioEventsOf(map.id)) {
+    const { kind } = splitEventId(id);
+    if (kind === "talk") continue;
+    const ev = studioEvent(id)!;
+    out.push(
+      h(
+        "div",
+        { class: "row" },
+        h("span", {}, kind === "step" ? `Step on ${ev.x}, ${ev.y}` : "On entering", ev.once ? h("span", { class: "muted" }, " · once") : null),
+        kind === "step" ? h("button", { class: "btn small ghost", title: "Show it", onclick: () => view.centerOnCell(ev.x ?? 0, ev.y ?? 0) }, "◎") : null,
+        h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(id) }, "Edit →"),
+      ),
+    );
+  }
+  out.push(
+    h(
+      "div",
+      { class: "row" },
+      h("button", {
+        class: "btn small",
+        onclick: () => pick(view, "step event", (x, y) => {
+          const id = createEvent(map.id, "step", `at_${x}_${y}`, { x, y, once: true });
+          if (id) nav.openEvent(id);
+        }),
+      }, "+ Step event (pick on map)"),
+      h("button", {
+        class: "btn small",
+        onclick: () => {
+          const n = studioEventsOf(map.id).filter((k) => splitEventId(k).kind === "enter").length + 1;
+          const id = createEvent(map.id, "enter", `enter_${n}`);
+          if (id) nav.openEvent(id);
+        },
+      }, "+ On enter"),
+    ),
+    h("p", { class: "hint" }, "Commands that run when the player steps on a cell or enters the map. NPC and sign events: select one, Role: Event."),
+  );
+  return out;
 }

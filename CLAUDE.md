@@ -103,6 +103,14 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   Gen 1), so new species get a `cries` record (`{ base }` or a copied `{ file }`). `cries` is a
   `replace` registry (chip data / base / file shapes). Imported sounds use the art asset pipeline
   (`addAsset(..., ext)`, `ASSET_TYPES`); `host.openUrl` opens https links (Tauri `open_url`).
+- Events (`src/ui/eventEditor.ts`, `adapter.events` catalog in `src/games/gen1/events.ts`):
+  `studio_events` records `<MAP>:talk|step|enter:<key>` -> `{ x?, y?, once?, rows }`, rows in the
+  engine's script format. `src/core/eventBlocks.ts` compile/parse rows <-> blocks (If/Else,
+  Choice; numeric jumps become `step<N>` labels; unstructured jumps stay Go to/Label blocks).
+  `src/lua/eventRuntime.ts` registers talk rows, builds onStep/onEnter, and the
+  `studio:check_choice` command. The game's own events come from `data/scripts` via
+  `loadGameScripts` (checkout only, stubbed GameVersion/MapScripts). GENERATORS are keyed by
+  studio registry (prize counters and events both write map_scripts).
 - `applyOps` stamps `id` only in registries whose records carry one (an `id` in a
   text_pointers record broke the engine's schema); on load it drops such a stray id.
 - `applyOps` must not stamp `id` onto `{ __ref }` values (a reloaded reference was re-saved as a

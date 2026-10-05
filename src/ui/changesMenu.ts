@@ -5,6 +5,7 @@ import { FileDiff } from "lucide";
 import { store } from "../core/store.ts";
 import { h, clear, icon } from "./dom.ts";
 import { nav } from "./nav.ts";
+import { eventTitle, splitEventId } from "./eventEditor.ts";
 import { globalLabelOf, globalSectionOf } from "./globalWorkspace.ts";
 
 // registry -> [heading, singular]; also the display order
@@ -20,6 +21,7 @@ const NAMES: Record<string, [string, string]> = {
   items: ["Items", "item"],
   studio_item_effects: ["Custom item effects", "custom item effect"],
   balls: ["Ball catch numbers", "ball"],
+  studio_events: ["Events", "event"],
   map_songs: ["Map music", "map's music"],
   field: ["Hidden events and landing spots", "field setting"],
   prize_counters: ["Game Corner prizes", "prize counter"],
@@ -88,6 +90,8 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       const user = Object.entries(store.table("items")).find(([, m]) => (m as { effect?: unknown }).effect === id)?.[0];
       return user ? () => nav.openItem(user) : null;
     }
+    case "studio_events":
+      return removed ? null : () => nav.openEvent(id);
     case "map_songs":
       return store.maps[id] ? () => nav.openMap(id) : null;
     case "field":
@@ -108,6 +112,7 @@ const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenE
 
 function displayName(record: unknown, id: string, registry = ""): string {
   if (registry === "field" && FIELD_NAMES[id]) return FIELD_NAMES[id];
+  if (registry === store.adapter?.events?.registry) return `${splitEventId(id).mapId} · ${eventTitle(id)}`;
   const name = record && typeof record === "object" ? (record as { name?: unknown }).name : undefined;
   return typeof name === "string" && name && name.toUpperCase() !== id.toUpperCase() ? `${id} · ${name}` : id;
 }

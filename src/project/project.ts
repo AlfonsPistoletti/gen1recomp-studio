@@ -15,6 +15,7 @@ import { loadLuaData, runMod } from "../lua/vm.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../lua/itemEffectRuntime.ts";
 import { PRIZE_RUNTIME, prizeRegistration } from "../lua/prizeRuntime.ts";
+import { EVENT_RUNTIME, eventRegistration } from "../lua/eventRuntime.ts";
 import { dataFile, requireLine, studioContentFile, type ContentCall } from "../lua/writer.ts";
 
 export const MOD_ID_RE = /^[\w-]+$/;
@@ -365,7 +366,7 @@ export async function saveProject(project: Project, edited: Record<string, Recor
     }
     const path = `mods/${modId}/${c.studioFile}`;
     if (Object.keys(records).length) {
-      const gen = c.generates ? GENERATORS[c.generates] : undefined;
+      const gen = GENERATORS[c.registry];
       await host.writeText(path, dataFile(modId, gen?.what ?? c.registry, records, gen?.order ?? []));
       if (gen) before += gen.runtime + "\n" + gen.registration(modId, c.studioFile) + "\n";
       if (gen?.internals) internals = true;
@@ -379,23 +380,31 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   return { file, patched, registered, wiredUp, snippet: wiredUp ? undefined : requireLine(modId) };
 }
 
-// the fixed helpers that turn a data file's specs into engine records
+// the fixed helpers that turn a data file's specs into engine records, by
+// the studio registry that holds the specs
 export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string; internals?: boolean }> = {
+  // map events: talk rows, step/enter triggers (plain Lua)
+  studio_events: {
+    what: "map events",
+    order: ["x", "y", "once", "rows"],
+    runtime: EVENT_RUNTIME,
+    registration: eventRegistration,
+  },
   // prize counters use the engine's prize window: engine_internals
-  map_scripts: {
+  prize_counters: {
     what: "Game Corner prize counters",
     order: ["prizes", "item", "species", "level", "cost"],
     runtime: PRIZE_RUNTIME,
     registration: prizeRegistration,
     internals: true,
   },
-  move_effects: {
+  studio_effects: {
     what: "custom move effects",
     order: ["kind", "canMiss", "neverMiss", "hits", "damage", "recoil", "drain", "steps"],
     runtime: EFFECT_RUNTIME,
     registration: effectRegistration,
   },
-  item_effects: {
+  studio_item_effects: {
     what: "custom item effects",
     order: ["target", "where", "keep", "steps", "act", "amount", "percent", "full", "statuses", "all", "stat", "delta", "cap"],
     runtime: ITEM_EFFECT_RUNTIME,

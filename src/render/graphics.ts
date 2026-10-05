@@ -222,7 +222,6 @@ export function markerIcon(name: string, node: IconNode, color: string, onReady:
   };
   const markup =
     `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">` +
-    `<g stroke="#1a1020" stroke-width="4.5">${draw("#1a1020", 4.5)}</g>` +
     `<g stroke="${color}" stroke-width="2.2">${draw(color, 2.2)}</g></svg>`;
   const img = new Image();
   img.onload = onReady;

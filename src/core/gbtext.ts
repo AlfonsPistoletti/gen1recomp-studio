@@ -52,7 +52,7 @@ export const TEXT_COMMANDS: TextCommand[] = [
   { token: "{PLAYER}", label: "Player", button: true, about: "The player's name (up to 7 letters; RED if unnamed)." },
   { token: "{RIVAL}", label: "Rival", button: true, about: "The rival's name (up to 7 letters; BLUE if unnamed)." },
   { token: "{DONE}", label: "Done", button: true, end: true, about: "Ends the text. The box closes on the next A/B press, with no arrow. Most NPC lines end with this." },
-  { token: "{PROMPT}", label: "Prompt ▼", button: true, end: true, about: "Ends the text with the blinking ▼ and waits for A/B. Used when something follows: a choice, another text, a battle." },
+  { token: "{PROMPT}", label: "Prompt", button: true, end: true, about: "Ends the text with the blinking ▼ and waits for A/B. Used when something follows: a choice, another text, a battle." },
   { token: "{USER}", label: "User", button: true, about: "Battle text: the Pokémon using the move." },
   { token: "{TARGET}", label: "Target", button: true, about: "Battle text: the Pokémon the move is used on." },
   { token: "{RAM:…}", label: "RAM", about: "A value the game fills in, e.g. {RAM:wStringBuffer} for an item name. Only works where the game sets that value." },

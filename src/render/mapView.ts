@@ -696,7 +696,7 @@ export class MapView {
       this.zoomBy(factor, e.offsetX, e.offsetY);
     }, { passive: false });
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && this.cellPick) this.cancelPick();
+      if (e.key === "Escape" && this.cellPick && !this.pickDone) this.cancelPick();
       if (e.code === "Space" && !isTyping(e)) {
         this.spaceDown = true;
         c.style.cursor = "grab";
@@ -784,6 +784,7 @@ export class MapView {
     this.hover = this.screenToWorld(e.offsetX, e.offsetY);
     const h = this.hoverInfo();
     this.onHover(h);
+    if (this.pathOverlay && this.pickDone) this.invalidate();
     if (d?.kind === "paint" && h) {
       // walk the segment so a fast stroke leaves no gaps
       const map = store.map;
@@ -896,7 +897,7 @@ export class MapView {
   // The next left click on the current map reports its cell instead of
   // using the tool (Escape cancels).
   private cellPick: ((cx: number, cy: number) => void) | null = null;
-  private pickDone: (() => void) | null = null;
+  private pickDone: ((keep: boolean) => void) | null = null;
   private pickBack: ((cx: number, cy: number) => void) | null = null;
 
   // An event preview: where the player and NPCs are right now (cells, may
@@ -970,11 +971,24 @@ export class MapView {
     ctx.beginPath();
     ctx.arc(c(ex), c(ey), CELL / 3, 0, Math.PI * 2);
     ctx.stroke();
+    // while drawing: where a click would walk (along x, then y)
+    const h = this.pickDone ? this.hoverInfo() : null;
+    if (h?.inside && (h.cx !== ex || h.cy !== ey)) {
+      ctx.globalAlpha = 0.6;
+      ctx.setLineDash([4 / this.zoom, 4 / this.zoom]);
+      ctx.beginPath();
+      ctx.moveTo(c(ex), c(ey));
+      ctx.lineTo(c(h.cx), c(ey));
+      ctx.lineTo(c(h.cx), c(h.cy));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+    }
     ctx.restore();
   }
 
   // Picks cell after cell until Escape (then `done`): drawing a path.
-  pickCells(onPick: (cx: number, cy: number) => void, done: () => void, back?: (cx: number, cy: number) => void): void {
+  pickCells(onPick: (cx: number, cy: number) => void, done: (keep: boolean) => void, back?: (cx: number, cy: number) => void): void {
     this.pickBack = back ?? null;
     const again = (cx: number, cy: number) => {
       onPick(cx, cy);
@@ -993,12 +1007,14 @@ export class MapView {
     this.canvas.focus();
   }
 
-  cancelPick(): void {
+  // ends picking; a path drawing is kept (Done) unless keep is false
+  cancelPick(keep = true): void {
     this.cellPick = null;
     this.pickBack = null;
     const done = this.pickDone;
     this.pickDone = null;
-    done?.();
+    this.invalidate();
+    done?.(keep);
     this.canvas.style.cursor = "";
   }
 

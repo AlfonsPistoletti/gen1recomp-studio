@@ -275,6 +275,7 @@ mountSplitters($("#layout"));
 // ---------------------------------------------------------------- workspaces
 
 function setWorkspace(id: WorkspaceId): void {
+  if (drawing && id !== "maps") drawing.finish(true);
   nav.workspace = id;
   document.body.dataset.ws = id;
   for (const el of document.querySelectorAll<HTMLElement>("#layout > [data-ws]")) el.hidden = el.dataset.ws !== id;
@@ -359,9 +360,14 @@ nav.pickCell = (mapId, picked) => {
     picked(cx, cy);
   });
 };
+// the path drawing in progress (leaving the map in any way finishes it)
+let drawing: { mapId: string; finish: (keep: boolean) => void } | null = null;
+
 nav.drawPath = (mapId, start, dirs, changed, done) => {
+  drawing?.finish(true);
   setWorkspace("maps");
   view.openMap(mapId);
+  const original = [...dirs];
   const path = [...dirs];
   const end = () => {
     let x = start.x;
@@ -375,13 +381,41 @@ nav.drawPath = (mapId, start, dirs, changed, done) => {
     return { x, y };
   };
   view.setPathOverlay({ ...start, dirs: path });
-  toast("Click cells to walk there; right click takes it back; Escape when done", "info");
   // how long the path was before each click, for taking clicks back
   const marks: number[] = [];
+  const count = h("strong", {});
   const update = () => {
     view.setPathOverlay({ ...start, dirs: path });
+    count.textContent = `${path.length} step${path.length === 1 ? "" : "s"}`;
     changed([...path]);
   };
+  const undo = () => {
+    path.length = marks.pop() ?? Math.max(0, path.length - 1);
+    update();
+  };
+  // the bar over the map: what's going on, and the ways out
+  const bar = h(
+    "div",
+    { class: "preview-bar draw-bar" },
+    h("span", {}, "✏ Drawing a path", h("span", { class: "muted" }, " · "), count),
+    h("span", { class: "muted" }, "Left click: walk there · Right click: take back · Enter: done · Esc: cancel"),
+    h("button", { class: "btn small", title: "Take back the last click (Ctrl+Z)", onclick: undo }, "↶ Undo"),
+    h("button", { class: "btn small", onclick: () => ((path.length = 0), (marks.length = 0), update()) }, "Clear"),
+    h("button", { class: "btn small", title: "Throw this drawing away (Esc)", onclick: () => view.cancelPick(false) }, "Cancel"),
+    h("button", { class: "btn small primary", title: "Keep the path (Enter)", onclick: () => view.cancelPick(true) }, "✓ Done"),
+  );
+  $("#viewport").append(bar);
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Enter") view.cancelPick(true);
+    else if (e.key === "Escape") view.cancelPick(false);
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") undo();
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  window.addEventListener("keydown", onKey, true);
+  drawing = { mapId, finish: (keep) => view.cancelPick(keep) };
+  update();
   view.pickCells(
     (cx, cy) => {
       const e = end();
@@ -390,9 +424,13 @@ nav.drawPath = (mapId, start, dirs, changed, done) => {
       for (let i = 0; i < Math.abs(cy - e.y); i++) path.push(cy > e.y ? "down" : "up");
       update();
     },
-    () => {
+    (keep) => {
+      drawing = null;
+      window.removeEventListener("keydown", onKey, true);
+      bar.remove();
       view.setPathOverlay(null);
-      setWorkspace("events");
+      if (!keep) changed(original);
+      if (nav.workspace === "maps") setWorkspace("events");
       done();
     },
     (cx, cy) => {
@@ -432,6 +470,8 @@ store.on((reason) => {
   if (reason === "project") renderAddButtons();
   if (["edit", "content", "project", "saved", "map"].includes(reason)) refreshTopbar();
   if (reason === "map" || reason === "project") status.map.textContent = store.currentMap;
+  // opening another map ends a path drawing (kept)
+  if ((reason === "map" || reason === "project") && drawing && store.currentMap !== drawing.mapId) drawing.finish(true);
   if (reason === "overlays") view.invalidate();
 });
 view.onDraw = () => (zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`);

@@ -1,6 +1,8 @@
 // Mirrors src/mods/Registry.lua + src/mods/Merge.lua for "record" registries
 // (maps, tilesets): register/override replace, patch deep-merges where lists
 // replace wholesale and nested objects merge key by key, mod.DELETE unsets.
+// "deep" registries (text_pointers, field) differ: patched lists APPEND, and
+// register merges like patch; only override drops a list.
 
 import type { RegistryOp } from "./types.ts";
 
@@ -19,16 +21,19 @@ export function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
-export function deepMerge(dst: unknown, src: unknown): unknown {
+export function deepMerge(dst: unknown, src: unknown, deep = false): unknown {
   if (isDelete(src)) return undefined;
+  if (deep && Array.isArray(src) && Array.isArray(dst)) return [...dst, ...clone(src)];
   if (!isPlainObject(src)) return clone(src);
   if (!isPlainObject(dst)) return stripDeletes(clone(src));
   const out: Record<string, unknown> = { ...dst };
   for (const [key, value] of Object.entries(src)) {
     if (isDelete(value)) {
       delete out[key];
+    } else if (deep && Array.isArray(value) && Array.isArray(out[key])) {
+      out[key] = [...(out[key] as unknown[]), ...clone(value)];
     } else if (isPlainObject(value) && isPlainObject(out[key])) {
-      out[key] = deepMerge(out[key], value);
+      out[key] = deepMerge(out[key], value, deep);
     } else {
       out[key] = stripDeletes(clone(value));
     }
@@ -45,7 +50,7 @@ function stripDeletes(value: unknown): unknown {
   return value;
 }
 
-export function applyOps<T>(table: Record<string, T>, ops: RegistryOp[], registry: string): void {
+export function applyOps<T>(table: Record<string, T>, ops: RegistryOp[], registry: string, deep = false): void {
   // registries whose records carry their own id (pokemon, moves, items, maps)
   // get it on records a mod adds too; the others (text_pointers: a map of
   // TEXT_* entries, encounters, ...) must not grow an `id` key
@@ -54,7 +59,7 @@ export function applyOps<T>(table: Record<string, T>, ops: RegistryOp[], registr
     if (op.registry !== registry || typeof op.id !== "string") continue;
     let next: unknown;
     if (op.op === "remove" || isDelete(op.value)) next = undefined;
-    else if (op.op === "patch") next = deepMerge(table[op.id] ?? {}, op.value);
+    else if (op.op === "patch" || (deep && op.op === "register")) next = deepMerge(table[op.id] ?? (Array.isArray(op.value) ? [] : {}), op.value, deep);
     else next = stripDeletes(clone(op.value));
     if (next === undefined) delete table[op.id];
     else {
@@ -94,6 +99,34 @@ function isEmpty(v: unknown): boolean {
 // The smallest patch that turns `base` into `next` under deepMerge: lists and
 // scalars replace, objects recurse, vanished keys become DELETE markers.
 // Returns undefined when nothing changed.
+// What a patch on a deep registry must carry to turn `base` into `next`: only
+// the appended tail of a list that grew. OVERRIDE when that can't be said with
+// a patch (a list shrank or changed), undefined when nothing changed.
+export const OVERRIDE = Symbol("override");
+
+export function diffDeep(base: unknown, next: unknown): unknown {
+  if (deepEqual(base, next)) return undefined;
+  if (Array.isArray(next)) {
+    if (base === undefined) return clone(next);
+    if (!Array.isArray(base) || next.length < base.length || !base.every((v, i) => deepEqual(v, next[i]))) return OVERRIDE;
+    return clone(next.slice(base.length));
+  }
+  if (!isPlainObject(base) || !isPlainObject(next)) return Array.isArray(base) ? OVERRIDE : clone(next);
+  const out: Record<string, unknown> = {};
+  for (const key of new Set([...Object.keys(base), ...Object.keys(next)])) {
+    const b = base[key];
+    const n = next[key];
+    if (n === undefined) {
+      if (b !== undefined) out[key] = { [DELETE_KEY]: true };
+      continue;
+    }
+    const d = diffDeep(b, n);
+    if (d === OVERRIDE) return OVERRIDE;
+    if (d !== undefined) out[key] = d;
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function diffRecord(base: unknown, next: unknown): unknown {
   if (deepEqual(base, next)) return undefined;
   if (!isPlainObject(base) || !isPlainObject(next)) return clone(next);

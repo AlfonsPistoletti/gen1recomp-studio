@@ -63,7 +63,8 @@ const content: ContentSpec[] = [
   },
   { registry: "encounters", file: "encounters.lua", editable: true, fieldOrder: ["grass", "water"] },
   { registry: "text", file: "text.lua", editable: true },
-  { registry: "text_pointers", file: "text_pointers.lua", editable: true },
+  // merged "deep" by the engine: a patched list (mart stock) appends
+  { registry: "text_pointers", file: "text_pointers.lua", editable: true, deep: true },
   // the Global workspace edits a few keys (levelCap, world, ...); written
   // whole with override because the registry merges "deep"
   { registry: "constants", file: "constants.lua", editable: true, replace: true },

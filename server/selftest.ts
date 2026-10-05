@@ -14,7 +14,7 @@ import { EFFECT_RUNTIME, effectRegistration } from "../src/lua/effectRuntime.ts"
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../src/lua/itemEffectRuntime.ts";
 import { loadLuaData, runMod } from "../src/lua/vm.ts";
 import { dataFile, studioContentFile } from "../src/lua/writer.ts";
-import { contentCalls, fieldOrders, listMods, openProject } from "../src/project/project.ts";
+import { contentCalls, fieldOrders, isDeep, listMods, openProject } from "../src/project/project.ts";
 import { nodeHost } from "./nodeHost.ts";
 
 let failures = 0;
@@ -113,7 +113,7 @@ check("no broken warps in vanilla", vanillaBroken.length === 0, vanillaBroken.sl
 
 for (const [registry, records] of Object.entries(editedContent)) {
   const table = { ...content[registry] };
-  applyOps(table, run.ops, registry);
+  applyOps(table, run.ops, registry, isDeep(adapter, registry));
   for (const [id, value] of Object.entries(records)) {
     const got = table[id] as Rec | string;
     const carriesId = Object.values(content[registry] ?? {}).some((r) => typeof r === "object" && r !== null && "id" in r);
@@ -148,6 +148,22 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   check("text_pointers record gets no id", !("id" in table.ViridianMart));
   applyOps(table, [{ registry: "text_pointers", op: "patch", id: "ViridianMart", value: { id: "ViridianMart" } }] as Parameters<typeof applyOps>[1], "text_pointers");
   check("a stray stamped id is dropped on load", !("id" in table.ViridianMart));
+}
+
+// shop stock lives in text_pointers, which the engine merges "deep": a patched
+// list appends, so adding writes only the new tail and removing overrides
+{
+  const shop = content.text_pointers.ViridianMart as Record<string, { mart?: string[] }>;
+  const stock = shop.TEXT_VIRIDIANMART_CLERK.mart ?? [];
+  const added = { ...clone(shop), TEXT_VIRIDIANMART_CLERK: { ...shop.TEXT_VIRIDIANMART_CLERK, mart: [...stock, "MAX_POTION"] } };
+  const addCalls = contentCalls(adapter, { maps: base, ...content }, { text_pointers: { ViridianMart: added } }).calls;
+  check("shop addition is a patch with only the new item", addCalls.length === 1 && addCalls[0].op === "patch" && deepEqual((addCalls[0].value as typeof shop).TEXT_VIRIDIANMART_CLERK.mart, ["MAX_POTION"]), JSON.stringify(addCalls[0]?.value));
+  const table = clone(content.text_pointers) as Record<string, unknown>;
+  applyOps(table, addCalls.map((c) => ({ ...c, value: c.value })) as Parameters<typeof applyOps>[1], "text_pointers", true);
+  check("shop addition reads back without duplicates", deepEqual((table.ViridianMart as typeof shop).TEXT_VIRIDIANMART_CLERK.mart, [...stock, "MAX_POTION"]));
+  const removed = { ...clone(shop), TEXT_VIRIDIANMART_CLERK: { ...shop.TEXT_VIRIDIANMART_CLERK, mart: stock.slice(1) } };
+  const rmCalls = contentCalls(adapter, { maps: base, ...content }, { text_pointers: { ViridianMart: removed } }).calls;
+  check("shop removal overrides the map's pointers", rmCalls.length === 1 && rmCalls[0].op === "override");
 }
 
 // custom item effects: same design, registered as item_effects before the

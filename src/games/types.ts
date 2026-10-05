@@ -49,6 +49,8 @@ export interface ContentSpec {
   // file registers from it (its ops there are regenerated, never kept)
   studioFile?: string;
   generates?: string;
+  // the engine merges this registry "deep": patched lists append
+  deep?: boolean;
 }
 
 // ------------------------------------------------------------------ moves

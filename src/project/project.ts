@@ -7,7 +7,7 @@
 // Saving diffs the editor's records against Base and rewrites only
 // studio_content.lua, so hand-written mod code is never touched.
 
-import { applyOps, clone, deepEqual, diffRecord, isPlainObject } from "../core/merge.ts";
+import { applyOps, clone, deepEqual, diffDeep, diffRecord, isPlainObject, OVERRIDE } from "../core/merge.ts";
 import { MOD_MAP_INDEX_BASE, type MapDef, type ModInfo, type RegistryOp, type SaveResult } from "../core/types.ts";
 import type { Dataset, GameAdapter } from "../games/types.ts";
 import type { Host, ProcessResult } from "../host/types.ts";
@@ -157,7 +157,7 @@ async function buildLayers(host: Host, version: string, adapter: GameAdapter, mo
     applyOps(data.maps, main.ops, "maps");
     applyOps(data.tilesets, main.ops, "tilesets");
     applyOps(data.sprites, main.ops, "sprites");
-    for (const [registry, table] of Object.entries(data.content)) applyOps(table, main.ops, registry);
+    for (const [registry, table] of Object.entries(data.content)) applyOps(table, main.ops, registry, isDeep(adapter, registry));
     const studioFile = `mods/${modId}/studio_content.lua`;
     if (files.has(studioFile)) {
       const studio = await runMod(files, modId, studioFile, null);
@@ -167,6 +167,11 @@ async function buildLayers(host: Host, version: string, adapter: GameAdapter, mo
   }
   for (const map of Object.values(data.maps)) adapter.normalizeMap(map);
   return { data, studioOps, warnings };
+}
+
+// whether the engine merges a registry "deep" (patched lists append)
+export function isDeep(adapter: GameAdapter, registry: string): boolean {
+  return !!adapter.content.find((c) => c.registry === registry)?.deep;
 }
 
 // Registries the studio edits (and so rewrites on save).
@@ -182,11 +187,11 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
     // tileset it registered earlier, ...) is part of the base
     applyOps(data.tilesets, studioOps, "tilesets");
     applyOps(data.sprites, studioOps, "sprites");
-    for (const c of adapter.content) if (!c.editable) applyOps(data.content[c.registry], studioOps, c.registry);
+    for (const c of adapter.content) if (!c.editable) applyOps(data.content[c.registry], studioOps, c.registry, !!c.deep);
     for (const registry of editableRegistries(adapter)) {
       const source = (registry === "maps" ? data.maps : data.content[registry]) as Record<string, unknown>;
       const working = { ...source };
-      applyOps(working, studioOps, registry);
+      applyOps(working, studioOps, registry, isDeep(adapter, registry));
       for (const op of studioOps) {
         if (op.registry !== registry) continue;
         const value = working[op.id];
@@ -246,6 +251,7 @@ export function contentCalls(
 ): CallSummary {
   const out: CallSummary = { calls: [], patched: [], registered: [] };
   const replacing = new Set(adapter.content.filter((c) => c.replace).map((c) => c.registry));
+  const deep = new Set(adapter.content.filter((c) => c.deep).map((c) => c.registry));
   // records kept in their own data file are not registry calls
   const dataFiles = new Set(adapter.content.filter((c) => c.studioFile).map((c) => c.registry));
   for (const registry of editableRegistries(adapter)) {
@@ -254,7 +260,7 @@ export function contentCalls(
     for (const id of ids) {
       const value = edited[registry][id];
       if (registry === "maps") mapCall(adapter, base.maps ?? {}, id, value as MapDef | null, out);
-      else recordCall(registry, (base[registry] ?? {})[id], id, value, out, !!replacing.has(registry));
+      else recordCall(registry, (base[registry] ?? {})[id], id, value, out, !!replacing.has(registry), deep.has(registry));
     }
   }
   return out;
@@ -289,9 +295,19 @@ function mapCall(adapter: GameAdapter, base: Record<string, unknown>, id: string
   out.patched.push(id);
 }
 
-function recordCall(registry: string, old: unknown, id: string, value: unknown, out: CallSummary, replace: boolean): void {
+function recordCall(registry: string, old: unknown, id: string, value: unknown, out: CallSummary, replace: boolean, deep = false): void {
   if (value === null || value === undefined) {
     if (old !== undefined) out.calls.push({ registry, op: "remove", id, value: null });
+    return;
+  }
+  // deep registries append patched lists: a grown list is written as its new
+  // tail, anything a patch can't say (a list shrank) overrides the record
+  if (deep && old !== undefined) {
+    const diff = diffDeep(old, value);
+    if (diff === undefined) return;
+    if (diff === OVERRIDE) out.calls.push({ registry, op: "override", id, value: clone(value) });
+    else out.calls.push({ registry, op: "patch", id, value: diff });
+    out.patched.push(`${registry} ${id}`);
     return;
   }
   if (replace) {

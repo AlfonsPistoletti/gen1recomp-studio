@@ -32,6 +32,12 @@ function balls(): Record<string, BallRecord> {
   return reg ? (store.table(reg) as Record<string, BallRecord>) : {};
 }
 
+// a TM's move as the list shows it: MEGA PUNCH -> Mega Punch
+function moveLabel(move: string): string {
+  const name = String((store.table("moves")[move] as { name?: string } | undefined)?.name ?? move.replace(/_/g, " "));
+  return name.toLowerCase().replace(/(^|[\s-])(\S)/g, (_m, sep: string, c: string) => sep + c.toUpperCase());
+}
+
 const machineOf = (r: Rec | undefined) => r?.machine as { kind?: string; move?: string; number?: number } | undefined;
 
 // regular items by bag index, then TMs and HMs, then new ones
@@ -73,7 +79,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
         return {
           id,
           label: String(r.name ?? id),
-          meta: m?.move ? `${m.kind}${String(m.number ?? 0).padStart(2, "0")}` : r.keyItem ? "key" : r.effect ? "custom" : "",
+          meta: m?.move ? moveLabel(m.move) : r.keyItem ? "key" : r.effect ? "custom" : "",
           search: `${id} ${String(r.name ?? "")} ${m?.move ?? ""}`,
           edited: itemEdited(id),
           isNew: isNewItem(id),
@@ -83,7 +89,8 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     },
     current: () => current,
     pick: (id) => open(id),
-    refreshOn: (reason, _id, registry) => reason === "content" && (registry === spec()?.registry || registry === spec()?.ballRegistry || registry === spec()?.effectRegistry),
+    refreshOn: (reason, _id, registry) =>
+      reason === "content" && (registry === spec()?.registry || registry === spec()?.ballRegistry || registry === spec()?.effectRegistry || registry === "moves"),
   });
 
   const main = h("div", { class: "ws-scroll" });

@@ -40,13 +40,9 @@ type Drag =
 
 const MIN_ZOOM = 0.125;
 // marker icons on warps (door) and signs (signpost)
-// marker icons: a darker shade of their layer's color
-const ICON_SHADE = 0.45;
-function shade(hex: string, f: number): string {
-  const n = parseInt(hex.slice(1), 16);
-  const c = [16, 8, 0].map((s) => Math.round(((n >> s) & 255) * f));
-  return `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
-}
+// colors of the marker icons drawn on warps and signs
+const WARP_ICON = "#6a3fd8";
+const SIGN_ICON = "#a86a00";
 const MAX_ZOOM = 8;
 
 export class MapView {
@@ -434,7 +430,7 @@ export class MapView {
           ctx.globalAlpha = 1;
           ctx.strokeStyle = layer.color;
           ctx.strokeRect(e.x * CELL + 3, e.y * CELL + 3, CELL - 6, CELL - 6);
-          this.markerIcon("signpost", Signpost, shade(layer.color, ICON_SHADE), e);
+          this.markerIcon("signpost", Signpost, SIGN_ICON, e);
         } else {
           ctx.globalAlpha = layer.kind === "warp" ? 0.45 : 0.3;
           ctx.fillStyle = layer.color;
@@ -444,7 +440,7 @@ export class MapView {
           if (layer.kind === "trigger") ctx.setLineDash([3 / this.zoom, 2 / this.zoom]);
           ctx.strokeRect(e.x * CELL + lw / 2, e.y * CELL + lw / 2, CELL - lw, CELL - lw);
           ctx.setLineDash([]);
-          if (layer.kind === "warp") this.markerIcon("door-open", DoorOpen, shade(layer.color, ICON_SHADE), e);
+          if (layer.kind === "warp") this.markerIcon("door-open", DoorOpen, WARP_ICON, e);
         }
         if (layer.numbered) this.badge(e.x * CELL, e.y * CELL, String(i + 1), layer.color);
       });

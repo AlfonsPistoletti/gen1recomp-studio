@@ -159,6 +159,8 @@ export interface ItemSpec {
   template(id: string, item: Record<string, unknown>): ItemEffectSpec | null;
   // items whose built-in behaviour blocks can't rebuild (bicycle, rods, ...)
   special(id: string, item: Record<string, unknown>): boolean;
+  // items the game uses for something else (elevator floors, ...): why
+  internal(id: string): string | null;
   // which ids the engine gives a move picker (Ether-style)
   picksMove(id: string): boolean;
   marts(ctx: GameContext): MartRef[];

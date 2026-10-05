@@ -14,6 +14,8 @@ export interface ListItem {
   icon?: string; // image URL
   edited: boolean;
   isNew?: boolean;
+  // listed in the collapsed `folded` section at the bottom
+  folded?: boolean;
 }
 
 export interface RecordListOptions {
@@ -24,6 +26,8 @@ export interface RecordListOptions {
   items(): ListItem[];
   current(): string | null;
   pick(id: string): void;
+  // a collapsed section at the end for rarely wanted records
+  folded?: { label: string; hint: string };
   // store events that change the list (besides project/saved)
   refreshOn(reason: string, id?: string, registry?: string): boolean;
 }
@@ -39,6 +43,7 @@ export function mountRecordList(host: HTMLElement, opts: RecordListOptions): Rec
   host.append(h("div", { class: "panel-head" }, h("span", {}, opts.title), ...(opts.head ?? [])), h("div", { class: "panel-pad" }, search), list);
 
   let query = "";
+  let foldOpen = false;
   const pinnedHeight = () => {
     const all = list.querySelector<HTMLElement>(".all-maps");
     return all ? all.offsetTop + all.offsetHeight - list.offsetTop : 0;
@@ -65,16 +70,32 @@ export function mountRecordList(host: HTMLElement, opts: RecordListOptions): Rec
       list.append(h("div", { class: "list-section" }, `Edited (${edited.length})`), ...edited.map(row));
       list.append(h("div", { class: "list-section all-maps" }, "All"));
     }
+    const plain = items.filter((it) => !it.folded);
+    const folded = items.filter((it) => it.folded);
     // very long lists (all text) render in chunks so typing stays snappy
     const LIMIT = 600;
-    list.append(...items.slice(0, LIMIT).map(row));
-    if (items.length > LIMIT) {
-      const more = h("button", { class: "btn small ghost more-rows" }, `Show ${items.length - LIMIT} more…`);
+    list.append(...plain.slice(0, LIMIT).map(row));
+    if (plain.length > LIMIT) {
+      const more = h("button", { class: "btn small ghost more-rows" }, `Show ${plain.length - LIMIT} more…`);
       more.addEventListener("click", () => {
-        more.remove();
-        list.append(...items.slice(LIMIT).map(row));
+        more.replaceWith(...plain.slice(LIMIT).map(row));
       });
       list.append(more);
+    }
+    if (folded.length && opts.folded) {
+      // open while searching, or when the user opened it, or it holds the current record
+      const open = foldOpen || !!q || folded.some((it) => it.id === current);
+      const fold = h(
+        "details",
+        { class: "list-fold", open },
+        h("summary", { class: "list-section" }, `${opts.folded.label} (${folded.length})`),
+        h("p", { class: "hint fold-hint" }, opts.folded.hint),
+        ...folded.map(row),
+      );
+      fold.addEventListener("toggle", () => {
+        if (!q) foldOpen = fold.open;
+      });
+      list.append(fold);
     }
     const shift = scrollTop > pinnedBefore ? pinnedHeight() - pinnedBefore : 0;
     list.scrollTop = scrollTop + shift;

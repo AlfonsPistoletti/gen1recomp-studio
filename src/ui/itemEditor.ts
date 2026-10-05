@@ -59,6 +59,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
   const newBtn = h("button", { class: "btn small", title: "Add an item, starting as a copy of one", onclick: () => createItem() }, "+ New");
   const list = mountRecordList(left, {
     title: "Items",
+    folded: { label: "Used by the game", hint: "Not real items: elevator floor labels, Surf's hidden item and unused slots. Edit only if you know why." },
     head: [newBtn],
     placeholder: "Search items…  (Ctrl+P)",
     searchId: "items-search",
@@ -76,6 +77,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
           search: `${id} ${String(r.name ?? "")} ${m?.move ?? ""}`,
           edited: itemEdited(id),
           isNew: isNewItem(id),
+          folded: !!s.internal(id),
         };
       });
     },
@@ -122,7 +124,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     const s = spec();
     if (!s) return;
     const all = items();
-    const sources = ordered().filter((id) => !s.special(id, all[id]));
+    const sources = ordered().filter((id) => !s.special(id, all[id]) && !s.internal(id));
     const res = await promptNewRecord({
       title: "New item",
       idPrefix: "",
@@ -258,7 +260,12 @@ function itemForm(s: ItemSpec, id: string, r: Rec): HTMLElement[] {
     ),
     check("Key item", keyItem, (v) => edit(id, "Key item", (d) => (v ? (d.keyItem = true) : delete d.keyItem)), "Can't be sold or tossed; plays the key-item jingle when received."),
   );
-  const out = [basics];
+  const internal = s.internal(id);
+  const out = internal
+    ? [h("section", { class: "card warn-card" }, h("h4", {}, "Used by the game"), h("p", { class: "hint" }, internal), h("p", { class: "hint" }, "Changing it can break what relies on it.")), basics]
+    : [basics];
+  // not a real item: no effect, catching or shops
+  if (internal) return out;
   const machine = machineOf(r);
   if (machine?.move) out.push(machineCard(id, machine));
   out.push(effectCard(s, id, r));

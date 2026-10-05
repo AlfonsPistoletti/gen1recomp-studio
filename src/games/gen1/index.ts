@@ -8,7 +8,7 @@
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
-import { isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
+import { internalItem, isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
 import { paletteColors, paletteNames, resolveMapPalettes, type PaletteData } from "./palette.ts";
 
 interface Gen1Map extends MapDef {
@@ -310,6 +310,7 @@ const items: ItemSpec = {
   describe: vanillaItemText,
   template: (id) => itemTemplate(id),
   special: isSpecialItem,
+  internal: internalItem,
   picksMove,
   // shop clerks: text_pointers[<map label>][TEXT_*].mart
   marts(ctx) {

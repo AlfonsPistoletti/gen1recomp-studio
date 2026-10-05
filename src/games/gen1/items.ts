@@ -130,5 +130,14 @@ export function vanillaItemText(id: string, item: Record<string, unknown>): stri
   return "No use from the bag (sell it, or scripts ask for it).";
 }
 
+// items the game uses for something else: why, or null for a real item
+export function internalItem(id: string): string | null {
+  if (/^FLOOR_/.test(id)) return "Elevator floor: the elevator menus list their floors as these fake items, and the name is the floor label shown.";
+  if (id === "SURFBOARD") return "Used by the Surf field move behind the scenes; the player never holds it.";
+  if (id === "ITEM_2C") return "Unused slot (?????): nothing in the game gives it.";
+  if (id === "ITEM_32") return "Unused duplicate of PP UP: nothing in the game gives it.";
+  return null;
+}
+
 export const isSpecialItem = (id: string, item: Record<string, unknown>): boolean => !!SPECIAL[id] || !!(item.machine as { move?: string } | undefined)?.move;
 export const picksMove = (id: string): boolean => PICKS_MOVE.has(id);

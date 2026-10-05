@@ -76,6 +76,8 @@ kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
     the same one the Items workspace's "Sold at" edits), **nurse** (heals;
     the town outside becomes the Teleport/Dig/blackout return point), **PC**,
     or **prize counter** (signs too).
+  - Map properties, **Music**: the song the map plays (bike and surf songs
+    still take over while riding or surfing).
   - Map properties, **Pokémon Center**: PC tiles (pick on map). For outdoor
     towns, a **landing spot**: where Teleport, Dig, Escape Rope and blacking
     out put the player after healing at a center in the town. Flying to new

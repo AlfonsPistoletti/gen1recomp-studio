@@ -52,7 +52,7 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
   store.on((reason, _id, registry) => {
     if (["project", "map", "edit", "selection"].includes(reason)) schedule();
     const towns = store.adapter?.towns;
-    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
+    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
   });
   onFocusLeave(body, schedule);
 }
@@ -265,6 +265,7 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     h("div", { class: "kv" }, h("span", {}, "Id"), h("code", {}, map.id), isNew ? h("span", { class: "tag new" }, "new") : null),
     ...adapter.mapFields.map((f) => renderField(f, map as Rec, editRecord, adapter.mapFields, view)),
     field("Tileset", tilesetSelect),
+    musicField(map),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Size (blocks)"), h("div", { class: "row" }, w, h("span", { class: "x" }, "×"), hgt, anchor, resize)),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Border block"), h("div", { class: "row" }, border, useStamp)),
     h("h4", {}, "Connections"),
@@ -291,6 +292,24 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
         }, isNew ? "Delete map" : "Revert map to base")
       : null,
   ].filter((e): e is HTMLElement => !!e);
+}
+
+// Music_PalletTown -> Pallet Town
+function songLabel(id: string): string {
+  return id.replace(/^Music_/, "").replace(/([a-z])([A-Z0-9])/g, "$1 $2").replace(/_/g, " ");
+}
+
+// the map's song (the map_songs registry, keyed by map id)
+function musicField(map: MapDef): HTMLElement | null {
+  if (!store.adapter.content.some((c) => c.registry === "map_songs")) return null;
+  const songs = Object.keys(store.table("music")).sort((a, b) => songLabel(a).localeCompare(songLabel(b)));
+  const current = typeof store.table("map_songs")[map.id] === "string" ? (store.table("map_songs")[map.id] as string) : "";
+  const sel = selectInput(current, songs, (v) => {
+    store.setRecord("map_songs", map.id, "Map music", v || undefined);
+    store.seal();
+  }, "(none: the previous song keeps playing)");
+  for (const o of sel.options) if (o.value) o.textContent = songLabel(o.value);
+  return field("Music", sel, "Riding the bike or surfing plays their own song over it.");
 }
 
 function revertMap(id: string, to: MapDef): void {

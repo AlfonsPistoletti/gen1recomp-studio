@@ -109,6 +109,10 @@ const content: ContentSpec[] = [
   // turned into map_scripts talk handlers by the generated helper. The base
   // is the vanilla three counters of the open version.
   { registry: "prize_counters", editable: true, build: (_f, version) => vanillaPrizes(version), studioFile: "studio_prizes.lua", generates: "map_scripts" },
+  // each map's song (audio.lua mapSongs), and the songs to pick from; a
+  // song id is a record of the engine's `music` registry
+  { registry: "map_songs", file: "audio.lua", editable: true, build: (f) => ((f as { mapSongs?: Record<string, unknown> }).mapSongs ?? {}) },
+  { registry: "music", file: "audio.lua", editable: false, build: (f) => ((f as { songs?: Record<string, unknown> }).songs ?? {}) },
   // catch numbers per ball id; the vanilla records live in the engine
   // (src/battle/Catching.lua), so they are restated (written with override)
   { registry: "balls", editable: true, replace: true, build: () => structuredClone(VANILLA_BALLS), fieldOrder: ["randMax", "hpFactor", "wobbleFactor", "autoCatch", "flicker", "tossAnim"] },

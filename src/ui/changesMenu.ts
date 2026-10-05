@@ -19,6 +19,7 @@ const NAMES: Record<string, [string, string]> = {
   items: ["Items", "item"],
   studio_item_effects: ["Custom item effects", "custom item effect"],
   balls: ["Ball catch numbers", "ball"],
+  map_songs: ["Map music", "map's music"],
   field: ["PCs and landing spots", "PC/landing setting"],
   prize_counters: ["Game Corner prizes", "prize counter"],
   trainers: ["Trainers", "trainer"],
@@ -84,6 +85,8 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       const user = Object.entries(store.table("items")).find(([, m]) => (m as { effect?: unknown }).effect === id)?.[0];
       return user ? () => nav.openItem(user) : null;
     }
+    case "map_songs":
+      return store.maps[id] ? () => nav.openMap(id) : null;
     case "field":
       // hiddenExtras (PC tiles) and flyWarps (landing spots): the maps say which
       return () => nav.setWorkspace("maps");

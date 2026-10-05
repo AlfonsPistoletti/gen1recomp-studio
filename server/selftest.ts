@@ -167,6 +167,14 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   check("shop removal overrides the map's pointers", rmCalls.length === 1 && rmCalls[0].op === "override");
 }
 
+// a map's song is a plain string record: written as override
+{
+  check("vanilla map songs loaded", typeof content.map_songs?.PALLET_TOWN === "string" && Object.keys(content.music ?? {}).length > 20);
+  const calls = contentCalls(adapter, { maps: base, ...content }, { map_songs: { PALLET_TOWN: "Music_Routes1" } }).calls;
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("map song written as override", src.includes('map_songs:override("PALLET_TOWN", "Music_Routes1")'), src.slice(-200));
+}
+
 // prize counters: data file + helper register a talk handler per counter
 {
   const id = "GAME_CORNER_PRIZE_ROOM:TEXT_GAMECORNERPRIZEROOM_PRIZE_VENDOR_1";

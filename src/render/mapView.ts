@@ -8,7 +8,7 @@ import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../co
 import { store, type Selection, type Stamp } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
-import { DoorOpen, Signpost, type IconNode } from "lucide";
+import { DoorOpen, Monitor, PlaneLanding, Signpost, type IconNode } from "lucide";
 import { atlasRect, blockAtlas, BLOCK, CELL, markerIcon, spriteFrame, type BlockAtlas } from "./graphics.ts";
 
 interface CachedMap {
@@ -43,6 +43,8 @@ const MIN_ZOOM = 0.125;
 // colors of the marker icons drawn on warps and signs
 const WARP_ICON = "#6a3fd8";
 const SIGN_ICON = "#a86a00";
+const PC_ICON = "#2f7dff";
+const LANDING_ICON = "#1f9e6b";
 const MAX_ZOOM = 8;
 
 export class MapView {
@@ -445,6 +447,14 @@ export class MapView {
         if (layer.numbered) this.badge(e.x * CELL, e.y * CELL, String(i + 1), layer.color);
       });
     }
+    // Pokémon Center PCs and the town's landing spot (the field registry)
+    const towns = store.adapter.towns;
+    if (towns) {
+      const f = store.table(towns.fieldRegistry) as { hiddenExtras?: { pcTiles?: Record<string, EntityRecord[]> }; flyWarps?: Record<string, EntityRecord> };
+      for (const pc of f.hiddenExtras?.pcTiles?.[map.id] ?? []) this.markerIcon("monitor", Monitor, PC_ICON, pc);
+      const land = f.flyWarps?.[map.id];
+      if (land) this.markerIcon("plane-landing", PlaneLanding, LANDING_ICON, land);
+    }
     const sel = store.selection;
     const e = sel ? store.entities(map, sel.layer)[sel.index] : undefined;
     if (e) {
@@ -656,6 +666,7 @@ export class MapView {
       this.zoomBy(factor, e.offsetX, e.offsetY);
     }, { passive: false });
     window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.cellPick) this.cancelPick();
       if (e.code === "Space" && !isTyping(e)) {
         this.spaceDown = true;
         c.style.cursor = "grab";
@@ -684,6 +695,13 @@ export class MapView {
     if (e.button !== 0 && e.button !== 2) return;
     const h = this.hoverInfo();
     if (!h) return;
+    // "pick on map": this click answers the inspector instead of the tool
+    if (this.cellPick && e.button === 0) {
+      const pick = this.cellPick;
+      this.cancelPick();
+      if (h.inside) pick(h.cx, h.cy);
+      return;
+    }
     const tool = e.altKey || e.button === 2 ? "pick" : store.tool;
     if (tool === "pick") {
       this.drag = { kind: "pick", mapId: h.mapId, bx: h.bx, by: h.by };
@@ -834,6 +852,25 @@ export class MapView {
         }
       }
     }, true);
+  }
+
+  // The next left click on the current map reports its cell instead of
+  // using the tool (Escape cancels).
+  private cellPick: ((cx: number, cy: number) => void) | null = null;
+
+  pickCell(onPick: (cx: number, cy: number) => void): void {
+    this.cellPick = onPick;
+    this.canvas.style.cursor = "crosshair";
+    this.canvas.focus();
+  }
+
+  cancelPick(): void {
+    this.cellPick = null;
+    this.canvas.style.cursor = "";
+  }
+
+  get picking(): boolean {
+    return this.cellPick !== null;
   }
 
   centerOnCell(cx: number, cy: number): void {

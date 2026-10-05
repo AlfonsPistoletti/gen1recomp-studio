@@ -14,6 +14,7 @@ import type { Host, ProcessResult } from "../host/types.ts";
 import { loadLuaData, runMod } from "../lua/vm.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../lua/itemEffectRuntime.ts";
+import { PRIZE_RUNTIME, prizeRegistration } from "../lua/prizeRuntime.ts";
 import { dataFile, requireLine, studioContentFile, type ContentCall } from "../lua/writer.ts";
 
 export const MOD_ID_RE = /^[\w-]+$/;
@@ -46,7 +47,7 @@ function loadDataset(host: Host, version: string, adapter: GameAdapter): Promise
       const text = await host.readText(`cache:${version}`, `data/generated/${file}`);
       if (text === null) throw new Error(`${version}: data/generated/${file} is missing`);
       return loadLuaData(text, file);
-    });
+    }, version);
     p.catch(() => datasets.delete(version));
     datasets.set(version, p);
   }
@@ -337,7 +338,8 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   const modId = checkId(project.mod ?? "");
   const file = `mods/${modId}/studio_content.lua`;
   const layers = await buildLayers(host, version, adapter, modId);
-  const { calls, patched, registered } = contentCalls(adapter, baseTables(adapter, layers.data), edited);
+  const bases = baseTables(adapter, layers.data);
+  const { calls, patched, registered } = contentCalls(adapter, bases, edited);
   // keep what the studio file says about registries the studio does not
   // edit (a tileset it registered earlier, ...) exactly as it was
   const editable = new Set(editableRegistries(adapter));
@@ -350,28 +352,43 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   const order = [...editable];
   calls.sort((a, b) => order.indexOf(a.registry) - order.indexOf(b.registry) || rank(a) - rank(b) || a.id.localeCompare(b.id));
   // data-file registries: write the file whole (or remove it) and the code
-  // that registers its records
+  // that registers its records (before the calls, which may refer to them).
+  // Only records that differ from the base go in (vanilla prize counters).
   let before = "";
+  let internals = false;
   for (const c of adapter.content) {
     if (!c.studioFile) continue;
     const records: Record<string, unknown> = {};
-    for (const [id, value] of Object.entries(edited[c.registry] ?? {})) if (value !== null && value !== undefined) records[id] = value;
+    const base = bases[c.registry] ?? {};
+    for (const [id, value] of Object.entries(edited[c.registry] ?? {})) {
+      if (value !== null && value !== undefined && !deepEqual(base[id], value)) records[id] = value;
+    }
     const path = `mods/${modId}/${c.studioFile}`;
     if (Object.keys(records).length) {
       const gen = c.generates ? GENERATORS[c.generates] : undefined;
       await host.writeText(path, dataFile(modId, gen?.what ?? c.registry, records, gen?.order ?? []));
       if (gen) before += gen.runtime + "\n" + gen.registration(modId, c.studioFile) + "\n";
+      if (gen?.internals) internals = true;
     } else if ((await host.readText("game", path)) !== null) {
       await host.deleteFile(path);
     }
   }
   await host.writeText(file, studioContentFile(modId, [...kept, ...calls], fieldOrders(adapter), before));
+  await syncPermissions(host, modId, internals);
   const wiredUp = await isWiredUp(host, modId, await readManifest(host, modId));
   return { file, patched, registered, wiredUp, snippet: wiredUp ? undefined : requireLine(modId) };
 }
 
 // the fixed helpers that turn a data file's specs into engine records
-export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string }> = {
+export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string; internals?: boolean }> = {
+  // prize counters use the engine's prize window: engine_internals
+  map_scripts: {
+    what: "Game Corner prize counters",
+    order: ["prizes", "item", "species", "level", "cost"],
+    runtime: PRIZE_RUNTIME,
+    registration: prizeRegistration,
+    internals: true,
+  },
   move_effects: {
     what: "custom move effects",
     order: ["kind", "canMiss", "neverMiss", "hits", "damage", "recoil", "drain", "steps"],
@@ -385,6 +402,32 @@ export const GENERATORS: Record<string, { what: string; order: string[]; runtime
     registration: itemEffectRegistration,
   },
 };
+
+// The engine_internals permission (the engine's mod manager labels it "PATCHES
+// ENGINE CODE") follows what the studio's helpers need. It is only taken away
+// again when nothing else in the mod reaches into the engine (src.*).
+const INTERNALS = "engine_internals";
+
+async function syncPermissions(host: Host, modId: string, needed: boolean): Promise<void> {
+  const path = `mods/${modId}/manifest.json`;
+  const text = await host.readText("game", path);
+  if (text === null) return;
+  const manifest = JSON.parse(text) as Record<string, unknown>;
+  const list = Array.isArray(manifest.permissions) ? (manifest.permissions as unknown[]).filter((p): p is string => typeof p === "string") : [];
+  const has = list.includes(INTERNALS);
+  if (needed === has) return;
+  if (!needed) {
+    const files = await modFiles(host, modId);
+    for (const [rel, body] of files) {
+      if (/\/studio_[a-z_]+\.lua$/.test(rel)) continue;
+      if (/require\s*\(?\s*["']src\./.test(body)) return;
+    }
+  }
+  const next = needed ? [...list, INTERNALS] : list.filter((p) => p !== INTERNALS);
+  if (next.length) manifest.permissions = next;
+  else delete manifest.permissions;
+  await host.writeText(path, JSON.stringify(manifest, null, 2) + "\n");
+}
 
 // within a registry: registrations first (a patch may refer to them)
 function rank(c: ContentCall): number {

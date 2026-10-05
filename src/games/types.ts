@@ -43,7 +43,7 @@ export interface ContentSpec {
   replace?: boolean;
   // turns the file's table into the registry's records when they differ
   // (type_chart.lua holds a matchups list; the registry keys "A>B")
-  build?: (file: Record<string, unknown>) => Record<string, unknown>;
+  build?: (file: Record<string, unknown>, version?: string) => Record<string, unknown>;
   // records kept as a plain data file in the mod (mods/<id>/<studioFile>)
   // instead of registry calls; `generates` names the registry the studio
   // file registers from it (its ops there are regenerated, never kept)
@@ -166,6 +166,31 @@ export interface ItemSpec {
   // which ids the engine gives a move picker (Ether-style)
   picksMove(id: string): boolean;
   marts(ctx: GameContext): MartRef[];
+}
+
+// ------------------------------------------------------------------ towns
+
+// One Game Corner prize: an item or a Pokémon at a level, for coins.
+export interface Prize {
+  item?: string;
+  species?: string;
+  level?: number;
+  cost: number;
+}
+
+export interface PrizeCounter {
+  prizes: Prize[];
+}
+
+// NPC roles, Pokémon Center PCs, landing spots and prize counters.
+export interface TownSpec {
+  pointerRegistry: string; // text_pointers: roles are flags on an NPC's text pointer
+  fieldRegistry: string; // field: pcTiles, flyWarps
+  prizeRegistry: string; // prize counters, id "<MAP_ID>:<TEXT_ID>"
+  prizesPerCounter: number; // the prize window's rows
+  maxCoins: number;
+  // which maps may get a landing spot (outdoor ones)
+  isTown(map: MapDef): boolean;
 }
 
 // ------------------------------------------------------------------ trainers
@@ -362,7 +387,7 @@ export interface GameAdapter {
   // whether this adapter can edit yet
   ready: boolean;
 
-  load(read: (file: string) => Promise<unknown>): Promise<Dataset>;
+  load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;
 
   layers: EntityLayer[];
@@ -388,4 +413,5 @@ export interface GameAdapter {
   trainers?: TrainerSpec;
   moves?: MoveSpec;
   items?: ItemSpec;
+  towns?: TownSpec;
 }

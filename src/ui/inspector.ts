@@ -10,6 +10,7 @@ import type { EntityLayer, FieldSpec } from "../games/types.ts";
 import type { MapView } from "../render/mapView.ts";
 import { clear, field, h, numberInput, rerender, selectInput, toast, errorText, onFocusLeave } from "./dom.ts";
 import { npcTextSection } from "./mapText.ts";
+import { roleSection, townSection } from "./mapTown.ts";
 import { nav } from "./nav.ts";
 import { warpProblem } from "../core/checks.ts";
 
@@ -50,7 +51,8 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
   };
   store.on((reason, _id, registry) => {
     if (["project", "map", "edit", "selection"].includes(reason)) schedule();
-    if (reason === "content" && (registry === "text" || registry === "text_pointers")) schedule();
+    const towns = store.adapter?.towns;
+    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
   });
   onFocusLeave(body, schedule);
 }
@@ -268,6 +270,7 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     h("h4", {}, "Connections"),
     h("p", { class: "hint" }, "Offsets are in blocks. Setting a connection also writes the return connection on the other map."),
     ...DIRECTIONS.map((dir) => connectionRow(map, dir, ids, view)),
+    ...townSection(map, view),
     h("h4", {}, "Contents"),
     h(
       "div",
@@ -370,6 +373,11 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
   if (says && !fields.includes(says)) fields.push(says);
   const fights = layer.kind === "npc" ? trainerSection(record) : null;
   if (fights) fields.splice(fields.indexOf(says ?? fields[fields.length - 1]), 0, fights);
+  // what it does (shop, nurse, PC, prizes) goes right above what it says
+  const role = layer.kind === "npc" || layer.kind === "sign"
+    ? roleSection(map, record, layer.kind, index, (id) => store.edit(map.id, "Text id", (d) => (store.entities(d, layer.key)[index].text = id)))
+    : null;
+  if (role) fields.splice(says ? fields.indexOf(says) : fields.length, 0, role);
   return [pos, ...fields, actions];
 }
 

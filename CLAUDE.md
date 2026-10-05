@@ -77,6 +77,18 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   `generates` registry to its helper. The helper may only `require` `src.pokemon.Stats`
   (modkit MK006). `balls` is a `replace` registry restated from the engine. Shop stock is
   `text_pointers[<map label>][TEXT_*].mart`.
+- "deep" registries (`ContentSpec.deep`: text_pointers, field): the engine APPENDS patched
+  lists. `diffDeep` writes only a grown list's tail and overrides the record when a list
+  shrank; `applyOps(..., deep)` appends the same way when reading a mod back.
+- Towns (`src/ui/mapTown.ts`, `adapter.towns`): NPC roles are text_pointer flags (mart list,
+  nurse, pc); PC tiles are `field.hiddenExtras.pcTiles[MAP]`, landing spots `field.flyWarps[MAP]`
+  (Teleport/Dig/blackout land there via lastHeal.outdoor). Fly to new towns is deferred:
+  `Map.isFlyTown` rejects index >= 11 and the Town Map would need a hook too.
+- Prize counters: `prize_counters` registry ("<MAP_ID>:<TEXT_ID>", vanilla three restated per
+  version in `src/games/gen1/prizes.ts`; `adapter.load` gets the version) -> `studio_prizes.lua`
+  (only records differing from base) -> `src/lua/prizeRuntime.ts` map_scripts talk functions.
+  It requires engine modules inside the handler, so `syncPermissions` adds `engine_internals`
+  (removed again only if no other mod file requires `src.*`).
 - `applyOps` stamps `id` only in registries whose records carry one (an `id` in a
   text_pointers record broke the engine's schema); on load it drops such a stray id.
 - `applyOps` must not stamp `id` onto `{ __ref }` values (a reloaded reference was re-saved as a

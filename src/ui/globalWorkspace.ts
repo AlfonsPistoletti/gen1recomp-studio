@@ -10,6 +10,7 @@ import type { GlobalNumber, GlobalsSpec } from "../games/types.ts";
 import { clear, field, h, numberInput, onFocusLeave, rerender, toast } from "./dom.ts";
 import { chancesCard } from "./encounterPanel.ts";
 import { nav } from "./nav.ts";
+import { counterLabel, counters, prizeCounterEditor, showCounter } from "./prizeEditor.ts";
 import { recall, remember } from "./storage.ts";
 
 const SECTION_KEY = "studio.globalSection";
@@ -55,6 +56,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   const s = spec();
   if (!s) return null;
   if (registry === s.typeChart?.registry) return "types";
+  if (registry === store.adapter.towns?.prizeRegistry) return "prizes";
   const odds = store.adapter.encounters?.sharedOdds;
   if (odds && registry === odds.registry && id === odds.id) return "wild";
   if (s.hmBadges && registry === s.hmBadges.registry && id === s.hmBadges.id) return "fieldmoves";
@@ -67,6 +69,7 @@ export function globalLabelOf(registry: string, id: string): string | null {
   const section = globalSectionOf(registry, id);
   if (!s || !section) return null;
   if (section === "types") return null;
+  if (section === "prizes") return counterLabel(id);
   if (section === "wild") return "Wild slot chances";
   if (section === "fieldmoves") return "HM badges";
   const labels = s.numbers.filter((n) => n.registry === registry && n.id === id).map((n) => n.label);
@@ -83,6 +86,11 @@ function sectionChanged(id: string): boolean {
   const odds = store.adapter.encounters?.sharedOdds;
   if (id === "wild" && odds) regs.push([odds.registry, odds.id]);
   if (regs.some(([r, i]) => store.isRecordEdited(r, i))) return true;
+  const towns = store.adapter.towns;
+  if (id === "prizes" && towns) {
+    const reg = towns.prizeRegistry;
+    for (const i of new Set([...Object.keys(store.table(reg)), ...Object.keys(store.baseTable(reg))])) if (store.isRecordEdited(reg, i)) return true;
+  }
   if (id === "types" && s.typeChart) {
     const reg = s.typeChart.registry;
     const ids = new Set([...Object.keys(store.table(reg)), ...Object.keys(store.baseTable(reg))]);
@@ -153,8 +161,9 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
   store.on((reason, _id, registry) => {
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
-    if (reason === "content" && s && (registry === "constants" || registry === s.typeChart?.registry)) schedule();
-    if (reason === "reveal" && s && (registry === "constants" || registry === s.typeChart?.registry)) nav.setWorkspace("global");
+    const prizes = store.adapter?.towns?.prizeRegistry;
+    if (reason === "content" && s && (registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon")) schedule();
+    if (reason === "reveal" && s && (registry === "constants" || registry === s.typeChart?.registry || registry === prizes)) nav.setWorkspace("global");
   });
 }
 
@@ -168,6 +177,19 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   }
   if (id === "types" && s.typeChart) out.push(...typeChartCards(s.typeChart));
   if (id === "fieldmoves" && s.hmBadges) out.push(hmBadgesCard(s.hmBadges));
+  const towns = store.adapter.towns;
+  if (id === "prizes" && towns) {
+    for (const cid of Object.keys(counters(towns)).sort()) {
+      out.push(
+        h(
+          "section",
+          { class: "card" },
+          h("div", { class: "row" }, h("h4", {}, counterLabel(cid)), h("button", { class: "btn small ghost", onclick: () => showCounter(cid) }, "Show on map")),
+          prizeCounterEditor(towns, cid),
+        ),
+      );
+    }
+  }
   const numbers = s.numbers.filter((n) => n.section === id);
   if (numbers.length) out.push(h("section", { class: "card" }, ...numbers.map(numberRow)));
   return out;
@@ -374,6 +396,11 @@ function changedList(s: GlobalsSpec, open: (section: string) => void): HTMLEleme
       const label = id.includes(">") ? id.replace(">", " → ") : store.baseTable(reg)[id] === undefined ? `New type ${id}` : `${id} type`;
       add("types", label, reg, id);
     }
+  }
+  const prizes = store.adapter.towns?.prizeRegistry;
+  if (prizes) {
+    const ids = new Set([...Object.keys(store.table(prizes)), ...Object.keys(store.baseTable(prizes))]);
+    for (const id of [...ids].sort()) if (store.isRecordEdited(prizes, id)) add("prizes", `Prizes: ${counterLabel(id)}`, prizes, id);
   }
   if (!items.length) items.push(h("p", { class: "hint" }, "Everything is vanilla."));
   return items;

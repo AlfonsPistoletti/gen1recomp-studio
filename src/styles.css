@@ -778,6 +778,14 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .list-fold .fold-hint { margin: 2px 10px 6px; }
 .warn-card { border-color: var(--warn); }
 .warn-card h4 { color: var(--warn); }
+.stock { display: flex; flex-direction: column; gap: 2px; }
+.stock-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px; align-items: center; }
+.stock-row .linkish { text-align: left; }
+.stock input.combo { margin-top: 4px; }
+.pc-row input[type="number"] { width: 64px; }
+.prize-counter { display: flex; flex-direction: column; gap: 4px; }
+.prize-row { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
+.prize-row input[type="number"] { width: 72px; }
 .mart-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 16px; }
 .mart-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
 .mart-row .btn { padding: 0 6px; height: 20px; }

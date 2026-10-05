@@ -6,8 +6,9 @@
 //   color:    one SGB palette per map (vanilla cascade, see palette.ts)
 
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
+import { vanillaPrizes } from "./prizes.ts";
 import { internalItem, isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
 import { paletteColors, paletteNames, resolveMapPalettes, type PaletteData } from "./palette.ts";
 
@@ -101,6 +102,13 @@ const content: ContentSpec[] = [
   // custom item effects built in the studio: plain data in the mod's
   // studio_item_effects.lua, registered as item_effects by the generated helper
   { registry: "studio_item_effects", editable: true, build: () => ({}), studioFile: "studio_item_effects.lua", generates: "item_effects" },
+  // the overworld config table; the studio edits Pokémon Center PC tiles
+  // (hiddenExtras.pcTiles) and landing spots (flyWarps). Merged "deep".
+  { registry: "field", file: "field.lua", editable: true, deep: true },
+  // Game Corner prize counters: plain data in the mod's studio_prizes.lua,
+  // turned into map_scripts talk handlers by the generated helper. The base
+  // is the vanilla three counters of the open version.
+  { registry: "prize_counters", editable: true, build: (_f, version) => vanillaPrizes(version), studioFile: "studio_prizes.lua", generates: "map_scripts" },
   // catch numbers per ball id; the vanilla records live in the engine
   // (src/battle/Catching.lua), so they are restated (written with override)
   { registry: "balls", editable: true, replace: true, build: () => structuredClone(VANILLA_BALLS), fieldOrder: ["randMax", "hpFactor", "wobbleFactor", "autoCatch", "flicker", "tossAnim"] },
@@ -330,6 +338,18 @@ const items: ItemSpec = {
   },
 };
 
+// ------------------------------------------------------------------ towns
+
+const towns: TownSpec = {
+  pointerRegistry: "text_pointers",
+  fieldRegistry: "field",
+  prizeRegistry: "prize_counters",
+  prizesPerCounter: 3,
+  maxCoins: 9999,
+  // Teleport/Dig/Escape Rope land outside: OVERWORLD (or a map marked outdoor)
+  isTown: (map) => (map as { outdoor?: boolean }).outdoor === true || map.tileset === "OVERWORLD",
+};
+
 // ------------------------------------------------------------------ trainers
 
 // gen1recomp data/scripts/ai_classes.lua (from pokered ai_pointers.asm):
@@ -475,6 +495,7 @@ const globals: GlobalsSpec = {
     { id: "battle", label: "Pokémon & items", hint: "Level cap and bag size." },
     { id: "overworld", label: "Overworld", hint: "Walking and biking speed, poison, blacking out, Day-Care." },
     { id: "fieldmoves", label: "Field moves", hint: "Which badge each HM needs outside of battle." },
+    { id: "prizes", label: "Game Corner prizes", hint: "What each prize counter trades for coins: three prizes per counter, items or Pokémon. Any NPC or sign can be made a counter (Maps, select it, Role)." },
   ],
   numbers: [
     { section: "battle", registry: "constants", id: "levelCap", label: "Level cap", hint: "Pokémon stop gaining levels here.", min: 1, max: 100 },
@@ -520,7 +541,7 @@ export const gen1: GameAdapter = {
   manifestGame: "gen1",
   ready: true,
 
-  async load(read): Promise<Dataset> {
+  async load(read, version): Promise<Dataset> {
     const [maps, tilesets, sprites, pal, fieldData, icons, ...tables] = await Promise.all([
       read("maps.lua") as Promise<Record<string, MapDef>>,
       read("tilesets.lua") as Promise<Record<string, TilesetDef>>,
@@ -532,7 +553,7 @@ export const gen1: GameAdapter = {
     ]);
     for (const m of Object.values(maps)) gen1.normalizeMap(m);
     const contentTables: Dataset["content"] = {};
-    content.forEach((c, i) => (contentTables[c.registry] = c.build ? c.build(tables[i] ?? {}) : tables[i] ?? {}));
+    content.forEach((c, i) => (contentTables[c.registry] = c.build ? c.build(tables[i] ?? {}, version) : tables[i] ?? {}));
     // only what the editor reads from the big field table
     const fieldExtra: Field = { waterTilesets: fieldData.waterTilesets, indoorEncounters: fieldData.indoorEncounters };
     return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, field: fieldExtra, icons } };
@@ -665,6 +686,7 @@ export const gen1: GameAdapter = {
   trainers,
   moves,
   items,
+  towns,
 };
 
 function blockAt(map: MapDef, bx: number, by: number): number {

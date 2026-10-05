@@ -10,6 +10,7 @@ import { describeItemEffect } from "../games/gen1/items.ts";
 import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { promptNewRecord } from "./newRecord.ts";
+import { counterLabel, countersGiving, showCounter } from "./prizeEditor.ts";
 import { mountRecordList } from "./recordList.ts";
 
 type Rec = Record<string, unknown>;
@@ -215,7 +216,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     if (reason === "project") {
       if (!current || !items()[current]) current = ordered()[0] ?? null;
       render(true);
-    } else if (reason === "content" && s && [s.registry, s.effectRegistry, s.ballRegistry, "text_pointers", "pokemon", "ai_classes", "moves"].includes(registry)) {
+    } else if (reason === "content" && s && [s.registry, s.effectRegistry, s.ballRegistry, "text_pointers", "pokemon", "ai_classes", "moves", store.adapter.towns?.prizeRegistry].includes(registry)) {
       schedule();
     } else if (reason === "reveal" && s && (registry === s.registry || registry === s.ballRegistry) && id) {
       nav.openItem(id);
@@ -658,13 +659,15 @@ function usesOf(id: string): Use[] {
   }
   const s = spec();
   for (const m of s?.marts(store.ctx) ?? []) if (martStock(m).includes(id)) out.push({ label: `Shop: ${m.label}`, open: () => (m.mapId ? nav.openMap(m.mapId) : undefined) });
+  const towns = store.adapter.towns;
+  if (towns) for (const cid of countersGiving(towns, id)) out.push({ label: `Prize: ${counterLabel(cid)}`, open: () => showCounter(cid) });
   return out;
 }
 
 function usedBy(id: string): HTMLElement[] {
   const uses = usesOf(id);
   const out: HTMLElement[] = [];
-  if (!uses.length) out.push(h("p", { class: "hint" }, "No evolution, trainer AI or shop uses this item."));
+  if (!uses.length) out.push(h("p", { class: "hint" }, "No evolution, trainer AI, shop or prize counter uses this item."));
   for (const u of uses) out.push(h("button", { class: "use-row", onclick: u.open }, h("span", { class: "use-map" }, u.label)));
   return out;
 }

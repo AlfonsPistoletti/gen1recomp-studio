@@ -72,6 +72,14 @@ kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
     text id, pointer and string; existing texts are never changed. An NPC that
     shows an original game line can get **New text for this one**: its own
     copy to edit, while the original stays as it is.
+  - **Role** (NPCs and signs): normal, **shop clerk** (with its stock list,
+    the same one the Items workspace's "Sold at" edits), **nurse** (heals;
+    the town outside becomes the Teleport/Dig/blackout return point), **PC**,
+    or **prize counter** (signs too).
+  - Map properties, **Pokémon Center**: PC tiles (pick on map). For outdoor
+    towns, a **landing spot**: where Teleport, Dig, Escape Rope and blacking
+    out put the player after healing at a center in the town. Flying to new
+    towns isn't supported yet (it would also need the Town Map).
   - The **Wild** overlay (W) shows which cells roll encounters.
   - A green dot in the map list marks maps with wild Pokémon.
 - **Pokémon**: base stats, types, catch rate, EXP, growth, evolutions,
@@ -165,6 +173,11 @@ kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
 - **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
   reads.
   - Wild slot chances.
+  - Game Corner prizes: three prizes per counter (items or Pokémon with a
+    level, any coin price), for the vanilla counters and any NPC/sign made a
+    prize counter. They use the game's own prize window, so a mod with prize
+    counters gets the `engine_internals` permission (the mod manager shows
+    "PATCHES ENGINE CODE" for that; nothing in the engine is changed).
   - The type chart: every matchup, and physical/special per type.
   - Level cap and bag size.
   - Walking and bike speed, the turn window, poison, blackout money and

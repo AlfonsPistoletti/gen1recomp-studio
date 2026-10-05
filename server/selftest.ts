@@ -12,6 +12,7 @@ import type { EntityRecord, MapDef } from "../src/core/types.ts";
 import { adapterFor } from "../src/games/index.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../src/lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../src/lua/itemEffectRuntime.ts";
+import { PRIZE_RUNTIME, prizeRegistration } from "../src/lua/prizeRuntime.ts";
 import { loadLuaData, runMod } from "../src/lua/vm.ts";
 import { dataFile, studioContentFile } from "../src/lua/writer.ts";
 import { contentCalls, fieldOrders, isDeep, listMods, openProject } from "../src/project/project.ts";
@@ -164,6 +165,37 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   const removed = { ...clone(shop), TEXT_VIRIDIANMART_CLERK: { ...shop.TEXT_VIRIDIANMART_CLERK, mart: stock.slice(1) } };
   const rmCalls = contentCalls(adapter, { maps: base, ...content }, { text_pointers: { ViridianMart: removed } }).calls;
   check("shop removal overrides the map's pointers", rmCalls.length === 1 && rmCalls[0].op === "override");
+}
+
+// prize counters: data file + helper register a talk handler per counter
+{
+  const id = "GAME_CORNER_PRIZE_ROOM:TEXT_GAMECORNERPRIZEROOM_PRIZE_VENDOR_1";
+  check("vanilla prize counters restated", Array.isArray((content.prize_counters?.[id] as { prizes?: unknown[] } | undefined)?.prizes));
+  const spec = { prizes: [{ species: "MEW", level: 5, cost: 9999 }, { item: "MASTER_BALL", cost: 5000 }, { item: "RARE_CANDY", cost: 100 }] };
+  const dataSrc = dataFile("studio_selftest", "Game Corner prize counters", { [id]: spec, "STUDIO_TOWN:TEXT_STUDIOTOWN_PRIZES": spec });
+  const contentSrc = studioContentFile("studio_selftest", [], {}, PRIZE_RUNTIME + "\n" + prizeRegistration("studio_selftest", "studio_prizes.lua"));
+  const files = new Map([[file, contentSrc], ["mods/studio_selftest/studio_prizes.lua", dataSrc]]);
+  const pzRun = await runMod(files, "studio_selftest", file, null);
+  check("prize helper runs", pzRun.errors.length === 0, pzRun.errors.join("; "));
+  check("prize counters registered per map", ["GAME_CORNER_PRIZE_ROOM", "STUDIO_TOWN"].every((m) => pzRun.ops.some((o) => o.registry === "map_scripts" && o.id === m)), pzRun.ops.map((o) => `${o.registry}:${o.id}`).join(", "));
+  const back = await loadLuaData<Record<string, unknown>>(dataSrc, "studio_prizes.lua");
+  check("studio_prizes.lua round-trips", deepEqual(back[id], spec), JSON.stringify(back[id]));
+  check("prize helper has no backticks or ${", !PRIZE_RUNTIME.includes("`") && !PRIZE_RUNTIME.includes("${"));
+}
+
+// field (deep): a landing spot and a PC tile are patches that read back
+{
+  const field = content.field as Record<string, Record<string, unknown>>;
+  const flyWarps = { ...clone(field.flyWarps), STUDIO_TOWN: { x: 5, y: 7 } };
+  const extras = clone(field.hiddenExtras) as { pcTiles: Record<string, unknown[]> };
+  extras.pcTiles = { ...extras.pcTiles, STUDIO_CENTER: [{ x: 0, y: 3, facing: "up" }] };
+  const fCalls = contentCalls(adapter, { maps: base, ...content }, { field: { flyWarps, hiddenExtras: extras } }).calls;
+  check("field edits are patches", fCalls.length === 2 && fCalls.every((c) => c.op === "patch"), fCalls.map((c) => `${c.op} ${c.id}`).join(", "));
+  const src = studioContentFile("studio_selftest", fCalls, fieldOrders(adapter));
+  const fRun = await runMod(new Map([[file, src]]), "studio_selftest", file, null);
+  const table = clone(content.field) as Record<string, unknown>;
+  applyOps(table, fRun.ops, "field", true);
+  check("field edits read back", deepEqual(table.flyWarps, flyWarps) && deepEqual(table.hiddenExtras, extras));
 }
 
 // custom item effects: same design, registered as item_effects before the

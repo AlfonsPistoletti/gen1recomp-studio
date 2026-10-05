@@ -68,7 +68,7 @@ function newTextKey(label: string, textId: string): string {
 
 // A TEXT_* id nothing on this map uses yet: TEXT_<MAPLABEL>_<what>, where
 // <what> comes from the NPC's name (minus the map prefix) or "SIGN_<n>".
-function newTextId(map: MapDef, label: string, base: string): string {
+export function newTextId(map: MapDef, label: string, base: string): string {
   const prefix = `TEXT_${label.toUpperCase()}_`;
   const clean = base.toUpperCase().replace(/[^A-Z0-9_]/g, "_").replace(/^_+|_+$/g, "") || "TEXT";
   const taken = new Set(Object.keys((store.table("text_pointers")[label] as Record<string, unknown> | undefined) ?? {}));
@@ -80,7 +80,7 @@ function newTextId(map: MapDef, label: string, base: string): string {
 
 // What a new id is named after: the NPC's own name without the map's
 // prefix (VERMILION_CITY_NPC_7 -> NPC_7), or the sign's number.
-function idBase(map: MapDef, entity: EntityRecord, kind: string, index: number): string {
+export function idBase(map: MapDef, entity: EntityRecord, kind: string, index: number): string {
   const name = typeof entity.name === "string" ? entity.name : "";
   const stripped = name.replace(new RegExp(`^(${map.id}|${String(map.label ?? "").toUpperCase()})_`), "");
   return stripped || `${kind === "sign" ? "SIGN" : "NPC"}_${index + 1}`;

@@ -19,6 +19,8 @@ const NAMES: Record<string, [string, string]> = {
   items: ["Items", "item"],
   studio_item_effects: ["Custom item effects", "custom item effect"],
   balls: ["Ball catch numbers", "ball"],
+  field: ["PCs and landing spots", "PC/landing setting"],
+  prize_counters: ["Game Corner prizes", "prize counter"],
   trainers: ["Trainers", "trainer"],
   ai_classes: ["Trainer AI", "trainer AI"],
   text: ["Texts", "text"],
@@ -82,6 +84,9 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       const user = Object.entries(store.table("items")).find(([, m]) => (m as { effect?: unknown }).effect === id)?.[0];
       return user ? () => nav.openItem(user) : null;
     }
+    case "field":
+      // hiddenExtras (PC tiles) and flyWarps (landing spots): the maps say which
+      return () => nav.setWorkspace("maps");
     case "trainers":
       return removed ? null : () => nav.openTrainer(id);
     case "ai_classes":
@@ -92,7 +97,11 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
   return null;
 }
 
-function displayName(record: unknown, id: string): string {
+// field keys the studio edits
+const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenExtras: "Pokémon Center PCs" };
+
+function displayName(record: unknown, id: string, registry = ""): string {
+  if (registry === "field" && FIELD_NAMES[id]) return FIELD_NAMES[id];
   const name = record && typeof record === "object" ? (record as { name?: unknown }).name : undefined;
   return typeof name === "string" && name && name.toUpperCase() !== id.toUpperCase() ? `${id} · ${name}` : id;
 }
@@ -157,7 +166,7 @@ export function mountChangesMenu(): HTMLElement {
                 open?.();
               },
             },
-            h("span", { class: "changes-name" }, global ?? displayName(record, id)),
+            h("span", { class: "changes-name" }, global ?? displayName(record, id, registry)),
             removed ? h("span", { class: "tag removed" }, "removed") : added ? h("span", { class: "tag new" }, "new") : null,
           ),
         );

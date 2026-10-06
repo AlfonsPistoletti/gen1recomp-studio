@@ -8,6 +8,7 @@
 // by src/lua/tilesetRuntime.ts. The editor builds the same sheet in memory.
 
 import type { TilesetDef } from "./types.ts";
+import type { GbcColoring } from "./gbc.ts";
 import { store } from "./store.ts";
 import { assetUrl, type SheetRecipe } from "./assets.ts";
 import { extendedSheetRel, frameRel, SPINNER_TILESETS } from "../lua/tilesetRuntime.ts";
@@ -23,6 +24,8 @@ export interface TilesetExtension {
   // animated tiles: the tile's frames (shade digits), `period` 60ths of a
   // second each; the sheet holds frame 1
   animated?: AnimatedTile[];
+  // RED++ palette groups of the added tiles (see gbc.ts)
+  gbc?: GbcColoring;
 }
 
 export interface AnimatedTile {
@@ -45,7 +48,10 @@ export interface EngineAnimation {
 export const EXTENSIONS = "studio_tilesets";
 export const SHADE_GRAY = [255, 170, 85, 0];
 
+// what the mod adds to a game tileset (a mod tileset's studio_tilesets
+// record holds only its RED++ colors, see gbc.ts)
 export function extensionOf(id: string): TilesetExtension | undefined {
+  if (!isBaseTileset(id)) return undefined;
   return store.table(EXTENSIONS)[id] as TilesetExtension | undefined;
 }
 
@@ -104,7 +110,7 @@ function objId(o: object | undefined): number {
   return n;
 }
 export function tilesetKey(id: string): string {
-  return `${id}#${objId(store.table("tilesets")[id] as object | undefined)}.${objId(extensionOf(id))}`;
+  return `${id}#${objId(store.table("tilesets")[id] as object | undefined)}.${objId(store.table(EXTENSIONS)[id] as object | undefined)}`;
 }
 
 // ------------------------------------------------------------------ sheets

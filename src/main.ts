@@ -1,6 +1,7 @@
 import wasmUrl from "wasmoon/dist/glue.wasm?url";
 import { saveAssets, syncTransforms } from "./core/assets.ts";
 import { sheetRecipes, tilesetIds } from "./core/tilesets.ts";
+import { gbcAvailable, loadGbc, setGbc } from "./core/gbc.ts";
 import { brokenWarps, romReferences } from "./core/checks.ts";
 import { store, type Overlays, type Tool } from "./core/store.ts";
 import { clone } from "./core/merge.ts";
@@ -191,6 +192,27 @@ const overlayButtons = OVERLAYS.map((o) =>
     o.icon ? icon(o.icon) : o.label,
   ),
 );
+// RED++ colors (pokered-gbc), when the install has their data (a checkout)
+const COLORS_KEY = "studio.colorMode";
+const colorButton = h("button", {
+  class: "toggle",
+  onclick: () => {
+    store.setColorMode(store.colorMode === "redpp" ? "sgb" : "redpp");
+    remember(COLORS_KEY, store.colorMode);
+  },
+}, "RED++");
+function updateColorButton(): void {
+  const ok = gbcAvailable();
+  colorButton.disabled = !ok;
+  colorButton.classList.toggle("active", ok && store.colorMode === "redpp");
+  colorButton.title = ok
+    ? "Show maps in RED++ colors (the game's COLORS=RED++ mode, from pokered-gbc). Off: the Game Boy palettes."
+    : "RED++ colors need a gen1recomp source checkout (its data/palettes_gbc.lua)";
+}
+store.on((reason) => {
+  if (reason === "project" || reason === "colors") updateColorButton();
+});
+
 // one "+" button per entity layer of the current game
 const addGroup = h("div", { class: "seg" });
 function renderAddButtons(): void {
@@ -207,6 +229,7 @@ const zoomLabel = h("span", { class: "zoom-label" });
 $("#toolbar").append(
   h("div", { class: "seg" }, ...toolButtons),
   h("div", { class: "seg" }, ...overlayButtons),
+  h("div", { class: "seg" }, colorButton),
   addGroup,
   h("div", { class: "spacer" }),
   h(
@@ -824,6 +847,9 @@ async function openProject(mod: string | null): Promise<void> {
   document.body.classList.add("loading");
   try {
     const project = await loadProject(host, currentVersion, adapter, mod);
+    const gbc = await loadGbc(host, currentVersion);
+    setGbc(gbc);
+    store.colorMode = gbc && recall(COLORS_KEY) === "redpp" ? "redpp" : "sgb";
     currentMod = mod;
     remember(LAST_MOD_KEY, currentMod);
     store.load(project);

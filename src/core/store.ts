@@ -67,6 +67,8 @@ export class Store {
   stamp: Stamp = { w: 1, h: 1, blocks: [0] };
   selection: Selection = null;
   overlays: Overlays = { grid: false, collision: false, entities: true, neighbors: true, wild: false };
+  // how maps are colored: the Game Boy palettes, or RED++ (pokered-gbc)
+  colorMode: "sgb" | "redpp" = "sgb";
   private undoStack: Command[] = [];
   private redoStack: Command[] = [];
   private listeners: Listener[] = [];
@@ -156,6 +158,11 @@ export class Store {
   select(selection: Selection): void {
     this.selection = selection;
     this.emit("selection");
+  }
+
+  setColorMode(mode: "sgb" | "redpp"): void {
+    this.colorMode = mode;
+    this.emit("colors");
   }
 
   toggleOverlay(key: keyof Overlays): void {

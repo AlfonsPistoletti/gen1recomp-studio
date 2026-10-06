@@ -126,6 +126,13 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   built-ins of `animation`, so they are restated (water hshift; flower frames = recipe copies of
   the cache's). Extensions keep frames as digits (`animated`, recipe writes them); mod tilesets keep
   engine entries with mod asset images (`ownAnimations`/`setOwnAnimations`). Never on GYM/FACILITY.
+- RED++ colors (`src/core/gbc.ts`): read from gen1recomp `data/palettes_gbc.lua` (+ `_yellow`) via the
+  "game" root, so checkout only (null otherwise: the toggle is disabled). Restates PaletteFX's
+  per-map/per-tileset tile exceptions; not the LOBBY alias or dark caves. Map view keys are
+  `GBC|<roof map index>|<map with fixes>`; sprites keep SGB colors. A mod's choices live in
+  `studio_tilesets[id].gbc` ({groups: [tile, group][], palettes?: 8x4 for its own tilesets}; a mod
+  tileset's record holds only `gbc`, so `extensionOf` ignores non-base ids); the helper writes them
+  into `require("data.palettes_gbc").world` at load (no API), GENERATORS `internals` predicate.
 - Mod trainers (`src/ui/trainerEvents.ts`): no registry writes trainer_headers, so a studio trainer
   is a talk event + one step event per sight cell (ids `<MAP>:step:trainer<objIndex>_<k>`); the
   settings live in the talk event's `trainer` field and the events are rebuilt from them.

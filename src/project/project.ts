@@ -366,7 +366,7 @@ export async function saveProject(project: Project, edited: Record<string, Recor
       const gen = GENERATORS[c.registry];
       await host.writeText(path, dataFile(modId, gen?.what ?? c.registry, records, gen?.order ?? []));
       if (gen) before += gen.runtime + "\n" + gen.registration(modId, c.studioFile) + "\n";
-      if (gen?.internals) internals = true;
+      if (gen?.internals === true || (typeof gen?.internals === "function" && gen.internals(records))) internals = true;
     } else if ((await host.readText("game", path)) !== null) {
       await host.deleteFile(path);
     }
@@ -393,7 +393,8 @@ export function keptOps(adapter: GameAdapter, ops: RegistryOp[]): ContentCall[] 
 // the fixed helpers that turn a data file's specs into engine records, by
 // the studio registry that holds the specs; `writes`: every registry the
 // helper's code registers into
-export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string; writes: string[]; internals?: boolean }> = {
+// `internals`: the helper reaches into the engine (always, or for these records)
+export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string; writes: string[]; internals?: boolean | ((records: Record<string, unknown>) => boolean) }> = {
   // map events: talk rows, step/enter triggers (plain Lua)
   studio_events: {
     what: "map events",
@@ -415,10 +416,12 @@ export const GENERATORS: Record<string, { what: string; order: string[]; runtime
   // by the assets_transforms recipe, see src/core/assets.ts)
   studio_tilesets: {
     what: "tileset extensions",
-    order: ["first", "walkable", "tiles", "blocks"],
+    order: ["first", "walkable", "tiles", "blocks", "animated", "gbc"],
     runtime: TILESET_RUNTIME,
     registration: tilesetRegistration,
     writes: ["tilesets"],
+    // RED++ colors are written into the engine's own color table
+    internals: (records) => Object.values(records).some((r) => !!(r as { gbc?: unknown }).gbc),
   },
   studio_effects: {
     what: "custom move effects",

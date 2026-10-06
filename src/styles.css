@@ -828,3 +828,11 @@ dialog.modal { min-width: 420px; }
 .block-composer { width: 160px; height: 160px; border: 1px solid var(--line); }
 .tile-preview { width: 64px; height: 64px; border: 1px solid var(--line); cursor: default; }
 .tile-flags { display: flex; flex-direction: column; gap: 4px; }
+.gbc-swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.gbc-swatch { display: flex; height: 22px; padding: 2px; border: 1px solid var(--line); border-radius: 4px; background: #11141a; cursor: pointer; }
+.gbc-swatch span { flex: 1; }
+.gbc-swatch.active { border-color: #fff; box-shadow: 0 0 0 1px #fff; }
+.gbc-swatch:disabled { cursor: default; opacity: 0.85; }
+.gbc-row { display: flex; align-items: center; gap: 4px; }
+.gbc-name { width: 52px; font-size: 11px; color: var(--muted); }
+.gbc-row input[type="color"] { width: 32px; height: 22px; padding: 0; border: 1px solid var(--line); background: none; }

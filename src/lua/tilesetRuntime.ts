@@ -14,6 +14,12 @@
 //             the recipe. Flower frames are the recipe's copies of the
 //             player's own; spinner tilesets (GYM, FACILITY) are never given
 //             a list (their spinner entry can't be restated).
+// RED++ colors (`gbc`: groups = { {tile, group}, ... }, palettes = 8 x 4
+// colors for a tileset of the mod's own) have no mod API: the engine reads
+// them from its data.palettes_gbc table only (src/render/PaletteFX.lua
+// worldPack), so the helper writes them into that table while the mod loads
+// (before any map is drawn). The mod carries engine_internals for it. If the
+// table ever changes shape, the tiles keep their default colors.
 // The lists are built from mod.content.tilesets:get(id) while the mod loads
 // (a patch replaces lists), so no vanilla block data is written into the mod.
 // Plain Lua 5.1/LuaJIT, and no backticks (it lives in a template string).
@@ -22,6 +28,7 @@ export const TILESET_RUNTIME = String.raw`
   -- studio tileset extensions: specs from studio_tilesets.lua -> tileset patches
   local function studioExtendTileset(id, ext, dir)
     local image = dir .. id:lower() .. ".png"
+    if ext.first == nil then return end
     local base = mod.content.tilesets:get(id)
     if type(base) ~= "table" or type(base.blocks) ~= "table" then return end
     local w, h = tonumber(base.imageWidth), tonumber(base.imageHeight)
@@ -70,6 +77,26 @@ export const TILESET_RUNTIME = String.raw`
     end
     mod.content.tilesets:patch(id, patch)
   end
+
+  local function studioColorTileset(id, gbc)
+    if type(gbc) ~= "table" then return end
+    for _, name in ipairs({ "data.palettes_gbc", "data.palettes_gbc_yellow" }) do
+      local ok, pack = pcall(require, name)
+      local w = ok and type(pack) == "table" and pack.world
+      if type(w) == "table" and type(w.tileGroups) == "table" then
+        -- a tileset of the mod's own: its palettes (base table only; the
+        -- Yellow one falls back to it)
+        if gbc.palettes and name == "data.palettes_gbc" and type(w.groupColors) == "table" then
+          w.groupColors[id] = gbc.palettes
+          w.tileGroups[id] = w.tileGroups[id] or {}
+        end
+        local groups = w.tileGroups[id]
+        if type(groups) == "table" then
+          for _, pair in ipairs(gbc.groups or {}) do groups[pair[1]] = pair[2] end
+        end
+      end
+    end
+  end
 `;
 
 // tilesets whose spinner animation can't be restated: no custom animations
@@ -92,6 +119,7 @@ export function tilesetRegistration(modId: string, file: string): string {
   return [
     `  for id, ext in pairs(require(${JSON.stringify(module)})) do`,
     `    studioExtendTileset(id, ext, "save/mod-derived/" .. ${JSON.stringify(modId)} .. "/studio/tilesets/")`,
+    "    studioColorTileset(id, ext.gbc)",
     "  end",
   ].join("\n");
 }

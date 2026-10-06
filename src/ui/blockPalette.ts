@@ -190,7 +190,7 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
   const refresh = async () => {
     const map = store.map;
     if (!map) return;
-    const palette = store.palettes[store.currentMap] || "ROUTE";
+    const palette = view.paletteKey(store.currentMap);
     const k = `${tilesetKey(map.tileset)}|${palette}`;
     title.textContent = `Blocks · ${map.tileset}`;
     if (k === key) return draw();
@@ -244,7 +244,7 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
   });
 
   store.on((reason, id, registry) => {
-    if (reason === "project" || reason === "map" || reason === "edit") refresh();
+    if (reason === "project" || reason === "map" || reason === "edit" || reason === "colors") refresh();
     if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS) && id === store.map?.tileset) refresh();
     if (reason === "stamp") {
       updateInfo();

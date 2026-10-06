@@ -7,6 +7,7 @@
 import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../core/geometry.ts";
 import { store, type Selection, type Stamp } from "../core/store.ts";
 import { EXTENSIONS, liveTileset, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
+import { gbcColorsFor, gbcKey, isGbcKey } from "../core/gbc.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
 import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
@@ -94,6 +95,8 @@ export class MapView {
         this.relayout();
       } else if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS) && id) {
         this.tilesetChanged(id);
+      } else if (reason === "colors") {
+        this.relayout();
       } else if (reason === "edit") {
         // the cached image stays until a new one replaces it (see mapCanvas),
         // so edits never flash an empty map
@@ -195,7 +198,13 @@ export class MapView {
 
   // ------------------------------------------------------------ caching
 
-  private paletteKey(id: string): string {
+  // the colors a map is drawn in: its palette, or its RED++ key
+  paletteKey(id: string): string {
+    if (store.colorMode === "redpp") {
+      const map = store.maps[id];
+      const key = map ? gbcKey(map.tileset, id) : null;
+      if (key) return key;
+    }
     return store.palettes[id] || "ROUTE";
   }
 
@@ -234,7 +243,7 @@ export class MapView {
     const ts = liveTileset(tilesetId);
     if (!ts) return null;
     const version = tilesetKey(tilesetId);
-    const colorsFor = store.adapter.tileColors(store.ctx, ts, palette);
+    const colorsFor = isGbcKey(palette) ? gbcColorsFor(tilesetId, palette) : store.adapter.tileColors(store.ctx, ts, palette);
     const atlas = await blockAtlas(ts, await tilesetUrl(tilesetId), palette, colorsFor, version);
     // an edit made while this one was drawing wins
     if (tilesetKey(tilesetId) === version) this.atlases.set(`${tilesetId}|${palette}`, atlas);
@@ -528,7 +537,8 @@ export class MapView {
   private drawNpc(layer: EntityLayer, o: EntityRecord): void {
     const ctx = this.ctx;
     const ref = layer.sprite?.(o) ?? null;
-    const palette = this.paletteKey(store.currentMap);
+    // sprites keep the map's Game Boy palette in both color modes
+    const palette = store.palettes[store.currentMap] || "ROUTE";
     const img = ref
       ? spriteFrame(store.project.data.sprites[ref.sprite], store.project.spriteImages[ref.sprite] ?? "",
           store.adapter.spriteColors(store.ctx, palette), palette, ref.facing, () => this.invalidate())

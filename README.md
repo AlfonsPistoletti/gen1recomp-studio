@@ -248,6 +248,13 @@ renamed before players have saves with it.
   to place them into a block at once.
   - Colors belong to maps, not tilesets (each map's Palette, in its
     properties); the color menu only changes how the tileset is shown here.
+  - **RED++** (the game's Game Boy Color mode, from pokered-gbc; needs a
+    gen1recomp source checkout): the **RED++** button in the map toolbar and
+    the tileset color menu show it. Each tile uses one of its tileset's 8
+    palettes: pick one for your added tiles in the tile panel. Your own
+    tilesets can get 8 palettes of their own (**Give it RED++ colors**). This
+    writes into the engine's color table when the mod loads (no mod API
+    exists for it), so the mod gets the `engine_internals` permission.
   - **+ Animated block** imports a strip of 32×32 frames: tiles that change
     become animated tiles (every place they appear animates), the rest are
     plain tiles. **Animate…** on a selected tile takes a strip of 8×8 frames.

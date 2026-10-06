@@ -20,6 +20,7 @@ import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Footprints } from "lucide";
 import type { Rgb } from "../render/color.ts";
 import { clear, field, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
+import { gbcAvailable, gbcColorsFor, gbcKey, GROUP_NAMES, groupColors, groupOf, type GbcColoring } from "../core/gbc.ts";
 import { nav } from "./nav.ts";
 
 const SHEET_ZOOM = 4;
@@ -46,6 +47,7 @@ function drawMark(ctx: CanvasRenderingContext2D, kind: string, cx: number, cy: n
 const ANIMATIONS = ["TILEANIM_NONE", "TILEANIM_WATER", "TILEANIM_WATER_FLOWER"];
 // the view option without map colors; colors darkest first
 const GRAYS = "__grays";
+const REDPP = "__redpp";
 const GRAY_COLORS: Rgb[] = [[0, 0, 0], [85, 85, 85], [170, 170, 170], [255, 255, 255]];
 // animation speeds: 60ths of a second per frame (20 = the game's water)
 const SPEEDS: [number, string][] = [[8, "Fast"], [20, "Normal (like water)"], [40, "Slow"]];
@@ -133,7 +135,9 @@ function shadeOf(gray: number): number {
 }
 
 // The sheet drawn with the map palette (or as is, for full-color sheets).
-function colorSheet(sheet: Sheet, colors: Rgb[] | null): HTMLCanvasElement {
+// `colorsFor(tile)`: per tile (RED++ gives each tile its group's colors);
+// tile ids count `per` a row
+function colorSheet(sheet: Sheet, colorsFor: ((tile: number) => Rgb[]) | null, per = 16): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = sheet.width;
   c.height = sheet.height;
@@ -141,8 +145,10 @@ function colorSheet(sheet: Sheet, colors: Rgb[] | null): HTMLCanvasElement {
   const out = ctx.createImageData(sheet.width, sheet.height);
   for (let i = 0; i < sheet.width * sheet.height; i++) {
     const o = i * 4;
-    if (colors) {
-      const col = colors[shadeOf(sheet.rgba[o])];
+    if (colorsFor) {
+      const x = i % sheet.width;
+      const y = Math.floor(i / sheet.width);
+      const col = colorsFor(Math.floor(y / TILE) * per + Math.floor(x / TILE))[shadeOf(sheet.rgba[o])];
       out.data[o] = col[0];
       out.data[o + 1] = col[1];
       out.data[o + 2] = col[2];
@@ -409,18 +415,22 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const ed = editable(id);
     const per = perRow(ts);
     const auto = paletteKey(id);
-    const palette = viewPalette || auto;
-    const colorsFor = palette === GRAYS ? () => GRAY_COLORS : store.adapter.tileColors(store.ctx, ts, palette);
+    // RED++: the town of a map on it decides the roof colors
+    const onIt = store.map?.tileset === id ? store.currentMap : mapsUsing(id)[0] ?? null;
+    const redpp = gbcAvailable() ? gbcKey(id, onIt) : null;
+    if (viewPalette === REDPP && !redpp) viewPalette = "";
+    const palette = viewPalette === REDPP ? redpp! : viewPalette || (store.colorMode === "redpp" && redpp ? redpp : auto);
+    const colorsFor = palette === GRAYS ? () => GRAY_COLORS : palette === redpp ? gbcColorsFor(id, palette) : store.adapter.tileColors(store.ctx, ts, palette);
     const url = await tilesetUrl(id);
     const sheet = await readSheet(url);
     const atlas = await blockAtlas(ts, url, palette, colorsFor, tilesetKey(id));
-    const colors = ts.trueColor ? null : colorsFor(0);
+    const tint = ts.trueColor ? null : colorsFor;
     // animated tiles: their frames, drawn in the same colors
     const anims = new Map<number, { period: number; frames: HTMLCanvasElement[] }>();
     for (const [tile, a] of animationsOf(id)) {
       const frames = await Promise.all(a.urls.map(async (u) => {
         const f = await readSheet(u);
-        return f ? colorSheet(f, colors) : null;
+        return f ? colorSheet(f, tint ? () => tint(tile) : null) : null;
       }));
       if (frames.every((f) => f)) anims.set(tile, { period: a.period, frames: frames as HTMLCanvasElement[] });
     }
@@ -437,7 +447,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const names = store.adapter.mapFields.find((f) => f.kind === "select" && f.key === "palette");
     const paletteNames = names && names.kind === "select" ? names.options(store.ctx) : [];
     const view = h("select", { title: "Gen 1 colors maps, not tilesets: each map has a palette (map properties). This only changes how the tileset is shown here." },
-      h("option", { value: "" }, `Colors: a map's (${auto})`),
+      h("option", { value: "" }, `Colors: a map's (${store.colorMode === "redpp" && redpp ? "RED++" : auto})`),
+      ...(redpp ? [h("option", { value: REDPP, selected: viewPalette === REDPP }, "Colors: RED++ (Game Boy Color)")] : []),
       ...paletteNames.map((n) => h("option", { value: n, selected: viewPalette === n }, `Colors: ${n}`)),
       h("option", { value: GRAYS, selected: viewPalette === GRAYS }, "Game Boy grays"),
     );
@@ -458,7 +469,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       h("button", { class: "btn small", title: "A new block: a copy of the selected one, or empty", onclick: () => addBlock(id) }, "+ New block"),
     );
 
-    const sheetImg = sheet ? colorSheet(sheet, colors) : null;
+    const sheetImg = sheet ? colorSheet(sheet, tint, per) : null;
     clear(main);
     main.append(
       tilesCard(ts, ed, sheet, sheetImg, per, tileCount, anims),
@@ -815,6 +826,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
           h("div", { class: "card-head" }, h("h4", {}, `Tile #${t}`), can ? h("span", { class: "tag new" }, "yours") : h("span", { class: "hint" }, "the game's")),
           h("div", { class: "row" }, prev, h("div", { class: "tile-flags" }, ...toggles)),
           ...animRow,
+          ...gbcRow(id, t, can),
           can ? null : h("p", { class: "hint" }, "The game's tile: its settings can't change."),
         ),
       );
@@ -839,7 +851,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         h("div", { class: "card" },
           h("h4", {}, "The game's tileset"),
           h("p", { class: "hint" }, "Your tiles and blocks are added after the game's, so every map keeps working. The game builds the combined sheet from the player's own imported one when the mod loads; the mod ships only your tiles."),
-          h("p", { class: "hint" }, "Your tiles use the 4 Game Boy shades and take the map's colors. With the RED++ color pack they get its text palette, so they may look different there."),
+          h("p", { class: "hint" }, "Your tiles use the 4 Game Boy shades and take the map's colors. In the RED++ color mode each tile uses one of the tileset's 8 palettes: pick it in the tile's panel (otherwise it gets the text palette). Setting one gives the mod the engine_internals permission, since the mod writes into the engine's color table."),
           ext
             ? h("button", {
                 class: "btn small danger",
@@ -865,6 +877,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       }),
     );
     return [
+      ...ownGbcCard(id, ts),
       h("div", { class: "card" },
         h("h4", {}, "Your tileset"),
         h("div", { class: "kv" }, h("span", {}, "Sheet"), h("code", {}, `${tileCount} tiles${ts.trueColor ? ", full color" : ""}`)),
@@ -883,6 +896,106 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       ),
       usedBy,
     ];
+  };
+
+  // ------------------------------------------------------------- RED++
+  // Edits a tileset's RED++ coloring: the extension's (game tilesets) or the
+  // record holding a mod tileset's colors (dropped when emptied).
+  const editColoring = (id: string, label: string, mutate: (g: GbcColoring) => void) => {
+    if (isBaseTileset(id)) {
+      editTileset(id, label, (d) => {
+        const ext = d as unknown as TilesetExtension;
+        ext.gbc ??= {};
+        mutate(ext.gbc);
+        if (!ext.gbc.groups?.length && !ext.gbc.palettes) delete ext.gbc;
+      });
+    } else {
+      const cur = store.table(EXTENSIONS)[id] as { gbc?: GbcColoring } | undefined;
+      const next = clone(cur ?? {}) as { gbc?: GbcColoring };
+      next.gbc ??= {};
+      mutate(next.gbc);
+      if (!next.gbc.groups?.length && !next.gbc.palettes) delete next.gbc;
+      store.setRecord(EXTENSIONS, id, label, Object.keys(next).length ? next : undefined);
+      store.seal();
+    }
+  };
+
+  const setGroup = (id: string, tile: number, group: number) =>
+    editColoring(id, "Tile: RED++ palette", (g) => {
+      g.groups = [...(g.groups ?? []).filter(([t]) => t !== tile), [tile, group] as [number, number]].sort((a, b) => a[0] - b[0]);
+    });
+
+  // the 8 palettes as swatches; the tile's is outlined
+  const gbcRow = (id: string, t: number, can: boolean): HTMLElement[] => {
+    const groups = groupColors(id);
+    if (!gbcAvailable() || !groups) return [];
+    const current = groupOf(id, t);
+    const swatches = groups.map((colors, g) =>
+      h("button", {
+        class: `gbc-swatch${g === current ? " active" : ""}`,
+        title: `${GROUP_NAMES[g] ?? g}${g === 6 ? " (its middle colors follow the town)" : ""}`,
+        disabled: !can,
+        onclick: () => setGroup(id, t, g),
+      }, ...colors.map((c) => h("span", { style: `background: rgb(${c[0]}, ${c[1]}, ${c[2]})` }))),
+    );
+    return [
+      h("div", { class: "field" },
+        h("span", { class: "field-label" }, `RED++ palette: ${GROUP_NAMES[current] ?? current}`),
+        h("div", { class: "gbc-swatches" }, ...swatches),
+        h("p", { class: "hint" }, can
+          ? "The colors this tile takes in the game's RED++ color mode (Game Boy Color). Your tiles start on Text, which rarely fits."
+          : "The game's choice for this tile."),
+      ),
+    ];
+  };
+
+  // a mod tileset's 8 RED++ palettes (gray tilesets only: full-color ones
+  // keep their own colors in RED++)
+  const ownGbcCard = (id: string, ts: TilesetDef): HTMLElement[] => {
+    if (ts.trueColor || !gbcAvailable()) return [];
+    const own = (store.table(EXTENSIONS)[id] as { gbc?: GbcColoring } | undefined)?.gbc;
+    if (!own?.palettes) {
+      const from = h("select", {}, ...tilesetIds().filter((t) => isBaseTileset(t) && groupColors(t)).map((t) => h("option", { value: t, selected: t === "OVERWORLD" }, t)));
+      return [h("div", { class: "card" },
+        h("h4", {}, "RED++ colors"),
+        h("p", { class: "hint" }, "In the game's RED++ color mode this tileset uses the map's Game Boy palette. Give it 8 palettes of its own, and pick one per tile (in the tile's panel)."),
+        field("Start from the palettes of", from),
+        h("button", {
+          class: "btn small",
+          onclick: () => {
+            const src = groupColors(from.value);
+            if (!src) return;
+            const tiles = sheetTiles(ts);
+            editColoring(id, "RED++ colors", (g) => {
+              g.palettes = clone(src);
+              g.groups = Array.from({ length: tiles }, (_v, t) => [t, 0] as [number, number]);
+            });
+          },
+        }, "Give it RED++ colors"),
+      )];
+    }
+    const rows = own.palettes.map((colors, gi) =>
+      h("div", { class: "gbc-row" },
+        h("span", { class: "gbc-name" }, GROUP_NAMES[gi] ?? String(gi)),
+        ...colors.map((c, ci) => {
+          const input = h("input", { type: "color", value: `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`, title: ci === 0 ? "Lightest" : ci === 3 ? "Darkest" : "" });
+          input.addEventListener("change", () => {
+            const v = input.value;
+            const rgb = [1, 3, 5].map((k) => parseInt(v.slice(k, k + 2), 16)) as Rgb;
+            editColoring(id, "RED++ palette color", (g) => {
+              g.palettes![gi][ci] = rgb;
+            });
+          });
+          return input;
+        }),
+      ),
+    );
+    return [h("div", { class: "card" },
+      h("h4", {}, "RED++ colors"),
+      h("p", { class: "hint" }, "8 palettes, lightest color first; each tile uses one (pick it in the tile's panel)."),
+      ...rows,
+      h("button", { class: "btn small danger", onclick: () => editColoring(id, "Remove RED++ colors", (g) => { delete g.palettes; delete g.groups; }) }, "Remove RED++ colors"),
+    )];
   };
 
   // ------------------------------------------------------------- actions

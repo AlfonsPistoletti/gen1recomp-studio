@@ -304,6 +304,16 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       h("h4", {}, "The player"),
       h("p", { class: "hint" }, "Which sprite the player wears. Pick any sprite, or replace that sprite's art. On foot also sets the Town Map marker and Oak's intro."),
       ...rows,
+      store.table("field").playerSprites !== undefined
+        ? h("button", {
+            class: "btn small danger",
+            title: "On foot SPRITE_RED, bike SPRITE_RED_BIKE, surfing SPRITE_SEEL, flying SPRITE_BIRD",
+            onclick: () => {
+              store.setRecord("field", "playerSprites", "Player sprites: the game's", undefined);
+              store.seal();
+            },
+          }, "Back to the game's player sprites")
+        : null,
     );
   };
 

@@ -61,6 +61,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (registry === store.adapter.towns?.prizeRegistry) return "prizes";
   if (registry === TRADES_REGISTRY && id === TRADES_ID && s.sections.some((x) => x.id === "trades")) return "trades";
   if (registry === "field" && id === "fishing") return "wild";
+  if (registry === "field" && id === "presetNames") return "names";
   const odds = store.adapter.encounters?.sharedOdds;
   if (odds && registry === odds.registry && id === odds.id) return "wild";
   if (s.hmBadges && registry === s.hmBadges.registry && id === s.hmBadges.id) return "fieldmoves";
@@ -76,6 +77,7 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (section === "prizes") return counterLabel(id);
   if (section === "trades") return "In-game trades";
   if (registry === "field" && id === "fishing") return "Old Rod and Good Rod";
+  if (registry === "field" && id === "presetNames") return "Preset names";
   if (section === "wild") return "Wild slot chances";
   if (section === "fieldmoves") return "HM badges";
   const labels = s.numbers.filter((n) => n.registry === registry && n.id === id).map((n) => n.label);
@@ -93,6 +95,7 @@ function sectionChanged(id: string): boolean {
   if (id === "wild" && odds) regs.push([odds.registry, odds.id]);
   if (regs.some(([r, i]) => store.isRecordEdited(r, i))) return true;
   if (id === "trades" && tradesEdited()) return true;
+  if (id === "names" && store.isRecordEdited("field", "presetNames")) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
@@ -177,6 +180,45 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
 
 // ------------------------------------------------------------------ sections
 
+// field.presetNames: the three names Oak offers for the player and the rival
+// (the intro's naming menu), and the label of the type-your-own option
+const NAME_MAX = 7;
+interface PresetNames {
+  player: string[];
+  rival: string[];
+  customOption?: string;
+  [k: string]: unknown;
+}
+
+function namesCard(): HTMLElement {
+  const cur = store.table("field").presetNames as PresetNames | undefined;
+  if (!cur) return h("p", { class: "hint" }, "This game has no preset names.");
+  const set = (label: string, mutate: (n: PresetNames) => void) => {
+    store.editRecord<PresetNames>("field", "presetNames", label, mutate);
+    store.seal();
+  };
+  const nameInput = (value: string, onSet: (v: string) => void, max = NAME_MAX) => {
+    const input = h("input", { type: "text", value, maxLength: max, spellcheck: false });
+    input.addEventListener("change", () => {
+      const v = input.value.trim().toUpperCase().slice(0, max);
+      if (!v) return toast("A name can't be empty", "error");
+      onSet(v);
+    });
+    return input;
+  };
+  const column = (who: "player" | "rival", label: string) =>
+    field(label, h("div", { class: "row nowrap" }, ...cur[who].map((n, i) => nameInput(n, (v) => set(`${label} name ${i + 1}`, (d) => (d[who] = d[who].map((x, j) => (j === i ? v : x))))))));
+  return h("section", { class: "card names-card" },
+    column("player", "The player"),
+    column("rival", "The rival"),
+    field("Own name option", nameInput(cur.customOption ?? "NEW NAME", (v) => set("Own name option", (d) => (d.customOption = v)), 10), "The menu entry that lets the player type a name."),
+    h("p", { class: "hint" }, `Names fit ${NAME_MAX} letters.`),
+    store.isRecordEdited("field", "presetNames")
+      ? h("button", { class: "btn small danger", onclick: () => { store.revertRecord("field", "presetNames", "Names: the game's"); } }, "Back to the game's names")
+      : null,
+  );
+}
+
 function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   const out: HTMLElement[] = [h("p", { class: "hint" }, hint)];
   if (id === "wild") {
@@ -187,6 +229,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "types" && s.typeChart) out.push(...typeChartCards(s.typeChart));
   if (id === "fieldmoves" && s.hmBadges) out.push(hmBadgesCard(s.hmBadges));
   if (id === "trades") out.push(...tradeCards());
+  if (id === "names") out.push(namesCard());
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
     for (const cid of Object.keys(counters(towns)).sort()) {

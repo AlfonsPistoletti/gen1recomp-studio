@@ -304,6 +304,8 @@ renamed before players have saves with it.
     extend tilesets.
 - **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
   reads.
+  - Names: the three player and rival names Oak offers, and the label of the
+    type-your-own option.
   - Fishing: the Old and Good Rod catch the same everywhere (Global > Wild
     encounters); the Super Rod has a list per map (Maps, Encounters tab). Half
     the casts bite, then each entry (up to 4) is equally likely.
@@ -331,6 +333,15 @@ renamed before players have saves with it.
 
 Gen 1 cutscenes are hand-written Lua inside the game. The studio edits the
 text they show, not their logic.
+
+### Map rules
+
+The map's properties end with **Rules**: **Dark until Flash**, **Bike allowed**
+(maps whose tileset allows the bike everywhere show it checked and fixed) and
+**Badge gate**: pick a badge and the checkpoint cells; without the badge the
+player is turned back one cell down, with it the guard waves them through once.
+The gate's two texts are created for the map and open in Text. Route 23's
+guard rows are shown, not edited.
 
 ## Map editing
 

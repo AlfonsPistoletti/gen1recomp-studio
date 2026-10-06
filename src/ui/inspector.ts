@@ -15,6 +15,7 @@ import { changedParts, resetMapDialog } from "./mapReset.ts";
 import { nav } from "./nav.ts";
 import { warpProblem } from "../core/checks.ts";
 import { tilesetIds } from "../core/tilesets.ts";
+import { mapRulesSection } from "./mapRules.ts";
 import { gameRoof, gbcAvailable, ROOFS, roofColors, tilesetHasRoof, townRoofs, type RoofRecord } from "../core/gbc.ts";
 import type { Rgb } from "../render/color.ts";
 
@@ -271,6 +272,7 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     field("Tileset", tilesetSelect),
     musicField(map),
     roofField(map),
+    ...mapRulesSection(map),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Size (blocks)"), h("div", { class: "row" }, w, h("span", { class: "x" }, "×"), hgt, anchor, resize)),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Border block"), h("div", { class: "row" }, border, useStamp)),
     h("h4", {}, "Connections"),

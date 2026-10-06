@@ -871,3 +871,4 @@ dialog.modal { min-width: 420px; }
 .trade-row .field { margin: 0; }
 .trade-arrow { padding-bottom: 6px; color: var(--muted); font-size: 18px; }
 .trade-offer { font-style: italic; }
+.names-card input[type="text"] { width: 9ch; }

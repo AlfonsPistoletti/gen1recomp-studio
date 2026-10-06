@@ -16,6 +16,7 @@ import { EFFECT_RUNTIME, effectRegistration } from "../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../lua/itemEffectRuntime.ts";
 import { PRIZE_RUNTIME, prizeRegistration } from "../lua/prizeRuntime.ts";
 import { EVENT_RUNTIME, eventRegistration } from "../lua/eventRuntime.ts";
+import { TILESET_RUNTIME, tilesetRegistration } from "../lua/tilesetRuntime.ts";
 import { dataFile, requireLine, studioContentFile, type ContentCall } from "../lua/writer.ts";
 
 export const MOD_ID_RE = /^[\w-]+$/;
@@ -186,8 +187,7 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
   const studio: Record<string, Record<string, unknown>> = {};
   if (studioOps.length) {
     // what the studio file says about records the studio cannot edit (a
-    // tileset it registered earlier, ...) is part of the base
-    applyOps(data.tilesets, studioOps, "tilesets");
+    // sprite it registered earlier, ...) is part of the base
     applyOps(data.sprites, studioOps, "sprites");
     for (const c of adapter.content) if (!c.editable) applyOps(data.content[c.registry], studioOps, c.registry, !!c.deep);
     for (const registry of editableRegistries(adapter)) {
@@ -410,6 +410,15 @@ export const GENERATORS: Record<string, { what: string; order: string[]; runtime
     registration: prizeRegistration,
     writes: ["map_scripts"],
     internals: true,
+  },
+  // tiles and blocks added to vanilla tilesets (the sheet itself is built
+  // by the assets_transforms recipe, see src/core/assets.ts)
+  studio_tilesets: {
+    what: "tileset extensions",
+    order: ["first", "walkable", "tiles", "blocks"],
+    runtime: TILESET_RUNTIME,
+    registration: tilesetRegistration,
+    writes: ["tilesets"],
   },
   studio_effects: {
     what: "custom move effects",

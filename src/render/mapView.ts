@@ -6,6 +6,7 @@
 
 import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../core/geometry.ts";
 import { store, type Selection, type Stamp } from "../core/store.ts";
+import { EXTENSIONS, liveTileset, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
 import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
@@ -82,7 +83,7 @@ export class MapView {
     this.ctx = this.canvas.getContext("2d")!;
     new ResizeObserver(() => this.resize()).observe(host);
     this.bindInput();
-    store.on((reason) => {
+    store.on((reason, id, registry) => {
       if (reason === "project") {
         // another mod may bring its own tilesets under the same ids
         this.cache.clear();
@@ -91,6 +92,8 @@ export class MapView {
         this.fitMap();
       } else if (reason === "map") {
         this.relayout();
+      } else if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS) && id) {
+        this.tilesetChanged(id);
       } else if (reason === "edit") {
         // the cached image stays until a new one replaces it (see mapCanvas),
         // so edits never flash an empty map
@@ -228,12 +231,22 @@ export class MapView {
   }
 
   async atlasFor(tilesetId: string, palette: string): Promise<BlockAtlas | null> {
-    const ts = store.project.data.tilesets[tilesetId];
+    const ts = liveTileset(tilesetId);
     if (!ts) return null;
+    const version = tilesetKey(tilesetId);
     const colorsFor = store.adapter.tileColors(store.ctx, ts, palette);
-    const atlas = await blockAtlas(ts, store.project.tilesetImages[tilesetId], palette, colorsFor);
-    this.atlases.set(`${tilesetId}|${palette}`, atlas);
+    const atlas = await blockAtlas(ts, await tilesetUrl(tilesetId), palette, colorsFor, version);
+    // an edit made while this one was drawing wins
+    if (tilesetKey(tilesetId) === version) this.atlases.set(`${tilesetId}|${palette}`, atlas);
     return atlas;
+  }
+
+  // a tileset was edited: maps on it redraw with the new blocks
+  private tilesetChanged(id: string): void {
+    for (const k of [...this.atlases.keys()]) if (k.startsWith(`${id}|`)) this.atlases.delete(k);
+    for (const [mapId, entry] of [...this.cache]) {
+      if (entry.map.tileset === id) this.cache.set(mapId, { ...entry, collision: null, wild: null, palette: "" });
+    }
   }
 
   private paint(map: MapDef, atlas: BlockAtlas): HTMLCanvasElement {
@@ -259,7 +272,7 @@ export class MapView {
   private collisionCanvas(entry: CachedMap): HTMLCanvasElement {
     if (entry.collision) return entry.collision;
     const map = entry.map;
-    const ts = store.project.data.tilesets[map.tileset];
+    const ts = liveTileset(map.tileset);
     const c = document.createElement("canvas");
     c.width = map.width * 2;
     c.height = map.height * 2;
@@ -281,7 +294,7 @@ export class MapView {
     if (!spec) return null;
     if (entry.wild) return entry.wild;
     const map = entry.map;
-    const ts = store.project.data.tilesets[map.tileset];
+    const ts = liveTileset(map.tileset);
     const c = document.createElement("canvas");
     c.width = map.width * 2;
     c.height = map.height * 2;
@@ -652,7 +665,7 @@ export class MapView {
     const by = Math.floor(ly / BLOCK_PX);
     const cx = Math.floor(lx / CELL);
     const cy = Math.floor(ly / CELL);
-    const cell = store.adapter.cell(m, store.project.data.tilesets[m.tileset], cx, cy);
+    const cell = store.adapter.cell(m, liveTileset(m.tileset), cx, cy);
     return {
       mapId: id,
       bx, by, cx, cy,

@@ -55,7 +55,7 @@ and text written to Lua and read back must come out identical.
 
 ## Workspaces
 
-The tabs in the top bar switch between workspaces (Alt+1 to Alt+8). Game, mod,
+The tabs in the top bar switch between workspaces (Alt+1 to Alt+9). Game, mod,
 undo/redo and Save are shared: one undo history and one save cover every tab.
 
 The changes button next to Validate shows how many records differ from the
@@ -241,6 +241,22 @@ renamed before players have saves with it.
     copy**; ones that are code in the game can be replaced by a new event.
   - Events are saved as the engine's own command rows in
     `mods/<id>/studio_events.lua`; a fixed helper registers them.
+- **Tilesets**: the tile sheet, the 32×32 blocks maps are painted with, and
+  which tiles you can walk on (a green dot). **Edit** in the map's block
+  palette opens the map's tileset.
+  - **+ New** makes a tileset from a picture: it is cut into 8×8 tiles
+    (repeats stored once), in the 4 Game Boy shades or full color, and every
+    whole 32×32 square becomes a block. Door, warp, counter and tall-grass
+    tiles and the water animation are set per tile.
+  - The game's own tilesets can be **extended** instead of copied: **+ Import
+    tiles** and **+ New block** add tiles and blocks after the game's, so every
+    map keeps working. Select a block and **+ New block** for an editable copy;
+    the 4×4 composer places the selected tile (right click picks one).
+  - The mod ships only the added tiles. When the game loads the mod, its
+    asset-transforms recipe builds the combined sheet from the player's own
+    imported one. Added tiles use the 4 shades; with the RED++ color pack they
+    get its text palette. A mod with its own `assets_transforms` file can't
+    extend tilesets.
 - **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
   reads.
   - Wild slot chances.

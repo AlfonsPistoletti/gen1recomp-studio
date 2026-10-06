@@ -1,5 +1,6 @@
 import wasmUrl from "wasmoon/dist/glue.wasm?url";
 import { saveAssets, syncTransforms } from "./core/assets.ts";
+import { sheetRecipes, tilesetIds } from "./core/tilesets.ts";
 import { brokenWarps, romReferences } from "./core/checks.ts";
 import { store, type Overlays, type Tool } from "./core/store.ts";
 import { clone } from "./core/merge.ts";
@@ -28,6 +29,7 @@ import { mountTextWorkspace } from "./ui/textWorkspace.ts";
 import { mountTrainerWorkspace } from "./ui/trainerEditor.ts";
 import { mountMoveWorkspace } from "./ui/moveEditor.ts";
 import { mountItemWorkspace } from "./ui/itemEditor.ts";
+import { mountTilesetWorkspace } from "./ui/tilesetEditor.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
 import { playEvent } from "./ui/eventPreview.ts";
@@ -270,6 +272,7 @@ installTrainerSync();
 mountTrainerWorkspace($("#trainers-left"), $("#trainers-center"), $("#trainers-right"));
 mountTextWorkspace($("#text-left"), $("#text-center"), $("#text-right"));
 mountGlobalWorkspace($("#global-left"), $("#global-center"), $("#global-right"));
+mountTilesetWorkspace($("#tilesets-left"), $("#tilesets-center"), $("#tilesets-right"));
 mountSplitters($("#layout"));
 
 // ---------------------------------------------------------------- workspaces
@@ -282,6 +285,7 @@ function setWorkspace(id: WorkspaceId): void {
   for (const b of workspaceTabs) b.classList.toggle("active", b.dataset.ws === id);
   remember(WORKSPACE_KEY, id);
   if (id === "maps") view.invalidate();
+  if (id === "tilesets") nav.onTilesetsShown();
 }
 nav.setWorkspace = setWorkspace;
 nav.openMap = (mapId) => {
@@ -524,7 +528,7 @@ function newModDialog(): void {
 }
 
 function newMapDialog(): void {
-  const tilesets = Object.keys(store.project.data.tilesets).sort();
+  const tilesets = tilesetIds();
   const mapIds = Object.keys(store.maps).sort();
   const id = h("input", { type: "text", placeholder: "MY_NEW_ROUTE", spellcheck: false });
   // start from an empty map, or from a copy of one (a Pokémon Center, a Mart, ...)
@@ -662,7 +666,7 @@ async function save(): Promise<void> {
     const saved = (await host.readText("game", result.file)) ?? "";
     const art = await saveAssets(host, currentMod, saved);
     // vanilla art reused through the asset-transforms recipe
-    const tf = await syncTransforms(host, currentMod, saved);
+    const tf = await syncTransforms(host, currentMod, saved, sheetRecipes());
     if (tf.blocked) toast(`mods/${currentMod} already has its own assets_transforms file, so vanilla art cannot be reused there. Import art instead.`, "error");
     store.markSaved();
     const parts = [];

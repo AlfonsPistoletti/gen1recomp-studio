@@ -23,6 +23,8 @@ const NAMES: Record<string, [string, string]> = {
   balls: ["Ball catch numbers", "ball"],
   studio_events: ["Events", "event"],
   map_songs: ["Map music", "map's music"],
+  tilesets: ["Tilesets", "tileset"],
+  studio_tilesets: ["Tiles added to the game's tilesets", "tileset addition"],
   field: ["Hidden events and landing spots", "field setting"],
   prize_counters: ["Game Corner prizes", "prize counter"],
   trainers: ["Trainers", "trainer"],
@@ -103,6 +105,9 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       return store.table("trainers")[id] ? () => nav.openTrainer(id) : null;
     case "text":
       return removed ? null : () => nav.openText(id);
+    case "tilesets":
+    case "studio_tilesets":
+      return store.table("tilesets")[id] ? () => nav.openTileset(id) : null;
   }
   return null;
 }

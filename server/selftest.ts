@@ -14,6 +14,7 @@ import { EFFECT_RUNTIME, effectRegistration } from "../src/lua/effectRuntime.ts"
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../src/lua/itemEffectRuntime.ts";
 import { PRIZE_RUNTIME, prizeRegistration } from "../src/lua/prizeRuntime.ts";
 import { EVENT_RUNTIME, eventRegistration } from "../src/lua/eventRuntime.ts";
+import { TILESET_RUNTIME, tilesetRegistration } from "../src/lua/tilesetRuntime.ts";
 import { compile, parse } from "../src/core/eventBlocks.ts";
 import { gameEvents } from "../src/project/gameEvents.ts";
 import { loadLuaData, runMod } from "../src/lua/vm.ts";
@@ -219,6 +220,27 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   check("event helper has no backticks or ${", !EVENT_RUNTIME.includes("`") && !EVENT_RUNTIME.includes("${"));
   // saving again must not copy what the helper registered (it holds functions)
   check("helper registrations are never kept on save", keptOps(adapter, evRun.ops).length === 0, keptOps(adapter, evRun.ops).map((c) => `${c.registry}:${c.id}`).join(", "));
+}
+
+// tilesets: every dataset tileset is a record; a new one registers whole, the
+// additions to a vanilla one go through studio_tilesets.lua + the helper
+{
+  const base = project.data.content.tilesets ?? {};
+  check("tileset records = dataset tilesets", Object.keys(base).length === Object.keys(project.data.tilesets).length && !!base.OVERWORLD, String(Object.keys(base).length));
+  check("unchanged tilesets write nothing", contentCalls(adapter, { tilesets: base }, { tilesets: {} }).calls.length === 0);
+  const mine = { id: "MY_TILES", image: "mods/studio_selftest/assets/studio/my_tiles_00000000.png", imageWidth: 128, imageHeight: 8, tilesPerRow: 16, walkable: [0], blocks: [new Array(16).fill(0)] };
+  const reg = contentCalls(adapter, { tilesets: base }, { tilesets: { MY_TILES: mine } }).calls;
+  check("a new tileset registers whole", reg.length === 1 && reg[0].op === "register" && reg[0].registry === "tilesets", JSON.stringify(reg).slice(0, 120));
+  const ow = base.OVERWORLD as { blocks: number[][]; imageWidth: number; imageHeight: number };
+  const ext = { OVERWORLD: { first: (ow.imageWidth / 8) * (ow.imageHeight / 8), walkable: [96], tiles: ["0".repeat(64)], blocks: [[96, ...new Array(15).fill(1)]] } };
+  const extSrc = dataFile("studio_selftest", "tileset extensions", ext, ["first", "walkable", "tiles", "blocks"]);
+  check("studio_tilesets.lua round-trips", deepEqual(await loadLuaData(extSrc, "studio_tilesets.lua"), ext));
+  const tsSrc = studioContentFile("studio_selftest", [], {}, TILESET_RUNTIME + "\n" + tilesetRegistration("studio_selftest", "studio_tilesets.lua"));
+  const tsRun = await runMod(new Map([[file, tsSrc], ["mods/studio_selftest/studio_tilesets.lua", extSrc]]), "studio_selftest", file, null);
+  check("tileset helper runs", tsRun.errors.length === 0, tsRun.errors.join("; "));
+  check("tileset helper registrations are never kept", keptOps(adapter, tsRun.ops).length === 0);
+  check("tileset helper has no backticks or ${", !TILESET_RUNTIME.includes("`") && !TILESET_RUNTIME.includes("${"));
+  check("the helper writes no ROM path", !tsSrc.includes("assets/generated/") && !extSrc.includes("assets/generated/"));
 }
 
 // the game's own events (checkout): Oak's talk is a list, cutscenes are code

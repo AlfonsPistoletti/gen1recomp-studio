@@ -125,6 +125,12 @@ const content: ContentSpec[] = [
   // catch numbers per ball id; the vanilla records live in the engine
   // (src/battle/Catching.lua), so they are restated (written with override)
   { registry: "balls", editable: true, replace: true, build: () => structuredClone(VANILLA_BALLS), fieldOrder: ["randMax", "hpFactor", "wobbleFactor", "autoCatch", "flicker", "tossAnim"] },
+  // tilesets (filled from Dataset.tilesets in load): the mod's own are
+  // registered whole; vanilla ones are only extended, through studio_tilesets
+  { registry: "tilesets", editable: true, build: () => ({}), fieldOrder: ["id", "image", "imageWidth", "imageHeight", "tilesPerRow", "trueColor", "animation", "grassTile", "walkable", "doorTiles", "warpTiles", "counterTiles", "blocks"] },
+  // tiles and blocks added to vanilla tilesets: plain data in
+  // studio_tilesets.lua, patched in by the generated helper
+  { registry: "studio_tilesets", editable: true, build: () => ({}), studioFile: "studio_tilesets.lua", generates: "tilesets" },
 ];
 
 interface Field {
@@ -276,7 +282,7 @@ const encounters: EncounterSpec = {
   },
   notes(map, ctx) {
     const out: string[] = [];
-    const tileset = ctx.data.tilesets[map.tileset];
+    const tileset = (ctx.records.tilesets?.[map.tileset] ?? ctx.data.tilesets[map.tileset]) as TilesetDef | undefined;
     if (rollsEverywhere(map, ctx)) {
       out.push(`Indoor map (index ${map.index ?? "?"}): the grass table rolls on every step, not just in grass.`);
     } else if (typeof tileset?.grassTile !== "number") {
@@ -628,6 +634,7 @@ export const gen1: GameAdapter = {
     for (const m of Object.values(maps)) gen1.normalizeMap(m);
     const contentTables: Dataset["content"] = {};
     content.forEach((c, i) => (contentTables[c.registry] = c.build ? c.build(tables[i] ?? {}, version) : tables[i] ?? {}));
+    contentTables.tilesets = { ...tilesets };
     // only what the editor reads from the big field table
     const fieldExtra: Field = { waterTilesets: fieldData.waterTilesets, indoorEncounters: fieldData.indoorEncounters };
     return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, field: fieldExtra, icons } };

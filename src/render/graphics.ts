@@ -18,7 +18,7 @@ const GRAY_RAMP = [0, 85, 170, 255];
 
 const imageCache = new Map<string, Promise<HTMLImageElement | null>>();
 
-function loadImage(url: string): Promise<HTMLImageElement | null> {
+export function loadImage(url: string): Promise<HTMLImageElement | null> {
   if (!url) return Promise.resolve(null);
   let p = imageCache.get(url);
   if (!p) {
@@ -43,10 +43,12 @@ function shadeIndex(gray: number): number {
 }
 
 // The sheet as shade indices 0 (darkest) .. 3 (lightest); 255 = transparent.
+// `rgba`: the pixels as they are (full-color tilesets draw unrecolored).
 interface Shades {
   width: number;
   height: number;
   px: Uint8Array;
+  rgba: Uint8ClampedArray;
 }
 
 function decode(img: HTMLImageElement): Shades {
@@ -58,7 +60,7 @@ function decode(img: HTMLImageElement): Shades {
   const data = ctx.getImageData(0, 0, img.width, img.height).data;
   const px = new Uint8Array(img.width * img.height);
   for (let i = 0; i < px.length; i++) px[i] = data[i * 4 + 3] === 0 ? 255 : shadeIndex(data[i * 4]);
-  return { width: img.width, height: img.height, px };
+  return { width: img.width, height: img.height, px, rgba: data };
 }
 
 const shadeCache = new Map<string, Promise<Shades | null>>();
@@ -81,9 +83,9 @@ const atlasCache = new Map<string, Promise<BlockAtlas>>();
 
 // `colorsFor(tile)` gives the four colors (darkest first) one 8x8 tile is
 // drawn with, so per-tile palettes (Gen 2) and one map palette (Gen 1) go
-// through the same path.
-export function blockAtlas(tileset: TilesetDef, url: string, paletteKey: string, colorsFor: (tile: number) => Rgb[]): Promise<BlockAtlas> {
-  const key = `${tileset.id}|${paletteKey}|${url}|${tileset.blocks.length}`;
+// through the same path. `version` changes whenever the tileset is edited.
+export function blockAtlas(tileset: TilesetDef, url: string, paletteKey: string, colorsFor: (tile: number) => Rgb[], version = ""): Promise<BlockAtlas> {
+  const key = `${tileset.id}|${paletteKey}|${url}|${tileset.blocks.length}|${version}`;
   let p = atlasCache.get(key);
   if (!p) {
     p = buildAtlas(tileset, url, colorsFor);
@@ -119,7 +121,10 @@ async function buildAtlas(tileset: TilesetDef, url: string, colorsFor: (tile: nu
           const o = ((dy + y) * canvas.width + dx + x) * 4;
           // ROM padding past the end of the sheet: obvious on sight
           let c = INVALID;
-          if (valid && colors) {
+          if (valid && tileset.trueColor) {
+            const i = ((sy + y) * sheet!.width + sx + x) * 4;
+            c = sheet!.rgba[i + 3] === 0 ? [255, 255, 255] : [sheet!.rgba[i], sheet!.rgba[i + 1], sheet!.rgba[i + 2]];
+          } else if (valid && colors) {
             const shade = sheet!.px[(sy + y) * sheet!.width + sx + x];
             c = colors[shade === 255 ? 3 : shade];
           }

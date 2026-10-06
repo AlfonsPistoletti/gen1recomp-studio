@@ -4,7 +4,7 @@ import type { Block } from "../core/eventBlocks.ts";
 // without the workspaces importing each other. main.ts and the workspaces
 // fill in the handlers when they mount.
 
-export type WorkspaceId = "maps" | "pokemon" | "moves" | "items" | "trainers" | "text" | "events" | "global";
+export type WorkspaceId = "maps" | "pokemon" | "moves" | "items" | "trainers" | "text" | "events" | "tilesets" | "global";
 
 export const WORKSPACES: { id: WorkspaceId; label: string; key: string }[] = [
   { id: "maps", label: "Maps", key: "1" },
@@ -14,7 +14,8 @@ export const WORKSPACES: { id: WorkspaceId; label: string; key: string }[] = [
   { id: "trainers", label: "Trainers", key: "5" },
   { id: "text", label: "Text", key: "6" },
   { id: "events", label: "Events", key: "7" },
-  { id: "global", label: "Global", key: "8" },
+  { id: "tilesets", label: "Tilesets", key: "8" },
+  { id: "global", label: "Global", key: "9" },
 ];
 
 export type PropsTab = "base" | "encounters";
@@ -36,6 +37,9 @@ export const nav = {
   // an event: a studio_events id, or game:<MAP>:talk:<TEXT> for the game's own
   openEvent: (_id: string): void => {},
   openGlobal: (_section: string): void => {},
+  openTileset: (_id: string): void => {},
+  // the Tilesets workspace was shown (it draws lazily)
+  onTilesetsShown: (): void => {},
   // play an event's blocks on its map (start: where the player stands)
   playEvent: (_mapId: string, _blocks: Block[], _start: { x: number; y: number; facing: string } | null): void => {},
   // pick one cell on a map, then come back

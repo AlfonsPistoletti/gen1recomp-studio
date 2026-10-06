@@ -1,7 +1,9 @@
 import { store } from "../core/store.ts";
 import { ATLAS_COLUMNS, BLOCK } from "../render/graphics.ts";
 import type { MapView } from "../render/mapView.ts";
+import { EXTENSIONS, tilesetKey } from "../core/tilesets.ts";
 import { h } from "./dom.ts";
+import { nav } from "./nav.ts";
 
 // The current map's tileset as a grid of blocks. Click picks one block,
 // drag picks a rectangle as a multi-block stamp.
@@ -18,6 +20,7 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
     zoomLabel,
     h("button", { class: "btn small ghost", title: "Zoom in (wheel)", onclick: () => stepZoom(1) }, "+"),
     h("button", { class: "btn small ghost", title: "Fit the panel width", onclick: () => setZoom("fit") }, "Fit"),
+    h("button", { class: "btn small ghost", title: "Edit this tileset: add tiles and blocks", onclick: () => store.map && nav.openTileset(store.map.tileset) }, "Edit"),
   );
   host.append(h("div", { class: "panel-head" }, h("div", { class: "row nowrap" }, title, info), zoomControls), wrap);
 
@@ -188,7 +191,7 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
     const map = store.map;
     if (!map) return;
     const palette = store.palettes[store.currentMap] || "ROUTE";
-    const k = `${map.tileset}|${palette}`;
+    const k = `${tilesetKey(map.tileset)}|${palette}`;
     title.textContent = `Blocks · ${map.tileset}`;
     if (k === key) return draw();
     key = k;
@@ -240,8 +243,9 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
     draw();
   });
 
-  store.on((reason) => {
+  store.on((reason, id, registry) => {
     if (reason === "project" || reason === "map" || reason === "edit") refresh();
+    if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS) && id === store.map?.tileset) refresh();
     if (reason === "stamp") {
       updateInfo();
       draw();

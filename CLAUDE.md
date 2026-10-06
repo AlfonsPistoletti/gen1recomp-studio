@@ -30,7 +30,7 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   history. Map edits emit `"edit"`, other registries `"content"`, and undo/redo of a
   non-map record emits `"reveal"`. Save writes every editable registry; ops of
   registries the studio doesn't edit are kept verbatim.
-- UI workspaces (Maps / Pokémon / Moves / Items / Trainers / Text / Global): `index.html` has one panel set per
+- UI workspaces (Maps / Pokémon / Moves / Items / Trainers / Text / Events / Tilesets / Global): `index.html` has one panel set per
   workspace (`data-ws`), switched in `main.ts`. Cross-links go through `src/ui/nav.ts`;
   the top-bar changes dropdown (`src/ui/changesMenu.ts`) maps each changed record to a nav call.
   Encounters live in the Maps right panel, not in a workspace: its bottom tab bar
@@ -111,6 +111,17 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   `studio:check_choice` command. The game's own events come from `data/scripts` via
   `loadGameScripts` (checkout only, stubbed GameVersion/MapScripts). GENERATORS are keyed by
   studio registry (prize counters and events both write map_scripts).
+- Tilesets (`src/core/tilesets.ts`, `src/ui/tilesetEditor.ts`): `tilesets` is an editable registry
+  (dataset tilesets as base records; the mod's own are registered whole, image in assets/studio).
+  Vanilla tilesets are never patched by hand: additions live in `studio_tilesets`
+  (`studio_tilesets.lua`: `{ first, tiles = 64 shade digits each, blocks, walkable }`), and
+  `src/lua/tilesetRuntime.ts` patches the vanilla id in place (blocks/walkable = `get(id)` lists +
+  additions; a copy under a new id would lose the engine's id-keyed rules). The engine draws one
+  image per map, so the recipe (`syncTransforms` sheets) builds base sheet + added tiles into
+  `save/mod-derived/<mod>/studio/tilesets/<id>.png`; the editor composes the same in memory
+  (`tilesetUrl`). Read tilesets through `liveTileset`/`tilesetUrl`, never `data.tilesets`.
+  Added tile ids start at the sheet's tile count; only the last block can be deleted (ids
+  must not shift). RED++ colors tiles past the vanilla count with palette group 7.
 - Mod trainers (`src/ui/trainerEvents.ts`): no registry writes trainer_headers, so a studio trainer
   is a talk event + one step event per sight cell (ids `<MAP>:step:trainer<objIndex>_<k>`); the
   settings live in the talk event's `trainer` field and the events are rebuilt from them.

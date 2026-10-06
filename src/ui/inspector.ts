@@ -14,6 +14,7 @@ import { roleSection, townSection } from "./mapTown.ts";
 import { changedParts, resetMapDialog } from "./mapReset.ts";
 import { nav } from "./nav.ts";
 import { warpProblem } from "../core/checks.ts";
+import { tilesetIds } from "../core/tilesets.ts";
 
 type Rec = Record<string, unknown>;
 type Edit = (label: string, mutate: (record: Rec) => void) => void;
@@ -212,7 +213,7 @@ function extrasField(spec: Extract<FieldSpec, { kind: "extras" }>, record: Rec, 
 function mapForm(map: MapDef, view: MapView): HTMLElement[] {
   const adapter = store.adapter;
   const ids = Object.keys(store.maps).sort();
-  const tilesets = Object.keys(store.project.data.tilesets).sort();
+  const tilesets = tilesetIds();
 
   const tilesetSelect = selectInput(map.tileset, tilesets, (v) => editMap("Change tileset", (d) => (d.tileset = v)));
 

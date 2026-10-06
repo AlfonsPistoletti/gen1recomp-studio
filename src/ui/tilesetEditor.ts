@@ -115,6 +115,16 @@ function editTileset(id: string, label: string, mutate: (t: { blocks: number[][]
   store.seal();
 }
 
+// per quarter of block `b` (top-left first): surfable water, cuttable
+function quarterMarks(id: string, ts: TilesetDef, b: number): { water: boolean; cut: boolean }[] {
+  const block = ts.blocks[b] ?? [];
+  const wet = surfableTileset(id) ? new Set([...waterTilesOf(ts), ...shoreTilesOf(ts)]) : new Set<number>();
+  const cutTiles = (CUT_TILES[id] ?? []).map((c) => c.tile);
+  const swaps = (store.table("field").cutTreeSwaps as { before: number }[] | undefined) ?? [];
+  const hasSwap = cutTiles.length > 0 && swaps.some((s) => s.before === b);
+  return COLLISION_SLOTS.map((slot) => ({ water: wet.has(block[slot]), cut: hasSwap && cutTiles.includes(block[slot]) }));
+}
+
 // whether a tileset has surfable water (field.waterTilesets)
 function surfableTileset(id: string): boolean {
   return ((store.table("field").waterTilesets as string[] | undefined) ?? []).includes(id);
@@ -633,6 +643,15 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ctx.lineWidth = 2;
         ctx.strokeRect(x + 1, y + 1, B - 2, B - 2);
       }
+      // surfable / cuttable quarters
+      if (showCollision && current) {
+        quarterMarks(current, ts, b).forEach((q, cell) => {
+          const qx = x + (cell % 2) * (B / 2) + B / 4;
+          const qy = y + Math.floor(cell / 2) * (B / 2) + B / 4;
+          if (q.water) drawMark(ctx, "water", qx, qy, 12, schedule);
+          if (q.cut) drawMark(ctx, "cut", qx, qy, 12, schedule);
+        });
+      }
     }
     if (selBlock !== null) {
       ctx.strokeStyle = "#fff";
@@ -704,6 +723,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ctx.strokeRect(x + 1.5, y + SLOT + 1.5, SLOT - 3, SLOT - 3);
         ctx.setLineDash([]);
         if (mark) drawMark(ctx, mark, x + SLOT, y + SLOT, 22, schedule);
+        const q = quarterMarks(id, ts, b)[cell];
+        if (q.water) drawMark(ctx, "water", x + SLOT * 2 - 14, y + 14, 16, schedule);
+        if (q.cut) drawMark(ctx, "cut", x + 14, y + 14, 16, schedule);
       });
       ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
       ctx.lineWidth = 1;
@@ -757,8 +779,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
           comp,
           ...cutRow,
           h("p", { class: "hint" }, can
-            ? "Click a slot to put the selected tile there (a dragged selection lands with its top-left corner there); right click picks a slot's tile. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."
-            : "The game's block: read-only. + New block makes an editable copy. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."),
+            ? "Click a slot to put the selected tile there (a dragged selection lands with its top-left corner there); right click picks a slot's tile. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked; waves: surfable; scissors: cuttable."
+            : "The game's block: read-only. + New block makes an editable copy. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked; waves: surfable; scissors: cuttable."),
           can
             ? h("div", { class: "row" },
                 h("button", {

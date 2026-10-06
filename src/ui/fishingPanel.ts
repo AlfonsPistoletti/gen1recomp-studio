@@ -11,6 +11,7 @@ import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import { comboInput, field, h, numberInput } from "./dom.ts";
 import { nav } from "./nav.ts";
+import { spriteUrl } from "./pokemonEditor.ts";
 
 export interface FishSlot {
   species: string;
@@ -52,9 +53,12 @@ function setFishing(label: string, mutate: (f: Fishing) => void): void {
 function slotRows(slots: FishSlot[], change: (label: string, next: FishSlot[]) => void): HTMLElement[] {
   const ids = Object.keys(store.table("pokemon")).sort();
   const pct = slots.length ? `${(50 / slots.length).toFixed(1)}%` : "";
+  const pokemon = store.table("pokemon") as Record<string, Record<string, unknown>>;
+  const front = (id: string) => (pokemon[id] ? spriteUrl(store.adapter.pokemon?.frontSprite(pokemon[id])) : "");
   const rows = slots.map((s, i) =>
     h("div", { class: "slot-row" },
       h("span", { class: "slot-odds", title: "Chance per cast: half the casts bite, then each entry is equally likely" }, pct),
+      front(s.species) ? h("img", { class: "slot-icon", src: front(s.species), alt: "" }) : h("span", { class: "slot-icon" }),
       comboInput(s.species, "dl-species", ids, (v) => change("Fishing species", slots.map((x, j) => (j === i ? { ...x, species: v } : x)))),
       h("span", { class: "muted" }, "Lv"),
       numberInput(s.level, (n) => change("Fishing level", slots.map((x, j) => (j === i ? { ...x, level: Math.max(1, Math.min(100, n)) } : x))), 1, 100),

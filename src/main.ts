@@ -66,6 +66,7 @@ const modDetailsBtn = h("button", {
 }, icon(Settings));
 const saveBtn = h("button", { class: "btn primary", onclick: () => save(), title: "Save into the mod (Ctrl+S)" }, "Save");
 const validateBtn = h("button", { class: "btn", onclick: () => validate(), title: "Run modkit validate --strict and lint" }, "Validate");
+const packBtn = h("button", { class: "btn", onclick: () => pack(), title: "Make the .modpkg file players install (runs validate --strict first)" }, "Pack");
 const undoBtn = h("button", { class: "btn icon", onclick: () => store.undo(), title: "Undo (Ctrl+Z)", "aria-label": "Undo" }, icon(Undo2));
 const redoBtn = h("button", { class: "btn icon", onclick: () => store.redo(), title: "Redo (Ctrl+Shift+Z)", "aria-label": "Redo" }, icon(Redo2));
 // which gen1recomp the studio works on; clickable in the desktop app
@@ -105,7 +106,7 @@ $("#topbar").append(
   h("div", { class: "group" }, undoBtn, redoBtn),
   h("div", { class: "spacer" }),
   mountChangesMenu(),
-  h("div", { class: "group" }, validateBtn, saveBtn),
+  h("div", { class: "group" }, validateBtn, packBtn, saveBtn),
 );
 
 modSelect.addEventListener("change", async () => {
@@ -191,6 +192,8 @@ function refreshTopbar(): void {
   undoBtn.title = store.canUndo ? `Undo ${store.undoLabel()} (Ctrl+Z)` : "Undo (Ctrl+Z)";
   validateBtn.disabled = !currentMod || !hostInfo?.modkit;
   modDetailsBtn.disabled = !currentMod;
+  packBtn.disabled = validateBtn.disabled;
+  packBtn.title = validateBtn.disabled && hostInfo && !hostInfo.modkit ? "Packing needs a gen1recomp source checkout (tools/modkit.py)" : "Make the .modpkg file players install (runs validate --strict first)";
   validateBtn.title = hostInfo && !hostInfo.modkit
     ? "Validate needs a source checkout of gen1recomp (tools/modkit.py); release builds do not ship it"
     : "Run modkit validate --strict and lint";
@@ -839,6 +842,44 @@ async function validate(): Promise<void> {
     toast(errorText(err), "error");
   } finally {
     validateBtn.disabled = false;
+  }
+}
+
+// where modkit wrote the package: the game folder (modkit runs there)
+function packedPath(file: string | undefined): string {
+  const root = hostInfo?.gameRoot ?? "";
+  if (!file) return root;
+  return `${root}${root.includes("\\") ? "\\" : "/"}${file}`;
+}
+
+// The .modpkg players install: modkit pack validates (strict, warnings too)
+// and writes <id>-<version>.modpkg into the game folder.
+async function pack(): Promise<void> {
+  if (!currentMod || busy) return;
+  const mod = currentMod;
+  try {
+    const result = await whileBusy(`Packing ${mod}`, async (step) => {
+      if (store.unsaved) {
+        step("Saving first…");
+        await save();
+      }
+      step("Running modkit pack (validates first)…");
+      return host.modkit(["pack", mod]);
+    });
+    const file = /([\w.-]+\.modpkg)/.exec(result.output)?.[1];
+    openDialog(
+      result.code === 0 ? "✓ Packed" : "✗ Not packed",
+      [
+        result.code === 0
+          ? h("p", {}, "Share this file; players install it from the game's mod list:", h("br", {}), h("code", {}, packedPath(file)))
+          : h("p", {}, "Packing runs validate --strict, so warnings stop it too. Fix what's listed, then pack again."),
+        h("p", { class: "hint" }, "Raise the version in Mod details for every release you share."),
+        h("pre", { class: `mono output ${result.code === 0 ? "ok" : "bad"}` }, result.output.trim() || "(no output)"),
+      ],
+      [h("button", { class: "btn primary", onclick: () => dialog.close() }, "Close")],
+    );
+  } catch (err) {
+    toast(errorText(err), "error");
   }
 }
 

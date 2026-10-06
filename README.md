@@ -376,6 +376,14 @@ Pick a mod in the top bar, or choose **+ New mod…**, which runs
 - If `main.lua` does not load the studio file yet, the studio offers to add
   `require("mods.<id>.studio_content")(mod)` before its final `end`.
 
+**Mod details** (the gear next to the mod menu) edits the mod's name,
+description, version, category, priority, GitHub repository and the
+experimental flag in its `manifest.json`.
+
+**Pack** saves, then runs `modkit pack <id>`, which validates strictly
+(warnings stop it too) and writes `<id>-<version>.modpkg` into the game folder:
+the file players install. Checkout only.
+
 **Validate** saves first, then runs `modkit validate <id> --strict` and
 `modkit lint <id>`.
 

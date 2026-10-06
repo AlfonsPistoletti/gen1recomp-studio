@@ -108,6 +108,7 @@ function offerText(t: Trade): string {
   return raw
     .replace(/\{RAM:wInGameTradeGiveMonName\}/g, speciesName(t.give))
     .replace(/\{RAM:wInGameTradeReceiveMonName\}/g, speciesName(t.get))
+    .replace(/\{[A-Z_]+\}/g, "")
     .replace(/[\n\v\f]/g, " ")
     .replace(/\s+/g, " ")
     .trim();

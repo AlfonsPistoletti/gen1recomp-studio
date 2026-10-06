@@ -318,6 +318,9 @@ function musicField(map: MapDef): HTMLElement | null {
 
 // RED++ roof colors (the roof's 2 middle colors): the town's by default; a
 // map the mod adds has none, so its roofs show the tileset's own (green)
+// maps whose roof the user set to "Custom colors" (they may still match a town)
+const customRoofs = new Set<string>();
+
 function roofField(map: MapDef): HTMLElement | null {
   if (!gbcAvailable() || !tilesetHasRoof(map.tileset) || !store.adapter.content.some((c) => c.registry === ROOFS)) return null;
   const mine = store.table(ROOFS)[map.id] as RoofRecord | undefined;
@@ -331,16 +334,20 @@ function roofField(map: MapDef): HTMLElement | null {
   };
   const sel = h("select", {},
     h("option", { value: "" }, game ? "The town's (the game's)" : "The tileset's own (green)"),
-    ...towns.map(([id]) => h("option", { value: id, selected: !!mine && same(mine.colors, towns.find(([t]) => t === id)?.[1]) }, `Like ${id}`)),
-    h("option", { value: "__custom", selected: !!mine && !towns.some(([, c]) => same(c, mine.colors)) }, "Custom colors"),
+    ...towns.map(([id]) => h("option", { value: id, selected: !!mine && !customRoofs.has(map.id) && same(mine.colors, towns.find(([t]) => t === id)?.[1]) }, `Like ${id}`)),
+    h("option", { value: "__custom", selected: !!mine && (customRoofs.has(map.id) || !towns.some(([, c]) => same(c, mine.colors))) }, "Custom colors"),
   );
   sel.addEventListener("change", () => {
+    if (sel.value === "__custom") customRoofs.add(map.id);
+    else customRoofs.delete(map.id);
+    // the same colors as before change no record: still show the pickers
+    if (sel.value === "__custom" && mine) return store.emit("content", map.id, ROOFS);
     if (!sel.value) return set(null);
     if (sel.value === "__custom") return set(clone(current ?? [[255, 140, 120], [200, 80, 70]]));
     set(clone(towns.find(([t]) => t === sel.value)?.[1] ?? null));
   });
   // the color pickers only for custom colors (a town's roof is picked by name)
-  const custom = !!mine && !towns.some(([, c]) => same(c, mine.colors));
+  const custom = !!mine && (customRoofs.has(map.id) || !towns.some(([, c]) => same(c, mine.colors)));
   const pickers = (custom ? current ?? [] : []).map((c, i) => {
     const input = h("input", { type: "color", value: `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`, title: i === 0 ? "Light roof color" : "Dark roof color" });
     input.addEventListener("change", () => {

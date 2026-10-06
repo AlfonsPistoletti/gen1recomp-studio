@@ -1106,16 +1106,16 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   const ownGbcCard = (id: string, ts: TilesetDef): HTMLElement[] => {
     if (ts.trueColor || !gbcAvailable()) return [];
     const own = (store.table(EXTENSIONS)[id] as { gbc?: GbcColoring } | undefined)?.gbc;
+    // the game tilesets whose 8 palettes a mod tileset can take
+    const sources = tilesetIds().filter((t) => isBaseTileset(t) && groupColors(t));
     if (!own?.palettes) {
-      const from = h("select", {}, ...tilesetIds().filter((t) => isBaseTileset(t) && groupColors(t)).map((t) => h("option", { value: t, selected: t === "OVERWORLD" }, t)));
       return [h("div", { class: "card" },
         h("h4", {}, "RED++ colors"),
         h("p", { class: "hint" }, "In the game's RED++ color mode this tileset uses the map's Game Boy palette. Give it 8 palettes of its own, and pick one per tile (in the tile's panel)."),
-        field("Start from the palettes of", from),
         h("button", {
           class: "btn small",
           onclick: () => {
-            const src = groupColors(from.value);
+            const src = groupColors(sources.includes("OVERWORLD") ? "OVERWORLD" : sources[0]);
             if (!src) return;
             const tiles = sheetTiles(ts);
             editColoring(id, "RED++ colors", (g) => {
@@ -1126,6 +1126,21 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         }, "Give it RED++ colors"),
       )];
     }
+    // which game tileset's palettes these are ("" once a color was changed);
+    // switching replaces all 8, the tiles keep their palette numbers
+    const same = (a: Rgb[][], b: Rgb[][]) => JSON.stringify(a) === JSON.stringify(b);
+    const match = sources.find((t) => same(groupColors(t)!, own.palettes!)) ?? "";
+    const from = h("select", { title: "Take all 8 palettes from a game tileset" },
+      match ? null : h("option", { value: "", selected: true }, "Your own colors"),
+      ...sources.map((t) => h("option", { value: t, selected: t === match }, t)),
+    );
+    from.addEventListener("change", () => {
+      const src = groupColors(from.value);
+      if (!src) return;
+      editColoring(id, `RED++ palettes of ${from.value}`, (g) => {
+        g.palettes = clone(src);
+      });
+    });
     const rows = own.palettes.map((colors, gi) =>
       h("div", { class: "gbc-row" },
         h("span", { class: "gbc-name" }, GROUP_NAMES[gi] ?? String(gi)),
@@ -1144,6 +1159,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     );
     return [h("div", { class: "card" },
       h("h4", {}, "RED++ colors"),
+      field("Palettes of", from, match ? "A game tileset's palettes. Change a color below to make your own." : "Pick a game tileset to take its 8 palettes instead (your color changes are replaced)."),
       h("p", { class: "hint" }, "8 palettes, lightest color first; each tile uses one (pick it in the tile's panel)."),
       ...rows,
       h("button", { class: "btn small danger", onclick: () => editColoring(id, "Remove RED++ colors", (g) => { delete g.palettes; delete g.groups; }) }, "Remove RED++ colors"),

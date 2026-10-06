@@ -15,7 +15,7 @@ import { createMod, listMods, openProject as loadProject, saveProject, validateM
 import { isTyping, MapView } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { mountChangesMenu } from "./ui/changesMenu.ts";
-import { Grid3x3, MousePointer2, PaintBucket, Paintbrush, Pipette, Redo2, Settings, Square, Undo2, ZoomIn, ZoomOut, type IconNode } from "lucide";
+import { Globe, Grid3x3, Maximize, MousePointer2, PaintBucket, Paintbrush, Pipette, Redo2, Settings, Square, Undo2, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
 import { $, clear, field, h, icon, numberInput, toast, errorText } from "./ui/dom.ts";
 import { addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
@@ -266,15 +266,18 @@ $("#toolbar").append(
   h("div", { class: "seg" }, ...overlayButtons),
   h("div", { class: "seg" }, colorButton),
   addGroup,
-  h("div", { class: "spacer" }),
+);
+// view controls float over the map view's top-right corner
+$("#viewport").append(
   h(
     "div",
-    { class: "seg" },
+    { class: "view-float" },
     h("button", { class: "btn small ghost", onclick: () => view.zoomBy(1 / 1.25), title: "Zoom out (-)", "aria-label": "Zoom out" }, icon(ZoomOut)),
     zoomLabel,
     h("button", { class: "btn small ghost", onclick: () => view.zoomBy(1.25), title: "Zoom in (+)", "aria-label": "Zoom in" }, icon(ZoomIn)),
-    h("button", { class: "btn small ghost", onclick: () => view.fitMap(), title: "Fit map (0)" }, "Fit map"),
-    h("button", { class: "btn small ghost", onclick: () => view.fitWorld(), title: "Fit connected world (Shift+0)" }, "World"),
+    h("span", { class: "view-float-sep" }),
+    h("button", { class: "btn small ghost", onclick: () => view.fitMap(), title: "Fit the map (0)", "aria-label": "Fit map" }, icon(Maximize)),
+    h("button", { class: "btn small ghost", onclick: () => view.fitWorld(), title: "Fit the connected world (Shift+0)", "aria-label": "Fit world" }, icon(Globe)),
   ),
 );
 

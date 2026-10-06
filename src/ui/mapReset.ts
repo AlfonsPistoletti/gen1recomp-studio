@@ -60,6 +60,60 @@ function revertFieldPath(mapId: string, path: string[]): void {
   }, { create: () => ({}) });
 }
 
+// Map rules and the Super Rod list: field records that hold a map id in a
+// list (darkMaps.maps, bikeRiding.maps) or as a key (badgeGates, superRod).
+interface RuleDiff {
+  label: string;
+  revert: () => void;
+}
+
+function listMember(id: string, mapId: string, key = "maps"): { now: boolean; base: boolean } {
+  const read = (t: Record<string, unknown>) => ((t[id] as Record<string, unknown> | undefined)?.[key] as unknown[] | undefined)?.includes(mapId) ?? false;
+  return { now: read(store.table("field")), base: read(store.baseTable("field")) };
+}
+
+function setMember(id: string, mapId: string, on: boolean, key = "maps"): void {
+  store.editRecord<Record<string, unknown>>("field", id, "Revert map", (d) => {
+    const list = ((d[key] as string[] | undefined) ?? []).filter((m) => m !== mapId);
+    d[key] = on ? [...list, mapId] : list;
+  });
+}
+
+function keyed(id: string, mapId: string): { now: unknown; base: unknown } {
+  return { now: (store.table("field")[id] as Record<string, unknown> | undefined)?.[mapId], base: (store.baseTable("field")[id] as Record<string, unknown> | undefined)?.[mapId] };
+}
+
+function setKeyed(id: string, mapId: string, value: unknown): void {
+  store.editRecord<Record<string, unknown>>("field", id, "Revert map", (d) => {
+    if (value === undefined) delete d[mapId];
+    else d[mapId] = clone(value);
+  }, { create: () => ({}) });
+}
+
+export function ruleDiffs(mapId: string): RuleDiff[] {
+  if (!regExists("field")) return [];
+  const out: RuleDiff[] = [];
+  const dark = listMember("darkMaps", mapId);
+  if (dark.now !== dark.base) out.push({ label: "dark until Flash", revert: () => setMember("darkMaps", mapId, dark.base) });
+  const bike = listMember("bikeRiding", mapId);
+  if (bike.now !== bike.base) out.push({ label: "bike allowed", revert: () => setMember("bikeRiding", mapId, bike.base) });
+  const gate = keyed("badgeGates", mapId);
+  if (!deepEqual(gate.now, gate.base)) out.push({ label: "badge gate", revert: () => setKeyed("badgeGates", mapId, gate.base) });
+  return out;
+}
+
+function superRodChanged(mapId: string): boolean {
+  if (!regExists("field")) return false;
+  const rod = keyed("superRod", mapId);
+  return !deepEqual(rod.now, rod.base);
+}
+
+// whether anything of the map differs from the game: its record or a part
+// kept elsewhere (events, music, rules, ...)
+export function mapChanged(map: MapDef): boolean {
+  return store.isEdited(map.id) || changedParts(map, false).length > 0;
+}
+
 // the parts of the map that differ from the game (layout first)
 export function changedParts(map: MapDef, includeLayout: boolean): Part[] {
   const parts: Part[] = [];
@@ -81,6 +135,9 @@ export function changedParts(map: MapDef, includeLayout: boolean): Part[] {
   if (regExists("map_songs") && store.isRecordEdited("map_songs", id)) parts.push({ label: "Music", detail: "the map's song", revert: () => revertRecord("map_songs", id) });
   if (regExists("studio_roofs") && store.isRecordEdited("studio_roofs", id)) parts.push({ label: "RED++ roof", detail: "the roof colors", revert: () => revertRecord("studio_roofs", id) });
   if (regExists("encounters") && store.isRecordEdited("encounters", id)) parts.push({ label: "Wild Pokémon", detail: "grass and water tables", revert: () => revertRecord("encounters", id) });
+  if (superRodChanged(id)) parts.push({ label: "Super Rod", detail: "what bites the Super Rod here", revert: () => setKeyed("superRod", id, keyed("superRod", id).base) });
+  const rules = ruleDiffs(id);
+  if (rules.length) parts.push({ label: "Rules", detail: rules.map((r) => r.label).join(", "), revert: () => rules.forEach((r) => r.revert()) });
   if (label && regExists("text_pointers") && store.isRecordEdited("text_pointers", label)) {
     parts.push({ label: "NPC texts & roles", detail: "which text each NPC/sign says, shop clerks, nurses (the texts themselves stay)", revert: () => revertRecord("text_pointers", label) });
   }

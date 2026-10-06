@@ -1,3 +1,4 @@
+import { mapChanged } from "./mapReset.ts";
 import { store } from "../core/store.ts";
 import type { MapView } from "../render/mapView.ts";
 import { clear, h } from "./dom.ts";
@@ -30,7 +31,7 @@ export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => v
       .sort();
     // edited maps are listed twice: pinned on top for quick access, and in
     // their usual alphabetical place so they never seem to vanish
-    const edited = ids.filter((id) => store.isEdited(id));
+    const edited = ids.filter((id) => mapChanged(store.maps[id]));
     const row = (id: string) => {
       const m = store.maps[id];
       const isNew = !store.base[id];
@@ -46,7 +47,7 @@ export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => v
         },
         h("span", { class: "map-name" }, id),
         hasWild(id) ? h("span", { class: "wild-dot", title: "Has wild Pokémon" }) : null,
-        isNew ? h("span", { class: "tag new" }, "new") : store.isEdited(id) ? h("span", { class: "tag edited" }, "edited") : null,
+        isNew ? h("span", { class: "tag new" }, "new") : edited.includes(id) ? h("span", { class: "tag edited" }, "edited") : null,
         h("span", { class: "map-meta" }, `${m.width}×${m.height}`),
       );
     };
@@ -80,7 +81,8 @@ export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => v
   // a brush stroke emits an edit per block; rebuild the list once per frame
   let queued = false;
   store.on((reason, _id, registry) => {
-    const wildChanged = reason === "content" && registry === "encounters";
+    // events, music, rules, ... of a map count as its changes too
+    const wildChanged = reason === "content" && !!registry;
     if (!(["project", "map", "edit", "saved"].includes(reason) || wildChanged) || queued) return;
     queued = true;
     requestAnimationFrame(() => {

@@ -250,6 +250,8 @@ renamed before players have saves with it.
     stand ↓ ↑ ←, walk ↓ ↑ ←; turners 3 frames; objects 1) and replaces the
     game's art (only the image is patched). **Replace frame…** works on
     sheets the mod already owns. **+ New** adds a sprite NPCs can use.
+    **Use the art of…** gives a sprite another sprite's art and kind (the
+    game's art as a copy the asset-transforms recipe makes).
   - **The player** card picks the sprite the player wears on foot, on the
     bike, surfing and flying (`field.playerSprites`): any sprite, the game's
     or the mod's. Player sprites carry a "player" tag in the list.
@@ -262,7 +264,9 @@ renamed before players have saves with it.
   battle screen, move animation sheets, Town Map, slot machine, fonts, effects,
   credits. **Replace…** imports a picture of the same size (transparent where
   the game's is); the mod ships it as `overrides/<path>`, which the game loads
-  instead of its own. **Back to the game's** removes it.
+  instead of its own. **Back to the game's** removes it. **Use the art of…**
+  shows another game image of the same size there instead (copied from the
+  player's own files when the mod loads; the mod ships no ROM art).
 - **Graphics > Tilesets**: the tile sheet, the 32×32 blocks maps are painted with, and
   which tiles you can walk on (footprints; ledges show their hop arrow). You
   walk on a block in quarters, each decided by its bottom-left tile. **Edit**

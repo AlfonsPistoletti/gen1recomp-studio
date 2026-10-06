@@ -4,7 +4,8 @@
 // loads instead (src/render/Assets.lua); the studio writes those files on save.
 
 import { store } from "../core/store.ts";
-import { addOverride, OVERRIDES, overrideUrl } from "../core/assets.ts";
+import { addOverride, COPY, OVERRIDES, overrideUrl } from "../core/assets.ts";
+import { canDerive, NO_RECIPE } from "../core/reuse.ts";
 import type { ImageSpec } from "../games/types.ts";
 import { loadImage } from "../render/graphics.ts";
 import { importArt } from "./artImport.ts";
@@ -36,6 +37,17 @@ function cacheImages(spec: ImageSpec): Promise<string[]> {
       return out;
     })().catch(() => []);
     listed.set(version, p);
+  }
+  return p;
+}
+
+// image sizes ("WxH"), loaded once per version and file
+const sizes = new Map<string, Promise<string>>();
+function sizeOf(url: string): Promise<string> {
+  let p = sizes.get(url);
+  if (!p) {
+    p = loadImage(url).then((img) => (img ? `${img.width}x${img.height}` : ""));
+    sizes.set(url, p);
   }
   return p;
 }
@@ -136,10 +148,17 @@ export function mountImageWorkspace(left: HTMLElement, center: HTMLElement, righ
     }
     title.textContent = rel;
     const mine = modUrl(rel);
+    const value = records()[rel];
+    const copyOf = value?.startsWith(COPY) ? value.slice(COPY.length) : null;
+    // the game's images of the same size, for "use the art of"
+    const size = `${w}x${hgt}`;
+    const sameSize: string[] = [];
+    for (const f of files) if (f !== rel && (await sizeOf(gameUrl(f))) === size) sameSize.push(f);
+    if (my !== token) return;
     main.append(
       h("div", { class: "image-compare" },
         h("div", { class: "card" }, h("h4", {}, `The game's · ${w}×${hgt}`), game ? picture(gameUrl(rel), w, hgt, 420) : h("p", { class: "hint warn" }, "Not in this version's imported files.")),
-        h("div", { class: "card" }, h("h4", {}, "Your mod's"), mine ? picture(mine, w, hgt, 420) : h("p", { class: "hint" }, "Not replaced: the game's image is used.")),
+        h("div", { class: "card" }, h("h4", {}, copyOf ? `Your mod's · the game's ${copyOf}` : "Your mod's"), mine ? picture(mine, w, hgt, 420) : h("p", { class: "hint" }, "Not replaced: the game's image is used.")),
       ),
       h("p", { class: "hint" }, "Shown as stored: the game colors these images with the palette of the screen they appear on."),
     );
@@ -160,9 +179,27 @@ export function mountImageWorkspace(left: HTMLElement, center: HTMLElement, righ
               }, "Back to the game's")
             : null,
         ),
-        h("p", { class: "hint" }, `Saved as mods/<your mod>/overrides/${rel}; the game loads it instead of its own.`),
+        useArt(rel, sameSize, copyOf),
+        h("p", { class: "hint" }, copyOf
+          ? `The game copies its own ${copyOf} into this image's place when the mod loads (asset transforms): the mod ships no ROM art.`
+          : `Saved as mods/<your mod>/overrides/${rel}; the game loads it instead of its own.`),
       ),
     );
+  };
+
+  // another game image of the same size in this one's place
+  const useArt = (rel: string, sameSize: string[], copyOf: string | null): HTMLElement => {
+    const sel = h("select", { disabled: !sameSize.length || !canDerive() },
+      h("option", { value: "" }, sameSize.length ? "Use the art of…" : "No other image has this size"),
+      ...sameSize.map((f) => h("option", { value: f, selected: f === copyOf }, f)),
+    );
+    sel.title = canDerive() ? "Show another of the game's images (same size) here instead" : NO_RECIPE;
+    sel.addEventListener("change", () => {
+      if (!sel.value) return;
+      store.setRecord(OVERRIDES, rel, `Use ${sel.value} for ${rel}`, COPY + sel.value);
+      store.seal();
+    });
+    return sel;
   };
 
   const replace = async (rel: string, w: number, hgt: number, keepTransparent: boolean) => {

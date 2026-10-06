@@ -1,5 +1,5 @@
 import wasmUrl from "wasmoon/dist/glue.wasm?url";
-import { OVERRIDES, saveAssets, saveOverrides, syncTransforms } from "./core/assets.ts";
+import { imageAliases, OVERRIDES, saveAssets, saveOverrides, syncTransforms } from "./core/assets.ts";
 import { sheetRecipes, tilesetIds } from "./core/tilesets.ts";
 import { gbcAvailable, loadGbc, setGbc } from "./core/gbc.ts";
 import { brokenWarps, romReferences } from "./core/checks.ts";
@@ -719,7 +719,7 @@ async function save(): Promise<void> {
     const shots = await saveOverrides(host, currentMod, store.table(OVERRIDES));
     art.written += shots.written;
     // vanilla art reused through the asset-transforms recipe
-    const tf = await syncTransforms(host, currentMod, saved, sheetRecipes());
+    const tf = await syncTransforms(host, currentMod, saved, sheetRecipes(), imageAliases(store.table(OVERRIDES)));
     if (tf.blocked) toast(`mods/${currentMod} already has its own assets_transforms file, so vanilla art cannot be reused there. Import art instead.`, "error");
     store.markSaved();
     const parts = [];

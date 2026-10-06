@@ -12,7 +12,7 @@ import { MOD_MAP_INDEX_BASE, type MapDef, type ModInfo, type RegistryOp, type Sa
 import type { Dataset, GameAdapter } from "../games/types.ts";
 import type { Host, ProcessResult } from "../host/types.ts";
 import { loadLuaData, runMod } from "../lua/vm.ts";
-import { listOverrides, OVERRIDES } from "../core/assets.ts";
+import { aliasesInRecipe, COPY, listOverrides, OVERRIDES, STUDIO_TRANSFORMS } from "../core/assets.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../lua/itemEffectRuntime.ts";
 import { PRIZE_RUNTIME, prizeRegistration } from "../lua/prizeRuntime.ts";
@@ -218,7 +218,11 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
   // replaced game images: the files in the mod's overrides/ folder
   if (modId && adapter.content.some((c) => c.registry === OVERRIDES)) {
     const rels = await listOverrides(host, modId);
-    if (rels.length) studio[OVERRIDES] = Object.fromEntries(rels.map((r) => [r, "disk"]));
+    const table: Record<string, unknown> = Object.fromEntries(rels.map((r) => [r, "disk"]));
+    // game images shown in place of others: the studio recipe's aliases
+    const recipeText = await host.readText("game", `mods/${modId}/${STUDIO_TRANSFORMS}`);
+    for (const a of recipeText ? aliasesInRecipe(recipeText) : []) table[a.to] = COPY + a.from;
+    if (Object.keys(table).length) studio[OVERRIDES] = table;
   }
   const manifest = modId ? await readManifest(host, modId) : null;
   const transforms = typeof manifest?.assets_transforms === "string" ? manifest.assets_transforms : null;

@@ -14,6 +14,7 @@ import {
 import { loadImage, spriteFrameAt } from "../render/graphics.ts";
 import type { Rgb } from "../render/color.ts";
 import { importArt } from "./artImport.ts";
+import { canDerive, NO_RECIPE, reusable } from "../core/reuse.ts";
 import { clear, field, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
 import { nav } from "./nav.ts";
@@ -240,6 +241,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       gameArt
         ? h("p", { class: "hint" }, "This is the game's own art, read from your imported ROM, so it is read-only: its pixels can't be edited or copied into a mod (a mod may not ship ROM art). Import a sheet of your own to replace it; you choose its kind (walks, turns, still) when importing.")
         : h("p", { class: "hint" }, "Your mod's own sheet. Walkers: stand ↓ ↑ ←, then walk ↓ ↑ ← (right is left mirrored); 16×16 frames, white is see-through."),
+      borrowRow(id, simple),
       h("div", { class: "row wrap" },
         h("button", { class: "btn small", disabled: !simple, onclick: () => void importSheet(id) }, "Import sheet…"),
         h("button", {
@@ -278,6 +280,34 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     ));
     out.push(playerCard(id));
     return out;
+  };
+
+  // another sprite's art (and its kind): the mod's own as is, the game's as a
+  // copy the asset-transforms recipe makes when the game loads
+  const borrowRow = (id: string, simple: boolean): HTMLElement => {
+    const sources = spriteIds().filter((o) => {
+      const src = liveSprite(o);
+      return o !== id && !!src && isSimpleSheet(src) && reusable(src.image) !== null;
+    });
+    const sel = h("select", { disabled: !simple || !sources.length || !canDerive() },
+      h("option", { value: "" }, sources.length ? "Use the art of…" : "No art to reuse"),
+      ...sources.map((o) => h("option", { value: o }, o.replace(/^SPRITE_/, ""))),
+    );
+    sel.title = canDerive() ? "Show this sprite with another sprite's art (the game's art is copied from the player's own files when the game loads)" : NO_RECIPE;
+    sel.addEventListener("change", () => {
+      const src = liveSprite(sel.value);
+      const path = src ? reusable(src.image) : null;
+      if (!src || !path) return;
+      store.editRecord<SpriteDef>(SPRITES, id, `Use ${sel.value}'s art`, (d) => {
+        d.image = path;
+        d.frames = src.frames || 1;
+        d.walker = !!src.walker;
+        if (src.trueColor) d.trueColor = true;
+        else delete d.trueColor;
+      });
+      store.seal();
+    });
+    return sel;
   };
 
   // which sprites the player wears (field.playerSprites); a role set back to

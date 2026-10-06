@@ -135,7 +135,10 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   `mods/<id>/overrides/<rel>` instead of `assets/generated/<rel>`. `image_overrides` records (rel ->
   content hash, "disk" for files found on load) are files, not registry calls (`ContentSpec.files`);
   `saveOverrides` writes new ones and deletes unrecorded override PNGs. Sprites/tilesets/Pokémon/
-  trainer pics are skipped there (their editors patch records instead).
+  trainer pics are skipped there (their editors patch records instead). "copy:<rel>" records show another
+  game image: the recipe's ALIASES copy it to save/mod-derived/<mod>/<to> (Assets.resolve's second
+  choice, so no overrides/ file may exist for it); reloaded from the recipe (`aliasesInRecipe`).
+  `src/core/reuse.ts` (`canDerive`, `reusable`) decides when game art may be reused.
 - RED++ colors (`src/core/gbc.ts`): read from gen1recomp `data/palettes_gbc.lua` (+ `_yellow`) via the
   "game" root, so checkout only (null otherwise: the toggle is disabled). Restates PaletteFX's
   per-map/per-tileset tile exceptions; not the LOBBY alias or dark caves. Map view keys are

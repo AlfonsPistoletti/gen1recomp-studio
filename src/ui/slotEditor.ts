@@ -51,13 +51,8 @@ export function slotCards(): HTMLElement[] {
   };
   const cards = list.map((wheel, w) => {
     const strip = wheel.slice(0, LEN).map((sym, i) => {
-      const step = (dir: number) => set(w, i, order[(order.indexOf(sym) + dir + order.length) % order.length]);
-      const b = h("button", { class: "slot-cell", title: `${sym}: click for the next symbol, right-click for the previous` }, face(sym));
-      b.addEventListener("click", () => step(1));
-      b.addEventListener("contextmenu", (e) => {
-        e.preventDefault();
-        step(-1);
-      });
+      const b = h("button", { class: "slot-cell", title: `${sym}: click to pick another symbol` }, face(sym));
+      b.addEventListener("click", () => pickSymbol(b, sym, order, face, (next) => set(w, i, next)));
       return b;
     });
     const counts = order.map((sym) => `${sym} ×${wheel.slice(0, LEN).filter((s) => s === sym).length}`).join(" · ");
@@ -69,9 +64,49 @@ export function slotCards(): HTMLElement[] {
   });
   return [
     ...cards,
-    h("p", { class: "hint" }, "Left to right is the order the wheel turns. More of a symbol on a wheel lets it line up more often. Payouts stay the game's: 7-7-7 pays 300, BAR 100, CHERRY 8, the rest 15; whether a spin may win at all is decided by the engine's luck rolls."),
+    h("p", { class: "hint" }, "Click a symbol to swap it. Left to right is the order the wheel turns. More of a symbol on a wheel lets it line up more often. Payouts stay the game's: 7-7-7 pays 300, BAR 100, CHERRY 8, the rest 15; whether a spin may win at all is decided by the engine's luck rolls."),
     slotsEdited()
       ? h("div", {}, h("button", { class: "btn small danger", onclick: () => store.revertRecord("field", SLOTS_ID, "Slot wheels: the game's") }, "Back to the game's wheels"))
       : h("span", {}),
   ];
+}
+
+// a floating row of every symbol under `anchor`; picking one replaces the
+// cell's. Closes on a pick, a click elsewhere or Escape.
+function pickSymbol(anchor: HTMLElement, current: string, order: string[], face: (sym: string) => HTMLElement, onPick: (sym: string) => void): void {
+  document.querySelector(".slot-picker")?.remove();
+  const close = () => {
+    pop.remove();
+    document.removeEventListener("pointerdown", outside, true);
+    document.removeEventListener("keydown", esc, true);
+  };
+  const outside = (e: Event) => {
+    if (!pop.contains(e.target as Node)) close();
+  };
+  const esc = (e: KeyboardEvent) => {
+    if (e.key === "Escape") close();
+  };
+  const pop = h("div", { class: "slot-picker" },
+    ...order.map((sym) =>
+      h("button", {
+        class: `slot-cell${sym === current ? " active" : ""}`,
+        title: sym,
+        onclick: () => {
+          close();
+          if (sym !== current) onPick(sym);
+        },
+      }, face(sym)),
+    ),
+  );
+  const r = anchor.getBoundingClientRect();
+  pop.style.left = `${r.left}px`;
+  pop.style.top = `${r.bottom + 4}px`;
+  document.body.append(pop);
+  // keep it on screen
+  const pr = pop.getBoundingClientRect();
+  if (pr.right > window.innerWidth - 8) pop.style.left = `${Math.max(8, window.innerWidth - 8 - pr.width)}px`;
+  setTimeout(() => {
+    document.addEventListener("pointerdown", outside, true);
+    document.addEventListener("keydown", esc, true);
+  });
 }

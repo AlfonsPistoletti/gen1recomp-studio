@@ -904,3 +904,5 @@ dialog.modal { min-width: 420px; }
 .slot-cell:hover { border-color: var(--accent); }
 .slot-face { display: inline-block; zoom: 2; background-repeat: no-repeat; image-rendering: pixelated; }
 .slot-name { display: inline-block; min-width: 32px; font-size: 11px; line-height: 32px; color: #000; }
+.slot-picker { position: fixed; z-index: 50; display: flex; gap: 4px; padding: 6px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--radius); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45); }
+.slot-cell.active { outline: 2px solid var(--accent); outline-offset: 1px; }

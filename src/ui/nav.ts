@@ -6,7 +6,7 @@ import type { Block } from "../core/eventBlocks.ts";
 
 export type WorkspaceId = "maps" | "pokemon" | "moves" | "items" | "trainers" | "text" | "events" | "graphics" | "global";
 // the Graphics workspace's two views
-export type GraphicsView = "tilesets" | "sprites";
+export type GraphicsView = "tilesets" | "sprites" | "images";
 
 export const WORKSPACES: { id: WorkspaceId; label: string; key: string }[] = [
   { id: "maps", label: "Maps", key: "1" },
@@ -44,9 +44,12 @@ export const nav = {
   showGraphics: (_view: GraphicsView): void => {},
   openTileset: (_id: string): void => {},
   openSprite: (_id: string): void => {},
+  // a game image by its path below assets/generated
+  openImage: (_rel: string): void => {},
   // a Graphics view was shown (they draw lazily)
   onTilesetsShown: (): void => {},
   onSpritesShown: (): void => {},
+  onImagesShown: (): void => {},
   // play an event's blocks on its map (start: where the player stands)
   playEvent: (_mapId: string, _blocks: Block[], _start: { x: number; y: number; facing: string } | null): void => {},
   // pick one cell on a map, then come back

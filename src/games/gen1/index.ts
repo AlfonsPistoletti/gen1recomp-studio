@@ -5,6 +5,7 @@
 //             tile at each cell's feet, src/world/Map.lua)
 //   color:    one SGB palette per map (vanilla cascade, see palette.ts)
 
+import { GEN1_IMAGES } from "./images.ts";
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
@@ -134,6 +135,8 @@ const content: ContentSpec[] = [
   // overworld sprites (filled from Dataset.sprites in load): vanilla ones get
   // their art replaced (patched), the mod's own are registered whole
   { registry: "sprites", editable: true, build: () => ({}), fieldOrder: ["id", "image", "frames", "walker", "trueColor"] },
+  // game images the mod replaces: files in mods/<id>/overrides/ (src/core/assets.ts)
+  { registry: "image_overrides", editable: true, build: () => ({}), files: true },
   // RED++ roof colors of maps (map id -> { index, colors }), see src/core/gbc.ts
   { registry: "studio_roofs", editable: true, build: () => ({}), studioFile: "studio_roofs.lua" },
 ];
@@ -744,6 +747,7 @@ export const gen1: GameAdapter = {
     return { tile, walkable };
   },
 
+  images: GEN1_IMAGES,
   // engine/overworld/ledges.asm (field.ledges): the ledge tile, hopped over
   // in its facing direction
   ledgeTiles(ctx, tilesetId) {

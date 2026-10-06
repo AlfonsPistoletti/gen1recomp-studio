@@ -51,6 +51,9 @@ export interface ContentSpec {
   generates?: string;
   // the engine merges this registry "deep": patched lists append
   deep?: boolean;
+  // records are files the studio writes itself (image overrides), never
+  // registry calls
+  files?: boolean;
 }
 
 // ------------------------------------------------------------------ moves
@@ -465,6 +468,16 @@ export interface ConnectionRef {
   offset: number; // blocks
 }
 
+// Graphics > Images: which cache images are offered, in which group
+export interface ImageSpec {
+  // folders left out (prefixes of paths below assets/generated)
+  skip: string[];
+  // [path prefix or exact path, group label], first match wins
+  groups: [string, string][];
+  // path -> what the image is for
+  hints: Record<string, string>;
+}
+
 export interface CellInfo {
   walkable: boolean;
   tile?: number;
@@ -492,6 +505,8 @@ export interface GameAdapter {
   // ledge tiles of a tileset -> the direction the player hops over them
   // (not walkable, but jumped down)
   ledgeTiles?(ctx: GameContext, tilesetId: string): Map<number, string>;
+  // game images a mod can replace (Graphics > Images)
+  images?: ImageSpec;
 
   // palette key per map (what an atlas is colored with)
   paletteKeys(ctx: GameContext): Record<string, string>;

@@ -131,6 +131,11 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   composed into a mod asset (Replace frame needs the mod's own sheet). Read sprites through
   `liveSprite`/`spriteUrl`, never `data.sprites`. Walk preview restates movement.asm (walk frame on
   ticks 4..11 of 16, up/down mirrored every other step; NPC 32 frames a step, player 16).
+- Replaced game images (`src/ui/imageEditor.ts`, `adapter.images`): gen1recomp `Assets.resolve` loads
+  `mods/<id>/overrides/<rel>` instead of `assets/generated/<rel>`. `image_overrides` records (rel ->
+  content hash, "disk" for files found on load) are files, not registry calls (`ContentSpec.files`);
+  `saveOverrides` writes new ones and deletes unrecorded override PNGs. Sprites/tilesets/Pokémon/
+  trainer pics are skipped there (their editors patch records instead).
 - RED++ colors (`src/core/gbc.ts`): read from gen1recomp `data/palettes_gbc.lua` (+ `_yellow`) via the
   "game" root, so checkout only (null otherwise: the toggle is disabled). Restates PaletteFX's
   per-map/per-tileset tile exceptions; not the LOBBY alias or dark caves. Map view keys are

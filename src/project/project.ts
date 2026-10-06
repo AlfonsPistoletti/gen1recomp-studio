@@ -12,6 +12,7 @@ import { MOD_MAP_INDEX_BASE, type MapDef, type ModInfo, type RegistryOp, type Sa
 import type { Dataset, GameAdapter } from "../games/types.ts";
 import type { Host, ProcessResult } from "../host/types.ts";
 import { loadLuaData, runMod } from "../lua/vm.ts";
+import { listOverrides, OVERRIDES } from "../core/assets.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../lua/itemEffectRuntime.ts";
 import { PRIZE_RUNTIME, prizeRegistration } from "../lua/prizeRuntime.ts";
@@ -214,6 +215,11 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
       }
     }
   }
+  // replaced game images: the files in the mod's overrides/ folder
+  if (modId && adapter.content.some((c) => c.registry === OVERRIDES)) {
+    const rels = await listOverrides(host, modId);
+    if (rels.length) studio[OVERRIDES] = Object.fromEntries(rels.map((r) => [r, "disk"]));
+  }
   const manifest = modId ? await readManifest(host, modId) : null;
   const transforms = typeof manifest?.assets_transforms === "string" ? manifest.assets_transforms : null;
   return { host, version, adapter, mod: modId, data, studio, tilesetImages, warnings, transforms };
@@ -249,7 +255,7 @@ export function contentCalls(
   const replacing = new Set(adapter.content.filter((c) => c.replace).map((c) => c.registry));
   const deep = new Set(adapter.content.filter((c) => c.deep).map((c) => c.registry));
   // records kept in their own data file are not registry calls
-  const dataFiles = new Set(adapter.content.filter((c) => c.studioFile).map((c) => c.registry));
+  const dataFiles = new Set(adapter.content.filter((c) => c.studioFile || c.files).map((c) => c.registry));
   for (const registry of editableRegistries(adapter)) {
     if (dataFiles.has(registry)) continue;
     const ids = Object.keys(edited[registry] ?? {}).sort();

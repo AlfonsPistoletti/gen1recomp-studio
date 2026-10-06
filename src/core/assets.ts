@@ -212,3 +212,70 @@ export async function saveAssets(host: Host, mod: string, referenced: string): P
   }
   return { written, removed };
 }
+
+// ------------------------------------------------------------------ overrides
+// A mod replaces any game image by shipping mods/<mod>/overrides/<rel> for
+// assets/generated/<rel> (gen1recomp src/render/Assets.lua resolve). The
+// image_overrides records are rel -> content hash of the replacement; the
+// bytes of imported ones stay in memory (by hash, so undo/redo can go back
+// to any of them) until a save writes them. "disk" = the file already there.
+
+export const OVERRIDES = "image_overrides";
+const overridePending = new Map<string, { data: Uint8Array; url: string }>();
+// what each override file holds since the last save (path -> hash)
+const overrideSaved = new Map<string, string>();
+
+export function overridePath(mod: string, rel: string): string {
+  return `mods/${mod}/overrides/${rel}`;
+}
+
+// keeps an imported replacement; returns the hash its record holds
+export function addOverride(data: Uint8Array): string {
+  const h = hash(data);
+  if (!overridePending.has(h)) overridePending.set(h, { data, url: URL.createObjectURL(new Blob([data as BlobPart], { type: "image/png" })) });
+  return h;
+}
+
+export function overrideUrl(host: Host, version: string, mod: string, rel: string, value: string): string {
+  const pend = overridePending.get(value)?.url;
+  if (pend) return pend;
+  const url = host.imageUrl(version, overridePath(mod, rel));
+  return `${url}${url.includes("?") ? "&" : "?"}v=${encodeURIComponent(value)}`;
+}
+
+// Every override file below mods/<mod>/overrides/ (PNG), as rel paths.
+export async function listOverrides(host: Host, mod: string): Promise<string[]> {
+  const out: string[] = [];
+  const walk = async (dir: string, depth: number): Promise<void> => {
+    if (depth > 6) return;
+    for (const e of await host.list("game", `mods/${mod}/overrides${dir ? `/${dir}` : ""}`)) {
+      const rel = dir ? `${dir}/${e.name}` : e.name;
+      if (e.dir) await walk(rel, depth + 1);
+      else if (e.name.toLowerCase().endsWith(".png")) out.push(rel);
+    }
+  };
+  await walk("", 0);
+  return out.sort();
+}
+
+// Writes the recorded replacements that are new and removes override PNGs
+// no record keeps.
+export async function saveOverrides(host: Host, mod: string, records: Record<string, unknown>): Promise<{ written: number; removed: number }> {
+  let written = 0;
+  let removed = 0;
+  for (const [rel, value] of Object.entries(records)) {
+    const pend = typeof value === "string" ? overridePending.get(value) : undefined;
+    const path = overridePath(mod, rel);
+    if (!pend || overrideSaved.get(path) === value) continue;
+    await host.writeBinary(path, pend.data);
+    overrideSaved.set(path, value as string);
+    written++;
+  }
+  for (const rel of await listOverrides(host, mod)) {
+    if (records[rel] !== undefined) continue;
+    await host.deleteFile(overridePath(mod, rel));
+    overrideSaved.delete(overridePath(mod, rel));
+    removed++;
+  }
+  return { written, removed };
+}

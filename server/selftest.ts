@@ -245,6 +245,8 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
 
 // sprites: every dataset sprite is a record; new art patches only the image
 {
+  // replaced game images are files in overrides/, never registry calls
+  check("image overrides write no registry calls", contentCalls(adapter, { image_overrides: {} }, { image_overrides: { "title/player.png": "abc" } }).calls.length === 0);
   const base = project.data.content.sprites ?? {};
   check("sprite records = dataset sprites", Object.keys(base).length === Object.keys(project.data.sprites).length && !!base.SPRITE_GIRL, String(Object.keys(base).length));
   check("unchanged sprites write nothing", contentCalls(adapter, { sprites: base }, { sprites: {} }).calls.length === 0);

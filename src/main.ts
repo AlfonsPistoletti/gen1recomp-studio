@@ -1,5 +1,5 @@
 import wasmUrl from "wasmoon/dist/glue.wasm?url";
-import { saveAssets, syncTransforms } from "./core/assets.ts";
+import { OVERRIDES, saveAssets, saveOverrides, syncTransforms } from "./core/assets.ts";
 import { sheetRecipes, tilesetIds } from "./core/tilesets.ts";
 import { gbcAvailable, loadGbc, setGbc } from "./core/gbc.ts";
 import { brokenWarps, romReferences } from "./core/checks.ts";
@@ -32,6 +32,7 @@ import { mountMoveWorkspace } from "./ui/moveEditor.ts";
 import { mountItemWorkspace } from "./ui/itemEditor.ts";
 import { mountTilesetWorkspace } from "./ui/tilesetEditor.ts";
 import { mountSpriteWorkspace } from "./ui/spriteEditor.ts";
+import { mountImageWorkspace } from "./ui/imageEditor.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
 import { playEvent } from "./ui/eventPreview.ts";
@@ -298,13 +299,15 @@ mountTextWorkspace($("#text-left"), $("#text-center"), $("#text-right"));
 mountGlobalWorkspace($("#global-left"), $("#global-center"), $("#global-right"));
 mountTilesetWorkspace($("#tilesets-left"), $("#tilesets-center"), $("#tilesets-right"));
 mountSpriteWorkspace($("#sprites-left"), $("#sprites-center"), $("#sprites-right"));
+mountImageWorkspace($("#images-left"), $("#images-center"), $("#images-right"));
 // the Graphics workspace's view switch, on top of both left panels
 const GRAPHICS_VIEW_KEY = "studio.graphicsView";
-nav.graphicsView = recall(GRAPHICS_VIEW_KEY) === "sprites" ? "sprites" : "tilesets";
+const savedView = recall(GRAPHICS_VIEW_KEY);
+nav.graphicsView = savedView === "sprites" || savedView === "images" ? savedView : "tilesets";
 const viewSwitches: HTMLButtonElement[] = [];
-for (const host of [$("#tilesets-left"), $("#sprites-left")]) {
+for (const host of [$("#tilesets-left"), $("#sprites-left"), $("#images-left")]) {
   const seg = h("div", { class: "seg view-switch" });
-  for (const [view, label] of [["tilesets", "Tilesets"], ["sprites", "Sprites"]] as const) {
+  for (const [view, label] of [["tilesets", "Tilesets"], ["sprites", "Sprites"], ["images", "Images"]] as const) {
     const b = h("button", { class: "toggle", "data-view": view, onclick: () => nav.showGraphics(view) }, label);
     viewSwitches.push(b);
     seg.append(b);
@@ -332,7 +335,7 @@ function setWorkspace(id: WorkspaceId): void {
   for (const b of workspaceTabs) b.classList.toggle("active", b.dataset.ws === id);
   remember(WORKSPACE_KEY, id);
   if (id === "maps") view.invalidate();
-  if (id === "graphics") (nav.graphicsView === "sprites" ? nav.onSpritesShown : nav.onTilesetsShown)();
+  if (id === "graphics") ({ tilesets: nav.onTilesetsShown, sprites: nav.onSpritesShown, images: nav.onImagesShown })[nav.graphicsView]();
 }
 nav.setWorkspace = setWorkspace;
 nav.openMap = (mapId) => {
@@ -712,6 +715,9 @@ async function save(): Promise<void> {
     // longer uses are removed (assets/studio/ only)
     const saved = (await host.readText("game", result.file)) ?? "";
     const art = await saveAssets(host, currentMod, saved);
+    // replaced game images: files in overrides/
+    const shots = await saveOverrides(host, currentMod, store.table(OVERRIDES));
+    art.written += shots.written;
     // vanilla art reused through the asset-transforms recipe
     const tf = await syncTransforms(host, currentMod, saved, sheetRecipes());
     if (tf.blocked) toast(`mods/${currentMod} already has its own assets_transforms file, so vanilla art cannot be reused there. Import art instead.`, "error");

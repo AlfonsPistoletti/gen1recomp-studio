@@ -257,6 +257,12 @@ renamed before players have saves with it.
     fingerprints, so most person-shaped sprites are flagged as near-duplicates
     of a game sprite and validation fails (the game's own walker sheets match
     each other in 177 of 780 pairs). Reported to gen1recomp.
+- **Graphics > Images**: every other game image: the title screen, the
+  player's pictures (title, back in battle, trainer card, fishing), the intro,
+  battle screen, move animation sheets, Town Map, slot machine, fonts, effects,
+  credits. **Replace…** imports a picture of the same size (transparent where
+  the game's is); the mod ships it as `overrides/<path>`, which the game loads
+  instead of its own. **Back to the game's** removes it.
 - **Graphics > Tilesets**: the tile sheet, the 32×32 blocks maps are painted with, and
   which tiles you can walk on (footprints; ledges show their hop arrow). You
   walk on a block in quarters, each decided by its bottom-left tile. **Edit**

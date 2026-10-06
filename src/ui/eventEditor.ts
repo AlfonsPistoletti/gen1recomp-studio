@@ -15,6 +15,7 @@ import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EventCommand, EventParam, EventRow, EventSpec } from "../games/types.ts";
 import type { GameScripts } from "../lua/vm.ts";
 import { gameEvents } from "../project/gameEvents.ts";
+import { tradeLabel, trades } from "./tradeEditor.ts";
 import { clear, comboInput, errorText, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
@@ -931,6 +932,13 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "species":
         input = combo(Object.keys(store.table("pokemon")).sort(), value, set);
         break;
+      case "trade": {
+        const n = trades().length;
+        const sel = h("select", { disabled: ro }, ...Array.from({ length: n }, (_v, i) => h("option", { value: String(i + 1), selected: Number(value) === i + 1 }, tradeLabel(i + 1))));
+        sel.addEventListener("change", () => set(Number(sel.value)));
+        input = h("div", { class: "row nowrap" }, sel, h("button", { class: "btn small ghost", onclick: () => nav.openGlobal("trades") }, "Edit trades"));
+        break;
+      }
       case "trainer":
         input = combo(Object.keys(store.table("trainers")).sort(), value, set);
         break;

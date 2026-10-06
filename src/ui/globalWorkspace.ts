@@ -12,6 +12,7 @@ import { chancesCard } from "./encounterPanel.ts";
 import { nav } from "./nav.ts";
 import { counterLabel, counters, prizeCounterEditor, showCounter } from "./prizeEditor.ts";
 import { recall, remember } from "./storage.ts";
+import { tradeCards, tradesEdited, TRADES_ID, TRADES_REGISTRY } from "./tradeEditor.ts";
 
 const SECTION_KEY = "studio.globalSection";
 // the status screen's TYPE field fits 8 letters (ELECTRIC)
@@ -57,6 +58,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (!s) return null;
   if (registry === s.typeChart?.registry) return "types";
   if (registry === store.adapter.towns?.prizeRegistry) return "prizes";
+  if (registry === TRADES_REGISTRY && id === TRADES_ID && s.sections.some((x) => x.id === "trades")) return "trades";
   const odds = store.adapter.encounters?.sharedOdds;
   if (odds && registry === odds.registry && id === odds.id) return "wild";
   if (s.hmBadges && registry === s.hmBadges.registry && id === s.hmBadges.id) return "fieldmoves";
@@ -70,6 +72,7 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (!s || !section) return null;
   if (section === "types") return null;
   if (section === "prizes") return counterLabel(id);
+  if (section === "trades") return "In-game trades";
   if (section === "wild") return "Wild slot chances";
   if (section === "fieldmoves") return "HM badges";
   const labels = s.numbers.filter((n) => n.registry === registry && n.id === id).map((n) => n.label);
@@ -86,6 +89,7 @@ function sectionChanged(id: string): boolean {
   const odds = store.adapter.encounters?.sharedOdds;
   if (id === "wild" && odds) regs.push([odds.registry, odds.id]);
   if (regs.some(([r, i]) => store.isRecordEdited(r, i))) return true;
+  if (id === "trades" && tradesEdited()) return true;
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
     const reg = towns.prizeRegistry;
@@ -162,8 +166,8 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
-    if (reason === "content" && s && (registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon")) schedule();
-    if (reason === "reveal" && s && (registry === "constants" || registry === s.typeChart?.registry || registry === prizes)) nav.setWorkspace("global");
+    if (reason === "content" && s && (registry === "field" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon")) schedule();
+    if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || registry === "constants" || registry === s.typeChart?.registry || registry === prizes)) nav.setWorkspace("global");
   });
 }
 
@@ -177,6 +181,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   }
   if (id === "types" && s.typeChart) out.push(...typeChartCards(s.typeChart));
   if (id === "fieldmoves" && s.hmBadges) out.push(hmBadgesCard(s.hmBadges));
+  if (id === "trades") out.push(...tradeCards());
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
     for (const cid of Object.keys(counters(towns)).sort()) {

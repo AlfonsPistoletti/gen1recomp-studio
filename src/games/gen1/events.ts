@@ -42,6 +42,7 @@ const commands: EventCommand[] = [
 
   // ---- Pokémon
   { id: "give_pokemon", verb: "give_pokemon", label: "Give Pokémon", category: "Pokémon", help: "Adds a Pokémon to the party (or the PC box), asking for a nickname.", params: [{ key: "species", label: "Pokémon", type: "species", default: "PIKACHU" }, { key: "level", label: "Level", type: "number", default: 5, min: 1, max: 100 }], describe: (a) => `Give ${nice(a.species)} Lv ${s(a.level)}` },
+  { id: "trade", verb: "trade", label: "Trade Pokémon", category: "Pokémon", help: "Offers an in-game trade (Global > In-game trades): asks, lets the player pick the Pokémon, swaps it. The flag makes it happen once; afterwards the NPC says the after-trade line.", params: [{ key: "index", label: "Trade", type: "trade", default: 1 }, { key: "flag", label: "Done flag", type: "flag" }], describe: (a) => `Trade #${s(a.index)} (once: ${s(a.flag)})` },
   { id: "heal_party", verb: "heal_party", label: "Heal party", category: "Pokémon", help: "Fully heals the player's Pokémon.", params: [], describe: () => "Heal the party" },
   { id: "play_cry", verb: "play_cry", label: "Play cry", category: "Pokémon", help: "Plays a Pokémon's cry.", params: [{ key: "species", label: "Pokémon", type: "species", default: "PIKACHU" }], describe: (a) => `Cry of ${nice(a.species)}` },
 

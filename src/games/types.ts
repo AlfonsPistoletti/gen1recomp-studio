@@ -411,7 +411,8 @@ export type EventParamType =
   | "path" // a list of directions, one step each
   | "together" // walk options: { wait = false } (don't wait), stepFrames (NPC speed)
   | "cellX" // a map cell (x, then a "cellY" param right after)
-  | "cellY";
+  | "cellY"
+  | "trade"; // an in-game trade, by its number (field.trades)
 
 export interface EventParam {
   key: string;

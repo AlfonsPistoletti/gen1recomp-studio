@@ -584,6 +584,7 @@ const globals: GlobalsSpec = {
     { id: "battle", label: "Pokémon & items", hint: "Level cap and bag size." },
     { id: "overworld", label: "Overworld", hint: "Walking and biking speed, poison, blacking out, Day-Care." },
     { id: "fieldmoves", label: "Field moves", hint: "Which badge each HM needs outside of battle." },
+    { id: "trades", label: "In-game trades", hint: "The Pokémon trades NPCs offer: what they want, what the player gets and its nickname. A trade happens once (its done flag). New trades are offered through the Trade event command." },
     { id: "prizes", label: "Game Corner prizes", hint: "What each prize counter trades for coins: three prizes per counter, items or Pokémon. Any NPC or sign can be made a counter (Maps, select it, Role)." },
   ],
   numbers: [

@@ -243,6 +243,20 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   check("the helper writes no ROM path", !tsSrc.includes("assets/generated/") && !extSrc.includes("assets/generated/"));
 }
 
+// in-game trades: a changed trade overrides the list, a new one is appended
+{
+  const field = project.data.content.field ?? {};
+  const base = field.trades as Record<string, unknown>[];
+  check("field has the trades", Array.isArray(base) && base.length === 10, String(base?.length));
+  const changed = clone(base);
+  changed[0].nickname = "STUDIO";
+  const c1 = contentCalls(adapter, { field }, { field: { trades: changed } }).calls;
+  check("a changed trade overrides the list", c1.length === 1 && c1[0].op === "override" && (c1[0].value as unknown[]).length === 10, JSON.stringify(c1).slice(0, 120));
+  const grown = [...clone(base), { give: "PIKACHU", get: "EEVEE", nickname: "TRADEY", dialogset: 1 }];
+  const c2 = contentCalls(adapter, { field }, { field: { trades: grown } }).calls;
+  check("a new trade is appended", c2.length === 1 && c2[0].op === "patch" && (c2[0].value as unknown[]).length === 1, JSON.stringify(c2).slice(0, 120));
+}
+
 // sprites: every dataset sprite is a record; new art patches only the image
 {
   // replaced game images are files in overrides/, never registry calls
@@ -341,7 +355,8 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
 
 // --- a hand-written mod is part of its base
 const mods = await listMods(nodeHost);
-if (mods.some((m) => m.id === "bills_garden")) {
+// (only while its main.lua still patches maps by hand)
+if (mods.some((m) => m.id === "bills_garden") && (await nodeHost.readText("game", "mods/bills_garden/main.lua"))?.includes("maps:patch")) {
   const bills = await openProject(nodeHost, version, adapter, "bills_garden");
   check("bills_garden's patch is in its base", bills.data.maps.ROUTE_25.width !== base.ROUTE_25.width || !deepEqual(bills.data.maps.ROUTE_25.blocks, base.ROUTE_25.blocks), `ROUTE_25 width ${bills.data.maps.ROUTE_25.width}`);
   check("no warnings running bills_garden", bills.warnings.length === 0, bills.warnings.join("; "));

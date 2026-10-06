@@ -865,3 +865,9 @@ dialog.modal { min-width: 420px; }
 .mod-details { width: min(560px, 92vw); }
 .mod-details textarea { width: 100%; resize: vertical; }
 .mod-details .row > .field { flex: 1; }
+
+/* ------------------------------------------------------------ trades */
+.trade-row { align-items: flex-end; gap: 10px; }
+.trade-row .field { margin: 0; }
+.trade-arrow { padding-bottom: 6px; color: var(--muted); font-size: 18px; }
+.trade-offer { font-style: italic; }

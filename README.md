@@ -304,6 +304,9 @@ renamed before players have saves with it.
     extend tilesets.
 - **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
   reads.
+  - In-game trades: what each trade NPC wants, what the player gets, its
+    nickname and dialogue, and who offers it. **+ New trade** adds one; an
+    NPC offers it through the **Trade Pokémon** event command (once, by flag).
   - Wild slot chances.
   - Game Corner prizes: three prizes per counter (items or Pokémon with a
     level, any coin price), for the vanilla counters and any NPC/sign made a

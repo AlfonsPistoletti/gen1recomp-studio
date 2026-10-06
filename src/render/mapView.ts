@@ -452,6 +452,9 @@ export class MapView {
     const animate = store.overlays.animate;
     if (!animate && this.animOn) this.stopAnims();
     this.animOn = animate;
+    // zoomed out below 50% the animation holds its frame: with that much on
+    // screen the redraws cost more than they show
+    const stepping = animate && this.zoom >= 0.5;
     let nextAnim = Infinity;
     for (const p of this.placed) {
       if (p.id !== store.currentMap && !showNeighbors) continue;
@@ -460,7 +463,7 @@ export class MapView {
       const h = m.height * BLOCK_PX;
       if (p.x > view.x1 || p.y > view.y1 || p.x + w < view.x0 || p.y + h < view.y0) continue;
       const entry = this.mapCanvas(p.id);
-      if (entry && animate) nextAnim = Math.min(nextAnim, this.stepAnim(entry));
+      if (entry && stepping) nextAnim = Math.min(nextAnim, this.stepAnim(entry));
       if (entry?.canvas) ctx.drawImage(entry.canvas, p.x, p.y);
       else {
         ctx.fillStyle = "#222";

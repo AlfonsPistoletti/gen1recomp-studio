@@ -133,6 +133,8 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   `studio_tilesets[id].gbc` ({groups: [tile, group][], palettes?: 8x4 for its own tilesets}; a mod
   tileset's record holds only `gbc`, so `extensionOf` ignores non-base ids); the helper writes them
   into `require("data.palettes_gbc").world` at load (no API), GENERATORS `internals` predicate.
+  Roofs: `studio_roofs` (map id -> { index, colors }) -> `world.roofByMapIndex[index]` (mod maps have
+  index >= 1000 and no town roof otherwise).
 - Mod trainers (`src/ui/trainerEvents.ts`): no registry writes trainer_headers, so a studio trainer
   is a talk event + one step event per sight cell (ids `<MAP>:step:trainer<objIndex>_<k>`); the
   settings live in the talk event's `trainer` field and the events are rebuilt from them.

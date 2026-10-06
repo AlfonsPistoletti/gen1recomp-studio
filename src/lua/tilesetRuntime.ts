@@ -107,6 +107,24 @@ export function frameRel(id: string, tile: number, k: number): string {
   return `studio/tilesets/${id.toLowerCase()}_${tile}_${k}.png`;
 }
 
+// RED++ roof colors per map (studio_roofs.lua: map id -> { index, colors }):
+// the engine keeps them by map index in its color table (no API either), so
+// they are written into it while the mod loads, like the tile palettes.
+export const ROOF_RUNTIME = String.raw`
+  -- studio RED++ roofs: specs from studio_roofs.lua -> the engine's roof table
+  local function studioRoof(spec)
+    if type(spec) ~= "table" or type(spec.index) ~= "number" or type(spec.colors) ~= "table" then return end
+    local ok, pack = pcall(require, "data.palettes_gbc")
+    local w = ok and type(pack) == "table" and pack.world
+    if type(w) == "table" and type(w.roofByMapIndex) == "table" then w.roofByMapIndex[spec.index] = spec.colors end
+  end
+`;
+
+export function roofRegistration(modId: string, file: string): string {
+  const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
+  return `  for _, spec in pairs(require(${JSON.stringify(module)})) do studioRoof(spec) end`;
+}
+
 // the recipe's output for an extended tileset, under save/mod-derived/<mod>/
 export function extendedSheetRel(id: string): string {
   return `studio/tilesets/${id.toLowerCase()}.png`;

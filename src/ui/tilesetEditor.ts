@@ -641,6 +641,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const out: HTMLElement[] = [];
     // canvases with animated tiles redraw on a timer
     const live: (() => void)[] = [];
+    // the block's card goes below the tile's (like the middle column)
+    const blockOut: HTMLElement[] = [];
     // the selected block
     if (selBlock !== null && sheetImg) {
       const b = selBlock;
@@ -731,7 +733,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       });
       const isLast = b === ts.blocks.length - 1;
       const used = highestBlockUsed(id) >= b;
-      out.push(
+      blockOut.push(
         h("div", { class: "card" },
           h("div", { class: "card-head" }, h("h4", {}, `Block #${b}`), can ? h("span", { class: "tag new" }, "yours") : h("span", { class: "hint" }, "the game's")),
           comp,
@@ -831,6 +833,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ),
       );
     }
+    out.push(...blockOut);
     if (live.length) animTimer = window.setInterval(() => live.forEach((f) => f()), 50);
     if (selBlock === null && selTile === null) out.push(h("p", { class: "hint" }, "Select a tile or a block."));
     out.push(...settingsCard(id, ts, ed, tileCount));

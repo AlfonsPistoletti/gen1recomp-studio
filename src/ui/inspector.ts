@@ -15,6 +15,8 @@ import { changedParts, resetMapDialog } from "./mapReset.ts";
 import { nav } from "./nav.ts";
 import { warpProblem } from "../core/checks.ts";
 import { tilesetIds } from "../core/tilesets.ts";
+import { gameRoof, gbcAvailable, ROOFS, roofColors, tilesetHasRoof, townRoofs, type RoofRecord } from "../core/gbc.ts";
+import type { Rgb } from "../render/color.ts";
 
 type Rec = Record<string, unknown>;
 type Edit = (label: string, mutate: (record: Rec) => void) => void;
@@ -268,6 +270,7 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     ...adapter.mapFields.map((f) => renderField(f, map as Rec, editRecord, adapter.mapFields, view)),
     field("Tileset", tilesetSelect),
     musicField(map),
+    roofField(map),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Size (blocks)"), h("div", { class: "row" }, w, h("span", { class: "x" }, "×"), hgt, anchor, resize)),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Border block"), h("div", { class: "row" }, border, useStamp)),
     h("h4", {}, "Connections"),
@@ -309,6 +312,42 @@ function musicField(map: MapDef): HTMLElement | null {
   }, "(none: the previous song keeps playing)");
   for (const o of sel.options) if (o.value) o.textContent = songLabel(o.value);
   return field("Music", sel, "Riding the bike or surfing plays their own song over it.");
+}
+
+// RED++ roof colors (the roof's 2 middle colors): the town's by default; a
+// map the mod adds has none, so its roofs show the tileset's own (green)
+function roofField(map: MapDef): HTMLElement | null {
+  if (!gbcAvailable() || !tilesetHasRoof(map.tileset) || !store.adapter.content.some((c) => c.registry === ROOFS)) return null;
+  const mine = store.table(ROOFS)[map.id] as RoofRecord | undefined;
+  const towns = townRoofs();
+  const game = gameRoof(store.base[map.id]?.index ?? undefined);
+  const current = roofColors(map.tileset, map.id);
+  const same = (a: Rgb[] | null | undefined, b: Rgb[] | null | undefined) => !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
+  const set = (colors: Rgb[] | null) => {
+    store.setRecord(ROOFS, map.id, "RED++ roof", colors ? { index: map.index ?? 0, colors } : undefined);
+    store.seal();
+  };
+  const sel = h("select", {},
+    h("option", { value: "" }, game ? "The town's (the game's)" : "The tileset's own (green)"),
+    ...towns.map(([id]) => h("option", { value: id, selected: !!mine && same(mine.colors, towns.find(([t]) => t === id)?.[1]) }, `Like ${id}`)),
+    h("option", { value: "__custom", selected: !!mine && !towns.some(([, c]) => same(c, mine.colors)) }, "Custom colors"),
+  );
+  sel.addEventListener("change", () => {
+    if (!sel.value) return set(null);
+    if (sel.value === "__custom") return set(clone(current ?? [[255, 140, 120], [200, 80, 70]]));
+    set(clone(towns.find(([t]) => t === sel.value)?.[1] ?? null));
+  });
+  const pickers = (current ?? []).map((c, i) => {
+    const input = h("input", { type: "color", value: `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`, title: i === 0 ? "Light roof color" : "Dark roof color" });
+    input.addEventListener("change", () => {
+      const rgb = [1, 3, 5].map((k) => parseInt(input.value.slice(k, k + 2), 16)) as Rgb;
+      const next = clone(current ?? ([[255, 255, 255], [0, 0, 0]] as Rgb[]));
+      next[i] = rgb;
+      set(next);
+    });
+    return input;
+  });
+  return field("RED++ roof", h("div", { class: "row nowrap" }, sel, ...pickers), "The roof colors in the game's RED++ color mode. Setting one gives the mod the engine_internals permission (it writes into the engine's color table).");
 }
 
 function revertMap(id: string, to: MapDef): void {

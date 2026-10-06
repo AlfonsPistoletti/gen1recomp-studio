@@ -246,6 +246,7 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
   store.on((reason, id, registry) => {
     if (reason === "project" || reason === "map" || reason === "edit" || reason === "colors") refresh();
     if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS) && id === store.map?.tileset) refresh();
+    if (reason === "content" && registry === "studio_roofs" && id === store.currentMap) refresh();
     if (reason === "stamp") {
       updateInfo();
       draw();

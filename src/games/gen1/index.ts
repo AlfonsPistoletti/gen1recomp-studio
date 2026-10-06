@@ -131,6 +131,8 @@ const content: ContentSpec[] = [
   // tiles and blocks added to vanilla tilesets: plain data in
   // studio_tilesets.lua, patched in by the generated helper
   { registry: "studio_tilesets", editable: true, build: () => ({}), studioFile: "studio_tilesets.lua", generates: "tilesets" },
+  // RED++ roof colors of maps (map id -> { index, colors }), see src/core/gbc.ts
+  { registry: "studio_roofs", editable: true, build: () => ({}), studioFile: "studio_roofs.lua" },
 ];
 
 interface Field {

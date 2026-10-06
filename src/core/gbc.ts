@@ -114,18 +114,52 @@ export function groupOf(tilesetId: string, tile: number, mapId?: string | null):
   return typeof v === "number" ? v : 7;
 }
 
-// the roof colors a map's town gives (null: no roof group on this tileset)
-export function roofIndex(tilesetId: string, mapId: string | null): number | null {
-  if (!world || world.roofGroup[tilesetId] === undefined || !mapId) return null;
-  const index = store.maps[mapId]?.index;
-  return typeof index === "number" && at(world.roofByMapIndex, index) ? index : null;
+export const ROOFS = "studio_roofs";
+
+// a roof the mod sets for a map: { index, colors } (index: the map's, which
+// the engine's roof table is keyed by)
+export interface RoofRecord {
+  index: number;
+  colors: Rgb[];
 }
 
-// A palette key for caches: "GBC|<roof map index or ->|<mapId of fixes>".
+export function tilesetHasRoof(tilesetId: string): boolean {
+  return !!world && world.roofGroup[tilesetId] !== undefined;
+}
+
+// the game's roof colors for a map index (its town's)
+export function gameRoof(index: number | undefined): Rgb[] | null {
+  if (!world || typeof index !== "number") return null;
+  return at(world.roofByMapIndex, index) ?? null;
+}
+
+// the towns whose roofs a map can copy: map id -> its 2 roof colors
+export function townRoofs(): [string, Rgb[]][] {
+  const out: [string, Rgb[]][] = [];
+  for (const [id, m] of Object.entries(store.base)) {
+    const r = gameRoof(m.index);
+    if (r && /_(CITY|TOWN|PLATEAU|ISLAND)$/.test(id)) out.push([id, r]);
+  }
+  return out.sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+// the roof's 2 middle colors a map gets (the mod's, else its town's; null:
+// the tileset's own roof group)
+export function roofColors(tilesetId: string, mapId: string | null): Rgb[] | null {
+  if (!tilesetHasRoof(tilesetId) || !mapId) return null;
+  const mine = store.table(ROOFS)[mapId] as RoofRecord | undefined;
+  if (mine?.colors?.length === 2) return mine.colors;
+  return gameRoof(store.maps[mapId]?.index);
+}
+
+const hex = (c: Rgb) => c.map((v) => v.toString(16).padStart(2, "0")).join("");
+
+// A palette key for caches: "GBC|<roof colors or ->|<mapId of fixes>".
 export function gbcKey(tilesetId: string, mapId: string | null): string | null {
   if (!groupColors(tilesetId)) return null;
   const fixes = mapId && MAP_EXCEPTIONS[mapId] ? mapId : "";
-  return `GBC|${roofIndex(tilesetId, mapId) ?? "-"}|${fixes}`;
+  const roof = roofColors(tilesetId, mapId);
+  return `GBC|${roof ? roof.map(hex).join(",") : "-"}|${fixes}`;
 }
 
 export function isGbcKey(key: string): boolean {
@@ -137,7 +171,9 @@ export function isGbcKey(key: string): boolean {
 export function gbcColorsFor(tilesetId: string, key: string): (tile: number) => Rgb[] {
   const [, roofPart, fixes] = key.split("|");
   const groups = groupColors(tilesetId) ?? [];
-  const roof = roofPart && roofPart !== "-" && world ? at(world.roofByMapIndex, Number(roofPart)) : undefined;
+  const roof = roofPart && roofPart !== "-"
+    ? roofPart.split(",").map((x) => [0, 2, 4].map((k) => parseInt(x.slice(k, k + 2), 16)) as Rgb)
+    : undefined;
   const byGroup = groups.map((c, g) => {
     const four = g === ROOF_GROUP && roof ? [c[0], roof[0], roof[1], c[3]] : c;
     return [...four].reverse();

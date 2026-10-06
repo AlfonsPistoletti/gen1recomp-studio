@@ -16,7 +16,7 @@ import { EFFECT_RUNTIME, effectRegistration } from "../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../lua/itemEffectRuntime.ts";
 import { PRIZE_RUNTIME, prizeRegistration } from "../lua/prizeRuntime.ts";
 import { EVENT_RUNTIME, eventRegistration } from "../lua/eventRuntime.ts";
-import { TILESET_RUNTIME, tilesetRegistration } from "../lua/tilesetRuntime.ts";
+import { ROOF_RUNTIME, roofRegistration, TILESET_RUNTIME, tilesetRegistration } from "../lua/tilesetRuntime.ts";
 import { dataFile, requireLine, studioContentFile, type ContentCall } from "../lua/writer.ts";
 
 export const MOD_ID_RE = /^[\w-]+$/;
@@ -422,6 +422,15 @@ export const GENERATORS: Record<string, { what: string; order: string[]; runtime
     writes: ["tilesets"],
     // RED++ colors are written into the engine's own color table
     internals: (records) => Object.values(records).some((r) => !!(r as { gbc?: unknown }).gbc),
+  },
+  // RED++ roof colors per map, written into the engine's color table
+  studio_roofs: {
+    what: "RED++ roof colors",
+    order: ["index", "colors"],
+    runtime: ROOF_RUNTIME,
+    registration: roofRegistration,
+    writes: [],
+    internals: true,
   },
   studio_effects: {
     what: "custom move effects",

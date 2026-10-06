@@ -255,6 +255,9 @@ renamed before players have saves with it.
     tilesets can get 8 palettes of their own (**Give it RED++ colors**). This
     writes into the engine's color table when the mod loads (no mod API
     exists for it), so the mod gets the `engine_internals` permission.
+  - Roofs take their town's colors (by map index), so a map the mod adds
+    shows the tileset's own green roofs: **RED++ roof** in the map's
+    properties copies a town's roof colors or sets custom ones.
   - **+ Animated block** imports a strip of 32×32 frames: tiles that change
     become animated tiles (every place they appear animates), the rest are
     plain tiles. **Animate…** on a selected tile takes a strip of 8×8 frames.

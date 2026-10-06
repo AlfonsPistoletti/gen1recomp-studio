@@ -79,6 +79,7 @@ export function changedParts(map: MapDef, includeLayout: boolean): Part[] {
     }
   }
   if (regExists("map_songs") && store.isRecordEdited("map_songs", id)) parts.push({ label: "Music", detail: "the map's song", revert: () => revertRecord("map_songs", id) });
+  if (regExists("studio_roofs") && store.isRecordEdited("studio_roofs", id)) parts.push({ label: "RED++ roof", detail: "the roof colors", revert: () => revertRecord("studio_roofs", id) });
   if (regExists("encounters") && store.isRecordEdited("encounters", id)) parts.push({ label: "Wild Pokémon", detail: "grass and water tables", revert: () => revertRecord("encounters", id) });
   if (label && regExists("text_pointers") && store.isRecordEdited("text_pointers", label)) {
     parts.push({ label: "NPC texts & roles", detail: "which text each NPC/sign says, shop clerks, nurses (the texts themselves stay)", revert: () => revertRecord("text_pointers", label) });

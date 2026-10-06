@@ -242,8 +242,17 @@ renamed before players have saves with it.
   - Events are saved as the engine's own command rows in
     `mods/<id>/studio_events.lua`; a fixed helper registers them.
 - **Tilesets**: the tile sheet, the 32×32 blocks maps are painted with, and
-  which tiles you can walk on (a green dot). **Edit** in the map's block
-  palette opens the map's tileset.
+  which tiles you can walk on (footprints; ledges show their hop arrow). You
+  walk on a block in quarters, each decided by its bottom-left tile. **Edit**
+  in the map's block palette opens the map's tileset. Drag over several tiles
+  to place them into a block at once.
+  - Colors belong to maps, not tilesets (each map's Palette, in its
+    properties); the color menu only changes how the tileset is shown here.
+  - **+ Animated block** imports a strip of 32×32 frames: tiles that change
+    become animated tiles (every place they appear animates), the rest are
+    plain tiles. **Animate…** on a selected tile takes a strip of 8×8 frames.
+    The speed is set per tile. The spinner tilesets (GYM, FACILITY) can't get
+    animations of their own.
   - **+ New** makes a tileset from a picture: it is cut into 8×8 tiles
     (repeats stored once), in the 4 Game Boy shades or full color, and every
     whole 32×32 square becomes a block. Door, warp, counter and tall-grass

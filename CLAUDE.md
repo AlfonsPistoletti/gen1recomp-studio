@@ -122,6 +122,10 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   (`tilesetUrl`). Read tilesets through `liveTileset`/`tilesetUrl`, never `data.tilesets`.
   Added tile ids start at the sheet's tile count; only the last block can be deleted (ids
   must not shift). RED++ colors tiles past the vanilla count with palette group 7.
+  Animated tiles: the engine's `animatedTiles` ("frames": one 8x8 image per frame) replaces the
+  built-ins of `animation`, so they are restated (water hshift; flower frames = recipe copies of
+  the cache's). Extensions keep frames as digits (`animated`, recipe writes them); mod tilesets keep
+  engine entries with mod asset images (`ownAnimations`/`setOwnAnimations`). Never on GYM/FACILITY.
 - Mod trainers (`src/ui/trainerEvents.ts`): no registry writes trainer_headers, so a studio trainer
   is a talk event + one step event per sight cell (ids `<MAP>:step:trainer<objIndex>_<k>`); the
   settings live in the talk event's `trainer` field and the events are rebuilt from them.

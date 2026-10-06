@@ -12,8 +12,8 @@ import { addAsset } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
 import type { TilesetDef } from "../core/types.ts";
 import {
-  EXTENSIONS, extensionOf, isBaseTileset, liveTileset, perRow, sheetTiles, SHADE_GRAY, tilesetIds, tilesetKey, tilesetUrl,
-  type TilesetExtension,
+  animationsOf, canAnimate, EXTENSIONS, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
+  tilesetIds, tilesetKey, tilesetUrl, type EngineAnimation, type TilesetExtension,
 } from "../core/tilesets.ts";
 import { blockAtlas, loadImage, markerIcon, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Footprints } from "lucide";
@@ -44,6 +44,18 @@ function drawMark(ctx: CanvasRenderingContext2D, kind: string, cx: number, cy: n
   if (img) ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
 }
 const ANIMATIONS = ["TILEANIM_NONE", "TILEANIM_WATER", "TILEANIM_WATER_FLOWER"];
+// the view option without map colors; colors darkest first
+const GRAYS = "__grays";
+const GRAY_COLORS: Rgb[] = [[0, 0, 0], [85, 85, 85], [170, 170, 170], [255, 255, 255]];
+// animation speeds: 60ths of a second per frame (20 = the game's water)
+const SPEEDS: [number, string][] = [[8, "Fast"], [20, "Normal (like water)"], [40, "Slow"]];
+
+interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 // ------------------------------------------------------------------ model
 
@@ -263,6 +275,36 @@ function sheetTileList(sheet: Sheet, per: number, count: number): Uint8ClampedAr
   return out;
 }
 
+// tile key -> id for the tiles a sheet already has (first one wins)
+function existingKeys(sheet: Sheet | null, per: number, have: number, trueColor: boolean): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!sheet) return out;
+  for (let t = have - 1; t >= 0; t--) out.set(tileKey(sheet.rgba, sheet.width, (t % per) * TILE, Math.floor(t / per) * TILE, trueColor), t);
+  return out;
+}
+
+function tileCanvas(px: Uint8ClampedArray): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  c.width = TILE;
+  c.height = TILE;
+  const ctx = c.getContext("2d")!;
+  const img = ctx.createImageData(TILE, TILE);
+  img.data.set(px);
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
+// what an import adds: new tiles (after the `have` the sheet holds), blocks,
+// and animated tiles with their frames
+interface ImportPlan {
+  have: number;
+  sheet: Sheet | null;
+  per: number;
+  fresh: Cut["tiles"];
+  blocks: number[][];
+  anims: { tile: number; frames: Cut["tiles"] }[];
+}
+
 function pickFile(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = h("input", { type: "file", accept: "image/png,image/gif,image/bmp,image/webp" });
@@ -286,7 +328,13 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   let current: string | null = null;
   let selTile: number | null = null;
   let selBlock: number | null = null;
+  // the tiles selected in the sheet (drag for several); pasted into a block
+  let selRect: Rect | null = null;
   let showCollision = true;
+  // palette the tileset is viewed in: "" = a map's on it, GRAYS = none
+  let viewPalette = "";
+  // redraws animated tiles in the side panel
+  let animTimer: number | null = null;
 
   const newBtn = h("button", { class: "btn small", title: "A new tileset from a picture", onclick: () => void newTileset() }, "+ New");
   const list = mountRecordList(left, {
@@ -322,6 +370,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (!tilesetsTable()[id]) return;
     if (current !== id) {
       selTile = null;
+      selRect = null;
       selBlock = null;
     }
     current = id;
@@ -354,14 +403,27 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       main.append(h("p", { class: "hint empty" }, "Pick a tileset on the left."));
       return;
     }
+    if (animTimer !== null) clearInterval(animTimer);
+    animTimer = null;
     const ts = liveTileset(id)!;
     const ed = editable(id);
     const per = perRow(ts);
-    const palette = paletteKey(id);
-    const colorsFor = store.adapter.tileColors(store.ctx, ts, palette);
+    const auto = paletteKey(id);
+    const palette = viewPalette || auto;
+    const colorsFor = palette === GRAYS ? () => GRAY_COLORS : store.adapter.tileColors(store.ctx, ts, palette);
     const url = await tilesetUrl(id);
     const sheet = await readSheet(url);
     const atlas = await blockAtlas(ts, url, palette, colorsFor, tilesetKey(id));
+    const colors = ts.trueColor ? null : colorsFor(0);
+    // animated tiles: their frames, drawn in the same colors
+    const anims = new Map<number, { period: number; frames: HTMLCanvasElement[] }>();
+    for (const [tile, a] of animationsOf(id)) {
+      const frames = await Promise.all(a.urls.map(async (u) => {
+        const f = await readSheet(u);
+        return f ? colorSheet(f, colors) : null;
+      }));
+      if (frames.every((f) => f)) anims.set(tile, { period: a.period, frames: frames as HTMLCanvasElement[] });
+    }
     if (my !== token) return;
     title.textContent = id;
     const capacity = sheet ? Math.floor(sheet.width / TILE) * Math.floor(sheet.height / TILE) : 0;
@@ -370,24 +432,48 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (selTile !== null && selTile >= tileCount) selTile = null;
     if (selBlock !== null && selBlock >= ts.blocks.length) selBlock = null;
 
+    // the colors to view it in (Gen 1 colors a map, not a tileset: each map
+    // has its palette, set in the map's properties)
+    const names = store.adapter.mapFields.find((f) => f.kind === "select" && f.key === "palette");
+    const paletteNames = names && names.kind === "select" ? names.options(store.ctx) : [];
+    const view = h("select", { title: "Gen 1 colors maps, not tilesets: each map has a palette (map properties). This only changes how the tileset is shown here." },
+      h("option", { value: "" }, `Colors: a map's (${auto})`),
+      ...paletteNames.map((n) => h("option", { value: n, selected: viewPalette === n }, `Colors: ${n}`)),
+      h("option", { value: GRAYS, selected: viewPalette === GRAYS }, "Game Boy grays"),
+    );
+    view.addEventListener("change", () => {
+      viewPalette = view.value;
+      void render();
+    });
+    if (ts.trueColor) view.disabled = true;
     headTools.append(
+      view,
       h("button", { class: "btn small", title: "Add tiles (and blocks) from a picture", onclick: () => void importTiles(id) }, "+ Import tiles"),
+      h("button", {
+        class: "btn small",
+        disabled: !canAnimate(id),
+        title: canAnimate(id) ? "A block whose tiles move: a picture of its frames, each 32×32, side by side (or stacked)" : "The spinner puzzles' tileset can't get animations of its own",
+        onclick: () => void importAnimatedBlock(id),
+      }, "+ Animated block"),
       h("button", { class: "btn small", title: "A new block: a copy of the selected one, or empty", onclick: () => addBlock(id) }, "+ New block"),
     );
 
-    const colors = ts.trueColor ? null : colorsFor(0);
     const sheetImg = sheet ? colorSheet(sheet, colors) : null;
     clear(main);
     main.append(
-      tilesCard(ts, ed, sheet, sheetImg, per, tileCount),
+      tilesCard(ts, ed, sheet, sheetImg, per, tileCount, anims),
       blocksCard(ts, ed, atlas),
     );
     clear(side);
-    side.append(...sidePanel(id, ts, ed, sheetImg, per, tileCount));
+    side.append(...sidePanel(id, ts, ed, sheetImg, per, tileCount, anims));
   };
 
+  // the frame an animated tile shows now
+  const frameNow = (a: { period: number; frames: HTMLCanvasElement[] }) =>
+    a.frames[Math.floor(performance.now() / (a.period * (1000 / 60))) % a.frames.length];
+
   // ------------------------------------------------------------- tiles
-  const tilesCard = (ts: TilesetDef, ed: Editable, sheet: Sheet | null, sheetImg: HTMLCanvasElement | null, per: number, tileCount: number): HTMLElement => {
+  const tilesCard = (ts: TilesetDef, ed: Editable, sheet: Sheet | null, sheetImg: HTMLCanvasElement | null, per: number, tileCount: number, anims: Map<number, unknown>): HTMLElement => {
     const card = h("div", { class: "card" });
     const toggle = h("input", { type: "checkbox", checked: showCollision });
     toggle.addEventListener("change", () => {
@@ -403,7 +489,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
     const walk = new Set((ts.walkable as number[] | undefined) ?? []);
     const ledges = store.adapter.ledgeTiles?.(store.ctx, current ?? "") ?? new Map<number, string>();
-    const canvas = h("canvas", { class: "tile-sheet" });
+    // everything but the selection, drawn once
+    const canvas = document.createElement("canvas");
     canvas.width = sheet.width * SHEET_ZOOM;
     canvas.height = sheet.height * SHEET_ZOOM;
     const ctx = canvas.getContext("2d")!;
@@ -416,6 +503,15 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       // walkable tiles: footprints; ledges: the hop direction
       const mark = walk.has(t) ? "walk" : ledges.get(t);
       if (showCollision && mark) drawMark(ctx, mark, x + T - 9, y + T - 9, 12, schedule);
+      // animated tiles: a purple corner
+      if (anims.has(t)) {
+        ctx.fillStyle = "#c792ff";
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + 10, y);
+        ctx.lineTo(x, y + 10);
+        ctx.fill();
+      }
       if (t < ed.firstTile) {
         // vanilla tiles: read-only, dimmed slightly
         ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
@@ -432,27 +528,55 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       ctx.lineTo(canvas.width, y);
       ctx.stroke();
     }
-    if (selTile !== null) {
-      ctx.strokeStyle = "#fff";
-      ctx.lineWidth = 2;
-      ctx.strokeRect((selTile % per) * T + 1, Math.floor(selTile / per) * T + 1, T - 2, T - 2);
-    }
-    canvas.addEventListener("click", (e) => {
-      const r = canvas.getBoundingClientRect();
-      const tx = Math.floor(((e.clientX - r.left) / r.width) * (canvas.width / T));
-      const ty = Math.floor(((e.clientY - r.top) / r.height) * (canvas.height / T));
-      const t = ty * per + tx;
-      if (t < 0 || t >= tileCount) return;
-      selTile = t;
+    const view = h("canvas", { class: "tile-sheet" });
+    view.width = canvas.width;
+    view.height = canvas.height;
+    const vctx = view.getContext("2d")!;
+    const paint = () => {
+      vctx.clearRect(0, 0, view.width, view.height);
+      vctx.drawImage(canvas, 0, 0);
+      const r = selRect ?? (selTile !== null ? { x: selTile % per, y: Math.floor(selTile / per), w: 1, h: 1 } : null);
+      if (!r) return;
+      vctx.strokeStyle = "#fff";
+      vctx.lineWidth = 2;
+      vctx.strokeRect(r.x * T + 1, r.y * T + 1, r.w * T - 2, r.h * T - 2);
+    };
+    paint();
+    // click selects a tile, dragging a rectangle of them
+    const cellAt = (e: MouseEvent) => {
+      const r = view.getBoundingClientRect();
+      const tx = Math.max(0, Math.min(per - 1, Math.floor(((e.clientX - r.left) / r.width) * per)));
+      const ty = Math.max(0, Math.min(Math.ceil(tileCount / per) - 1, Math.floor(((e.clientY - r.top) / r.height) * (view.height / T))));
+      return { tx, ty };
+    };
+    let anchor: { tx: number; ty: number } | null = null;
+    view.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0) return;
+      anchor = cellAt(e);
+      if (anchor.ty * per + anchor.tx >= tileCount) return void (anchor = null);
+      view.setPointerCapture(e.pointerId);
+      selRect = { x: anchor.tx, y: anchor.ty, w: 1, h: 1 };
+      paint();
+    });
+    view.addEventListener("pointermove", (e) => {
+      if (!anchor) return;
+      const c = cellAt(e);
+      selRect = { x: Math.min(anchor.tx, c.tx), y: Math.min(anchor.ty, c.ty), w: Math.abs(c.tx - anchor.tx) + 1, h: Math.abs(c.ty - anchor.ty) + 1 };
+      paint();
+    });
+    view.addEventListener("pointerup", () => {
+      if (!anchor || !selRect) return;
+      anchor = null;
+      selTile = selRect.y * per + selRect.x;
       void render();
     });
-    card.append(h("div", { class: "sheet-wrap" }, canvas));
+    card.append(h("div", { class: "sheet-wrap" }, view));
     card.append(
       h("p", { class: "hint" },
         ed.own
-          ? "Click a tile to select it: the panel on the right sets whether you can walk on it, and places it in the selected block."
+          ? "Click a tile to select it, or drag over several: the panel on the right sets whether you can walk on it, and places them in the selected block. A purple corner marks an animated tile."
           : ed.firstTile < tileCount
-            ? "The tiles below the blue line are your mod's; the ones above are the game's (read-only)."
+            ? "The tiles below the blue line are your mod's; the ones above are the game's (read-only). Drag over several tiles to place them into a block at once; a purple corner marks an animated tile."
             : "These are the game's tiles (read-only). + Import tiles adds your own below them."),
     );
     return card;
@@ -502,8 +626,10 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   };
 
   // ------------------------------------------------------------- side panel
-  const sidePanel = (id: string, ts: TilesetDef, ed: Editable, sheetImg: HTMLCanvasElement | null, per: number, tileCount: number): HTMLElement[] => {
+  const sidePanel = (id: string, ts: TilesetDef, ed: Editable, sheetImg: HTMLCanvasElement | null, per: number, tileCount: number, anims: Map<number, { period: number; frames: HTMLCanvasElement[] }>): HTMLElement[] => {
     const out: HTMLElement[] = [];
+    // canvases with animated tiles redraw on a timer
+    const live: (() => void)[] = [];
     // the selected block
     if (selBlock !== null && sheetImg) {
       const b = selBlock;
@@ -514,10 +640,11 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       comp.height = SLOT * 4;
       const ctx = comp.getContext("2d")!;
       ctx.imageSmoothingEnabled = false;
+      const drawComposer = () => {
       block.forEach((t, slot) => {
-        const sx = (t % per) * TILE;
-        const sy = Math.floor(t / per) * TILE;
-        ctx.drawImage(sheetImg, sx, sy, TILE, TILE, (slot % 4) * SLOT, Math.floor(slot / 4) * SLOT, SLOT, SLOT);
+        const a = anims.get(t);
+        if (a) ctx.drawImage(frameNow(a), 0, 0, TILE, TILE, (slot % 4) * SLOT, Math.floor(slot / 4) * SLOT, SLOT, SLOT);
+        else ctx.drawImage(sheetImg, (t % per) * TILE, Math.floor(t / per) * TILE, TILE, TILE, (slot % 4) * SLOT, Math.floor(slot / 4) * SLOT, SLOT, SLOT);
       });
       ctx.strokeStyle = "rgba(255,255,255,0.25)";
       for (let i = 1; i < 4; i++) {
@@ -556,6 +683,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       ctx.moveTo(0, SLOT * 2 + 0.5);
       ctx.lineTo(comp.width, SLOT * 2 + 0.5);
       ctx.stroke();
+      };
+      drawComposer();
+      if (block.some((t) => anims.has(t))) live.push(drawComposer);
       const slotAt = (e: MouseEvent) => {
         const r = comp.getBoundingClientRect();
         const sx = Math.floor(((e.clientX - r.left) / r.width) * 4);
@@ -565,10 +695,19 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       comp.addEventListener("click", (e) => {
         const slot = slotAt(e);
         if (slot === null || !can) return;
-        if (selTile === null) return toast("Select a tile in the sheet first, then click where it goes.", "info");
-        const t = selTile;
-        editTileset(id, "Block: place tile", (d) => {
-          d.blocks[b - ed.firstBlock][slot] = t;
+        const r = selRect ?? (selTile !== null ? { x: selTile % per, y: Math.floor(selTile / per), w: 1, h: 1 } : null);
+        if (!r) return toast("Select a tile in the sheet first (or drag over several), then click where it goes.", "info");
+        // the selection lands with its top-left on the clicked slot (what
+        // sticks out of the block is left off)
+        editTileset(id, r.w * r.h > 1 ? "Block: place tiles" : "Block: place tile", (d) => {
+          for (let dy = 0; dy < r.h; dy++) {
+            for (let dx = 0; dx < r.w; dx++) {
+              const sx = (slot % 4) + dx;
+              const sy = Math.floor(slot / 4) + dy;
+              const t = (r.y + dy) * per + r.x + dx;
+              if (sx < 4 && sy < 4 && t < tileCount) d.blocks[b - ed.firstBlock][sy * 4 + sx] = t;
+            }
+          }
         });
       });
       comp.addEventListener("contextmenu", (e) => {
@@ -576,6 +715,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         const slot = slotAt(e);
         if (slot === null) return;
         selTile = block[slot];
+        selRect = null;
         void render();
       });
       const isLast = b === ts.blocks.length - 1;
@@ -585,7 +725,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
           h("div", { class: "card-head" }, h("h4", {}, `Block #${b}`), can ? h("span", { class: "tag new" }, "yours") : h("span", { class: "hint" }, "the game's")),
           comp,
           h("p", { class: "hint" }, can
-            ? "Click a slot to put the selected tile there; right click picks a slot's tile. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."
+            ? "Click a slot to put the selected tile there (a dragged selection lands with its top-left corner there); right click picks a slot's tile. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."
             : "The game's block: read-only. + New block makes an editable copy. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."),
           can
             ? h("div", { class: "row" },
@@ -613,7 +753,32 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       prev.height = SLOT * 2;
       const pctx = prev.getContext("2d")!;
       pctx.imageSmoothingEnabled = false;
-      pctx.drawImage(sheetImg, (t % per) * TILE, Math.floor(t / per) * TILE, TILE, TILE, 0, 0, prev.width, prev.height);
+      const anim = anims.get(t);
+      const drawPreview = () => {
+        if (anim) pctx.drawImage(frameNow(anim), 0, 0, TILE, TILE, 0, 0, prev.width, prev.height);
+        else pctx.drawImage(sheetImg, (t % per) * TILE, Math.floor(t / per) * TILE, TILE, TILE, 0, 0, prev.width, prev.height);
+      };
+      drawPreview();
+      if (anim) live.push(drawPreview);
+      // animation: speed and stop, or start one from a strip of frames
+      const animRow: HTMLElement[] = [];
+      if (anim) {
+        const speed = h("select", {}, ...SPEEDS.map(([v, l]) => h("option", { value: String(v), selected: anim.period === v }, l)));
+        if (!SPEEDS.some(([v]) => v === anim.period)) speed.append(h("option", { value: String(anim.period), selected: true }, `${anim.period}/60 s a frame`));
+        speed.disabled = !can;
+        speed.addEventListener("change", () => setAnimation(id, t, (a) => ({ ...a, period: Number(speed.value) })));
+        animRow.push(
+          h("p", { class: "hint" }, `Animated: ${anim.frames.length} frames. Every place this tile appears animates.`),
+          field("Speed", speed),
+          h("button", { class: "btn small", disabled: !can, onclick: () => setAnimation(id, t, () => null) }, "Stop animating"),
+        );
+      } else if (can && canAnimate(id)) {
+        animRow.push(h("button", {
+          class: "btn small",
+          title: "A picture of the tile's frames, each 8×8, side by side (or stacked)",
+          onclick: () => void animateTile(id, t),
+        }, "Animate…"));
+      }
       const listToggle = (key: string, label: string, hint: string) => {
         const has = ((ts[key] as number[] | undefined) ?? []).includes(t);
         const cb = h("input", { type: "checkbox", checked: has, disabled: !can });
@@ -649,10 +814,12 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         h("div", { class: "card" },
           h("div", { class: "card-head" }, h("h4", {}, `Tile #${t}`), can ? h("span", { class: "tag new" }, "yours") : h("span", { class: "hint" }, "the game's")),
           h("div", { class: "row" }, prev, h("div", { class: "tile-flags" }, ...toggles)),
+          ...animRow,
           can ? null : h("p", { class: "hint" }, "The game's tile: its settings can't change."),
         ),
       );
     }
+    if (live.length) animTimer = window.setInterval(() => live.forEach((f) => f()), 50);
     if (selBlock === null && selTile === null) out.push(h("p", { class: "hint" }, "Select a tile or a block."));
     out.push(...settingsCard(id, ts, ed, tileCount));
     return out;
@@ -691,7 +858,12 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       ];
     }
     const anim = h("select", {}, ...ANIMATIONS.map((a) => h("option", { value: a, selected: (ts.animation ?? "TILEANIM_NONE") === a }, a.replace("TILEANIM_", "").replace("_", " + ").toLowerCase())));
-    anim.addEventListener("change", () => editTileset(id, "Tileset animation", (d) => (d.rec!.animation = anim.value)));
+    anim.addEventListener("change", () =>
+      editTileset(id, "Tileset animation", (d) => {
+        d.rec!.animation = anim.value;
+        setOwnAnimations(d.rec!, ownAnimations(d.rec!), store.project.mod ?? "");
+      }),
+    );
     return [
       h("div", { class: "card" },
         h("h4", {}, "Your tileset"),
@@ -725,6 +897,183 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     void render();
   };
 
+  // The sheet as it is now, for an import: tiles it has and their keys.
+  const sheetState = async (id: string) => {
+    const ts = liveTileset(id)!;
+    const per = perRow(ts);
+    const sheet = await readSheet(await tilesetUrl(id));
+    const ed = editable(id);
+    const capacity = sheet ? Math.floor(sheet.width / TILE) * Math.floor(sheet.height / TILE) : 0;
+    const have = ed.own ? capacity : ed.firstTile + (extensionOf(id)?.tiles.length ?? 0);
+    return { ts, per, sheet, ed, have, trueColor: !!ts.trueColor };
+  };
+
+  // Writes an import: new tiles (walkable), blocks and animations as one step.
+  const commitImport = (id: string, plan: ImportPlan, label: string) => {
+    const ed = editable(id);
+    const mod = store.project.mod!;
+    const keepFrames = (a: ImportPlan["anims"][number]): EngineAnimation => ({
+      tile: a.tile,
+      kind: "frames",
+      period: 20,
+      images: a.frames.map((f, k) => addAsset(mod, `${id.toLowerCase()}_${a.tile}_${k + 1}`, bytesOf(tileCanvas(f.px)))),
+      sequence: a.frames.map((_f, k) => k + 1),
+    });
+    if (ed.own) {
+      const all = [...(plan.sheet ? sheetTileList(plan.sheet, plan.per, plan.have) : []), ...plan.fresh.map((f) => f.px)];
+      const canvas = sheetCanvas(all);
+      const path = plan.fresh.length ? addAsset(mod, id.toLowerCase(), bytesOf(canvas)) : null;
+      const added = plan.anims.map(keepFrames);
+      editTileset(id, label, (d) => {
+        if (path) {
+          d.rec!.image = path;
+          d.rec!.imageWidth = canvas.width;
+          d.rec!.imageHeight = canvas.height;
+          d.rec!.tilesPerRow = 16;
+        }
+        d.blocks.push(...plan.blocks);
+        for (let t = plan.have; t < plan.have + plan.fresh.length; t++) d.walkable.push(t);
+        if (added.length) {
+          const tiles = new Set(added.map((a) => a.tile));
+          setOwnAnimations(d.rec!, [...ownAnimations(d.rec!).filter((a) => !tiles.has(a.tile!)), ...added], mod);
+        }
+      });
+    } else {
+      editTileset(id, label, (d) => {
+        const ext = d as unknown as TilesetExtension;
+        ext.tiles.push(...plan.fresh.map((f) => f.key));
+        ext.blocks.push(...plan.blocks);
+        for (let t = plan.have; t < plan.have + plan.fresh.length; t++) ext.walkable!.push(t);
+        if (plan.anims.length) {
+          const tiles = new Set(plan.anims.map((a) => a.tile));
+          ext.animated = [...(ext.animated ?? []).filter((a) => !tiles.has(a.tile)), ...plan.anims.map((a) => ({ tile: a.tile, period: 20, frames: a.frames.map((f) => f.key) }))];
+        }
+      });
+    }
+  };
+
+  // Changes (or with null, removes) one tile's animation.
+  const setAnimation = (id: string, tile: number, change: (a: { period: number }) => { period: number } | null) => {
+    if (isBaseTileset(id)) {
+      editTileset(id, "Tile animation", (d) => {
+        const ext = d as unknown as TilesetExtension;
+        ext.animated = (ext.animated ?? []).flatMap((a) => {
+          if (a.tile !== tile) return [a];
+          const next = change(a);
+          return next ? [{ ...a, period: next.period }] : [];
+        });
+        if (!ext.animated.length) delete ext.animated;
+      });
+    } else {
+      editTileset(id, "Tile animation", (d) => {
+        const mine = ownAnimations(d.rec!).flatMap((a) => {
+          if (a.tile !== tile) return [a];
+          const next = change({ period: a.period ?? 20 });
+          return next ? [{ ...a, period: next.period }] : [];
+        });
+        setOwnAnimations(d.rec!, mine, store.project.mod ?? "");
+      });
+    }
+  };
+
+  // frames of a strip: whole `size` squares side by side or stacked
+  const framesOf = (img: HTMLImageElement, size: number): { n: number; across: boolean } => {
+    if (img.height === size && img.width % size === 0 && img.width >= size * 2) return { n: img.width / size, across: true };
+    if (img.width === size && img.height % size === 0 && img.height >= size * 2) return { n: img.height / size, across: false };
+    throw new Error(`The frames must be ${size}×${size} each, side by side or stacked (at least 2): this picture is ${img.width}×${img.height}.`);
+  };
+
+  // One tile's animation from a strip of 8x8 frames; frame 1 becomes the tile.
+  const animateTile = async (id: string, tile: number) => {
+    if (!store.project.mod) return toast("Open a mod first: the frames are saved into it.", "error");
+    const file = await pickFile();
+    if (!file) return;
+    try {
+      const img = await fileImage(file);
+      framesOf(img, TILE);
+      const st = await sheetState(id);
+      const cut = cutPicture(img, st.trueColor);
+      const frames = cut.grid.flat().map((i) => cut.tiles[i]);
+      const plan: ImportPlan = { have: st.have, sheet: null, per: st.per, fresh: [], blocks: [], anims: [{ tile, frames }] };
+      // the sheet's copy of the tile shows frame 1 (where nothing animates)
+      if (st.ed.own) {
+        const all = sheetTileList(st.sheet!, st.per, st.have);
+        all[tile] = frames[0].px;
+        const canvas = sheetCanvas(all);
+        const path = addAsset(store.project.mod, id.toLowerCase(), bytesOf(canvas));
+        store.group("Animate tile", () => {
+          editTileset(id, "Animate tile", (d) => {
+            d.rec!.image = path;
+            d.rec!.imageWidth = canvas.width;
+            d.rec!.imageHeight = canvas.height;
+          });
+          commitImport(id, plan, "Animate tile");
+        });
+      } else {
+        store.group("Animate tile", () => {
+          editTileset(id, "Animate tile", (d) => {
+            d.tiles![tile - st.ed.firstTile] = frames[0].key;
+          });
+          commitImport(id, plan, "Animate tile");
+        });
+      }
+      toast(`Tile #${tile} animates through ${frames.length} frames.`, "ok");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), "error");
+    }
+  };
+
+  // A block from a strip of 32x32 frames: tiles that stay the same are
+  // ordinary (shared) tiles; each tile that changes gets a tile of its own
+  // animated through its frames.
+  const importAnimatedBlock = async (id: string) => {
+    if (!store.project.mod) return toast("Open a mod first: the frames are saved into it.", "error");
+    const file = await pickFile();
+    if (!file) return;
+    try {
+      const img = await fileImage(file);
+      const { n, across } = framesOf(img, BLOCK);
+      const st = await sheetState(id);
+      const cut = cutPicture(img, st.trueColor);
+      const existing = existingKeys(st.sheet, st.per, st.have, st.trueColor);
+      const fresh: Cut["tiles"] = [];
+      const anims: ImportPlan["anims"] = [];
+      const bySequence = new Map<string, number>();
+      const block: number[] = [];
+      for (let slot = 0; slot < 16; slot++) {
+        const sx = slot % 4;
+        const sy = Math.floor(slot / 4);
+        const frames = Array.from({ length: n }, (_v, f) => cut.tiles[across ? cut.grid[sy][f * 4 + sx] : cut.grid[f * 4 + sy][sx]]);
+        if (frames.every((f) => f.key === frames[0].key)) {
+          let t = existing.get(frames[0].key);
+          if (t === undefined) {
+            t = st.have + fresh.length;
+            fresh.push(frames[0]);
+            existing.set(frames[0].key, t);
+          }
+          block.push(t);
+        } else {
+          const seq = frames.map((f) => f.key).join("|");
+          let t = bySequence.get(seq);
+          if (t === undefined) {
+            t = st.have + fresh.length;
+            fresh.push(frames[0]);
+            bySequence.set(seq, t);
+            anims.push({ tile: t, frames });
+          }
+          block.push(t);
+        }
+      }
+      if (!anims.length) toast("Nothing changes between the frames: imported as a still block.", "info");
+      commitImport(id, { have: st.have, sheet: st.sheet, per: st.per, fresh, blocks: [block], anims }, "Animated block");
+      selBlock = (liveTileset(id)?.blocks.length ?? 1) - 1;
+      void render();
+      if (anims.length) toast(`New block #${selBlock}: ${anims.length} animated tile${anims.length === 1 ? "" : "s"}, ${n} frames each.`, "ok");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), "error");
+    }
+  };
+
   // Tiles from a picture: identical tiles are reused (the sheet's own too),
   // each whole 32x32 square becomes a block.
   const importTiles = async (id: string) => {
@@ -733,18 +1082,11 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (!file) return;
     try {
       const img = await fileImage(file);
-      const ts = liveTileset(id)!;
-      const ed = editable(id);
-      const trueColor = !!ts.trueColor;
       if (img.width < TILE || img.height < TILE) throw new Error("The picture is smaller than one 8×8 tile.");
-      const cut = cutPicture(img, trueColor);
-      const sheet = await readSheet(await tilesetUrl(id));
-      const per = perRow(ts);
-      const have = sheet ? Math.floor(sheet.width / TILE) * Math.floor(sheet.height / TILE) : 0;
-      const existing = new Map<string, number>();
-      if (sheet) {
-        for (let t = have - 1; t >= 0; t--) existing.set(tileKey(sheet.rgba, sheet.width, (t % per) * TILE, Math.floor(t / per) * TILE, trueColor), t);
-      }
+      const st = await sheetState(id);
+      const cut = cutPicture(img, st.trueColor);
+      const have = st.have;
+      const existing = existingKeys(st.sheet, st.per, have, st.trueColor);
       const fresh: Cut["tiles"] = [];
       const idOf = cut.tiles.map((tile) => {
         const known = existing.get(tile.key);
@@ -756,27 +1098,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       });
       const blocks = blocksOf(cut, (i) => idOf[i]);
       if (!fresh.length && !blocks.length) return toast("Every tile of the picture is already in the sheet, and it holds no whole 32×32 block.", "info");
-      if (ed.own) {
-        const all = [...(sheet ? sheetTileList(sheet, per, have) : []), ...fresh.map((f) => f.px)];
-        const canvas = sheetCanvas(all);
-        const path = fresh.length ? addAsset(store.project.mod, id.toLowerCase(), bytesOf(canvas)) : null;
-        editTileset(id, "Import tiles", (d) => {
-          if (path) {
-            d.rec!.image = path;
-            d.rec!.imageWidth = canvas.width;
-            d.rec!.imageHeight = canvas.height;
-            d.rec!.tilesPerRow = 16;
-          }
-          d.blocks.push(...blocks);
-          for (let t = have; t < have + fresh.length; t++) d.walkable.push(t);
-        });
-      } else {
-        editTileset(id, "Import tiles", (d) => {
-          d.tiles!.push(...fresh.map((f) => f.key));
-          d.blocks.push(...blocks);
-          for (let t = have; t < have + fresh.length; t++) d.walkable.push(t);
-        });
-      }
+      commitImport(id, { have, sheet: st.sheet, per: st.per, fresh, blocks, anims: [] }, "Import tiles");
       toast(`${fresh.length} new tile${fresh.length === 1 ? "" : "s"} (${cut.tiles.length - fresh.length} already there), ${blocks.length} new block${blocks.length === 1 ? "" : "s"}. New tiles start walkable.`, "ok");
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");

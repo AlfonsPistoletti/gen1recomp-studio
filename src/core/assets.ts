@@ -81,6 +81,10 @@ export interface SheetRecipe {
   out: string;
   per: number;
   tiles: string[];
+  // animated tiles: one 8x8 image per frame (shade digits)
+  frames?: { out: string; tile: string }[];
+  // cache art the extension's animations need copied (the flower frames)
+  copies?: string[];
 }
 
 function recipe(mod: string, rels: string[], sheets: SheetRecipe[] = []): string {
@@ -104,10 +108,19 @@ function recipe(mod: string, rels: string[], sheets: SheetRecipe[] = []): string
         "    tiles = {",
         ...s.tiles.map((t) => `      ${JSON.stringify(t)},`),
         "    },",
+        ...(s.frames?.length
+          ? ["    frames = {", ...s.frames.map((f) => `      { out = ${JSON.stringify(f.out)}, tile = ${JSON.stringify(f.tile)} },`), "    },"]
+          : []),
         "  },",
       ]),
       "}",
       "local SHADE = { 1, 2 / 3, 1 / 3, 0 }",
+      "local function paint(img, tx, ty, digits)",
+      "  for p = 0, 63 do",
+      "    local v = SHADE[(tonumber(digits:sub(p + 1, p + 1)) or 0) + 1]",
+      "    img:setPixel(tx + p % 8, ty + math.floor(p / 8), v, v, v, 1)",
+      "  end",
+      "end",
     );
   }
   lines.push(
@@ -120,19 +133,20 @@ function recipe(mod: string, rels: string[], sheets: SheetRecipe[] = []): string
   if (sheets.length) {
     lines.push(
       "  for _, s in ipairs(SHEETS) do",
-      "    if ctx.exists(s.source) then",
+      "    if #s.tiles > 0 and ctx.exists(s.source) then",
       "      local src = ctx.readImage(s.source)",
       "      local w, h = src:getWidth(), src:getHeight()",
       "      local img = ctx.blank(w, h + math.ceil(#s.tiles / s.per) * 8, 1, 1, 1, 1)",
       "      ctx.blit(img, src, 0, 0)",
       "      for i, digits in ipairs(s.tiles) do",
-      "        local tx, ty = ((i - 1) % s.per) * 8, h + math.floor((i - 1) / s.per) * 8",
-      "        for p = 0, 63 do",
-      "          local v = SHADE[(tonumber(digits:sub(p + 1, p + 1)) or 0) + 1]",
-      "          img:setPixel(tx + p % 8, ty + math.floor(p / 8), v, v, v, 1)",
-      "        end",
+      "        paint(img, ((i - 1) % s.per) * 8, h + math.floor((i - 1) / s.per) * 8, digits)",
       "      end",
       "      ctx.writeImage(img, s.out)",
+      "    end",
+      "    for _, f in ipairs(s.frames or {}) do",
+      "      local img = ctx.blank(8, 8, 1, 1, 1, 1)",
+      "      paint(img, 0, 0, f.tile)",
+      "      ctx.writeImage(img, f.out)",
       "    end",
       "  end",
     );
@@ -145,8 +159,9 @@ function recipe(mod: string, rels: string[], sheets: SheetRecipe[] = []): string
 // the saved studio file uses and the tileset sheets to build; removes both
 // when nothing needs them. A mod with its own transforms file is left alone.
 export async function syncTransforms(host: Host, mod: string, referenced: string, sheets: SheetRecipe[] = []): Promise<{ copies: number; blocked: boolean }> {
-  const built = new Set(sheets.map((s) => s.out));
-  const rels = [...new Set([...referenced.matchAll(new RegExp(`save/mod-derived/${mod}/studio/([^"\\s]+)`, "g"))].map((m) => m[1]))]
+  const built = new Set(sheets.flatMap((s) => [s.out, ...(s.frames ?? []).map((f) => f.out)]));
+  const found = [...referenced.matchAll(new RegExp(`save/mod-derived/${mod}/studio/([^"\\s]+)`, "g"))].map((m) => m[1]);
+  const rels = [...new Set([...found, ...sheets.flatMap((s) => s.copies ?? [])])]
     .filter((r) => !r.endsWith("/") && !built.has(`studio/${r}`))
     .sort();
   const manifestPath = `mods/${mod}/manifest.json`;

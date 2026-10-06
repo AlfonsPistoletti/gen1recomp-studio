@@ -10,7 +10,7 @@
 import type { TilesetDef } from "./types.ts";
 import { store } from "./store.ts";
 import { assetUrl, type SheetRecipe } from "./assets.ts";
-import { extendedSheetRel } from "../lua/tilesetRuntime.ts";
+import { extendedSheetRel, frameRel, SPINNER_TILESETS } from "../lua/tilesetRuntime.ts";
 import { loadImage, TILE } from "../render/graphics.ts";
 
 export interface TilesetExtension {
@@ -20,6 +20,26 @@ export interface TilesetExtension {
   tiles: string[];
   blocks: number[][];
   walkable?: number[];
+  // animated tiles: the tile's frames (shade digits), `period` 60ths of a
+  // second each; the sheet holds frame 1
+  animated?: AnimatedTile[];
+}
+
+export interface AnimatedTile {
+  tile: number;
+  period: number;
+  frames: string[];
+}
+
+// An entry of the engine's animatedTiles list (src/render/TileRenderer.lua).
+export interface EngineAnimation {
+  tile?: number;
+  tiles?: number[];
+  kind: string;
+  period?: number;
+  images?: string[];
+  sequence?: number[];
+  offsets?: number[];
 }
 
 export const EXTENSIONS = "studio_tilesets";
@@ -100,10 +120,86 @@ export function sheetRecipes(): SheetRecipe[] {
   for (const [id, value] of Object.entries(store.table(EXTENSIONS))) {
     const ext = value as TilesetExtension;
     const base = store.baseTable("tilesets")[id] as TilesetDef | undefined;
-    if (!ext?.tiles?.length || !base || !base.image.startsWith(CACHE)) continue;
-    out.push({ source: base.image.slice(CACHE.length), out: extendedSheetRel(id), per: perRow(base), tiles: ext.tiles });
+    if (!ext || !base || !base.image.startsWith(CACHE)) continue;
+    const animated = canAnimate(id) ? ext.animated ?? [] : [];
+    if (!ext.tiles?.length && !animated.length) continue;
+    out.push({
+      source: base.image.slice(CACHE.length),
+      out: extendedSheetRel(id),
+      per: perRow(base),
+      tiles: ext.tiles ?? [],
+      frames: animated.flatMap((a) => a.frames.map((tile, k) => ({ out: frameRel(id, a.tile, k + 1), tile }))),
+      // restating the flower animation needs the player's flower frames
+      copies: animated.length && base.animation === "TILEANIM_WATER_FLOWER" && !Array.isArray(base.animatedTiles) ? FLOWERS : [],
+    });
   }
   return out.sort((a, b) => a.out.localeCompare(b.out));
+}
+
+const FLOWERS = ["tilesets/flower1.png", "tilesets/flower2.png", "tilesets/flower3.png"];
+
+// custom animations replace a tileset's built-in ones, which are restated;
+// the spinner puzzles' can't be
+export function canAnimate(id: string): boolean {
+  return !SPINNER_TILESETS.includes(id);
+}
+
+// The built-in animations of a tileset's `animation` string, as the engine
+// derives them, for a mod tileset that adds its own (flower frames: the
+// recipe's copies of the player's own).
+export function builtinAnimations(animation: unknown, modId: string): EngineAnimation[] {
+  const out: EngineAnimation[] = [];
+  if (animation === "TILEANIM_WATER" || animation === "TILEANIM_WATER_FLOWER") {
+    out.push({ tile: 20, kind: "hshift", period: 20, offsets: [1, 2, 3, 2, 1, 0, 7, 0] });
+  }
+  if (animation === "TILEANIM_WATER_FLOWER") {
+    out.push({ tile: 3, kind: "frames", period: 20, sequence: [1, 2, 3, 1, 1, 2, 3, 1], images: FLOWERS.map((f) => `save/mod-derived/${modId}/studio/${f}`) });
+  }
+  return out;
+}
+
+// a mod tileset's own animated tiles (frames are images of the mod)
+export function ownAnimations(rec: TilesetDef): EngineAnimation[] {
+  const list = Array.isArray(rec.animatedTiles) ? (rec.animatedTiles as EngineAnimation[]) : [];
+  return list.filter((a) => a.kind === "frames" && typeof a.tile === "number" && (a.images ?? []).every((i) => i.startsWith("mods/")));
+}
+
+// rewrites a mod tileset's animatedTiles: the built-ins of its animation
+// string + its own (none: the key goes, the engine derives the built-ins)
+export function setOwnAnimations(rec: TilesetDef, mine: EngineAnimation[], modId: string): void {
+  if (mine.length) rec.animatedTiles = [...builtinAnimations(rec.animation, modId), ...mine];
+  else delete rec.animatedTiles;
+}
+
+// Animated tiles of a tileset for the editor: tile -> frames as image URLs
+// (extension frames are painted from their digits).
+export function animationsOf(id: string): Map<number, { period: number; urls: string[] }> {
+  const out = new Map<number, { period: number; urls: string[] }>();
+  const rec = store.table("tilesets")[id] as TilesetDef | undefined;
+  if (!rec) return out;
+  if (isBaseTileset(id)) {
+    for (const a of extensionOf(id)?.animated ?? []) out.set(a.tile, { period: a.period, urls: a.frames.map(digitsUrl) });
+  } else {
+    for (const a of ownAnimations(rec)) out.set(a.tile!, { period: a.period ?? 20, urls: (a.images ?? []).map((p) => assetUrl(store.project.host, store.project.version, p)) });
+  }
+  return out;
+}
+
+const digitUrls = new Map<string, string>();
+function digitsUrl(digits: string): string {
+  let u = digitUrls.get(digits);
+  if (!u) {
+    const c = document.createElement("canvas");
+    c.width = TILE;
+    c.height = TILE;
+    const ctx = c.getContext("2d")!;
+    const img = ctx.createImageData(TILE, TILE);
+    paintTile(img.data, digits);
+    ctx.putImageData(img, 0, 0);
+    u = c.toDataURL("image/png");
+    digitUrls.set(digits, u);
+  }
+  return u;
 }
 
 const composites = new Map<string, Promise<string>>();

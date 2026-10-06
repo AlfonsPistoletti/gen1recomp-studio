@@ -85,7 +85,26 @@ export async function modDetailsDialog(host: Host, modId: string, saved: () => v
     listInput("conflicts", "can't be enabled together"),
     listInput("incompatible", "breaks with these"),
   ];
-  const listField = (i: number, label: string, hint: string) => field(label, lists[i].input, lists[i].plain ? hint : "Written in another form: edit manifest.json by hand.");
+  // how the line is read, entry by entry, as the user types
+  const readBack = (input: HTMLInputElement): HTMLElement => {
+    const out = h("div", { class: "mod-refs" });
+    const update = () => {
+      const items = input.value.split(",").map((x) => x.trim()).filter(Boolean);
+      out.replaceChildren(...items.map((x) => {
+        const ok = MOD_REF.test(x);
+        const known = ok && otherMods.includes(x.replace(/[@#].*$/, ""));
+        const what = !ok ? "not a mod id" : x.includes("@") ? `version ${x.slice(x.indexOf("@") + 1)}` : x.includes("#") ? `from GitHub ${x.slice(x.indexOf("#") + 1)}` : "any version";
+        return h("span", { class: `mod-ref ${ok ? "ok" : "bad"}`, title: ok && !known ? "Not installed here; that's fine if players get it elsewhere" : "" }, `${x.replace(/[@#].*$/, "")} · ${what}${ok && !known ? " · not installed" : ""}`);
+      }));
+    };
+    input.addEventListener("input", update);
+    update();
+    return out;
+  };
+  const listField = (i: number, label: string, hint: string) =>
+    lists[i].plain
+      ? h("div", {}, field(label, lists[i].input, hint), readBack(lists[i].input))
+      : field(label, lists[i].input, "Written in another form: edit manifest.json by hand.");
 
   // ---- updates and permissions
   const github = h("input", { type: "text", value: str("github"), spellcheck: false, placeholder: "owner/repo (optional)" });
@@ -164,7 +183,16 @@ export async function modDetailsDialog(host: Host, modId: string, saved: () => v
       ), "The game picker and the studio list a mod only for the games it names."),
 
       h("h4", {}, "Other mods"),
-      listField(0, "Needs", "Won't load without these. Comma-separated; add @range for a version (other_mod@^1.0.0)."),
+      h("div", { class: "hint mod-ref-help" },
+        h("p", {}, "Each line takes mod ids (the folder name under mods/), separated by commas. Leave a line empty for none. Each id can carry:"),
+        h("ul", {},
+          h("li", {}, h("code", {}, "bills_garden"), ": any version"),
+          h("li", {}, h("code", {}, "bills_garden@^1.2.0"), ": a version range after @ (^1.2.0 = 1.2.0 up to, not including, 2.0.0; >=1.0.0 <2.0.0 also works)"),
+          h("li", {}, h("code", {}, "bills_garden#owner/repo"), ": where to get it on GitHub, if players don't have it"),
+        ),
+        h("p", {}, "Example: ", h("code", {}, "bills_garden, cool_gym_leaders@^1.0.0")),
+      ),
+      listField(0, "Needs", "Your mod won't load unless these are enabled; they load first."),
       listField(1, "Works with", "Loads after these when they are enabled; never blocks."),
       listField(2, "Conflicts with", "Can't be enabled together."),
       listField(3, "Incompatible with", "Known to break together."),

@@ -792,25 +792,36 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ),
       );
     }
-    // the selected tile
+    // the selected tile(s): a dragged selection edits every tile in it
     if (selTile !== null && sheetImg) {
       const t = selTile;
-      const can = t >= ed.firstTile;
+      const rect = selRect ?? { x: t % per, y: Math.floor(t / per), w: 1, h: 1 };
+      const tiles: number[] = [];
+      for (let y = rect.y; y < rect.y + rect.h; y++) for (let x = rect.x; x < rect.x + rect.w; x++) if (y * per + x < tileCount) tiles.push(y * per + x);
+      if (!tiles.length) tiles.push(t);
+      const multi = tiles.length > 1;
+      // only the mod's tiles change; the game's in the selection keep theirs
+      const mine = tiles.filter((x) => x >= ed.firstTile);
+      const can = mine.length > 0;
       const prev = h("canvas", { class: "tile-preview" });
-      prev.width = SLOT * 2;
-      prev.height = SLOT * 2;
+      const scale = Math.max(1, Math.floor((SLOT * 2) / (TILE * Math.max(rect.w, rect.h))));
+      prev.width = rect.w * TILE * scale;
+      prev.height = rect.h * TILE * scale;
+      if (multi) prev.style.width = prev.style.height = "auto";
       const pctx = prev.getContext("2d")!;
       pctx.imageSmoothingEnabled = false;
-      const anim = anims.get(t);
+      const anim = multi ? undefined : anims.get(t);
       const drawPreview = () => {
         if (anim) pctx.drawImage(frameNow(anim), 0, 0, TILE, TILE, 0, 0, prev.width, prev.height);
-        else pctx.drawImage(sheetImg, (t % per) * TILE, Math.floor(t / per) * TILE, TILE, TILE, 0, 0, prev.width, prev.height);
+        else pctx.drawImage(sheetImg, rect.x * TILE, rect.y * TILE, rect.w * TILE, rect.h * TILE, 0, 0, prev.width, prev.height);
       };
       drawPreview();
       if (anim) live.push(drawPreview);
       // animation: speed and stop, or start one from a strip of frames
       const animRow: HTMLElement[] = [];
-      if (anim) {
+      if (multi) {
+        // one tile at a time
+      } else if (anim) {
         const speed = h("select", {}, ...SPEEDS.map(([v, l]) => h("option", { value: String(v), selected: anim.period === v }, l)));
         if (!SPEEDS.some(([v]) => v === anim.period)) speed.append(h("option", { value: String(anim.period), selected: true }, `${anim.period}/60 s a frame`));
         speed.disabled = !can;
@@ -827,17 +838,29 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
           onclick: () => void animateTile(id, t),
         }, "Animate…"));
       }
+      // a checkbox over the selection: checked when all have it, a dash when
+      // some do; a change applies to every tile of the mod's in it
+      const setIn = (list: number[], on: boolean) => {
+        for (const x of mine) {
+          const i = list.indexOf(x);
+          if (on && i < 0) list.push(x);
+          if (!on && i >= 0) list.splice(i, 1);
+        }
+        list.sort((a, b) => a - b);
+      };
+      const box = (has: (x: number) => boolean) => {
+        const n = tiles.filter(has).length;
+        const cb = h("input", { type: "checkbox", checked: n === tiles.length, disabled: !can });
+        cb.indeterminate = n > 0 && n < tiles.length;
+        return cb;
+      };
       const listToggle = (key: string, label: string, hint: string) => {
-        const has = ((ts[key] as number[] | undefined) ?? []).includes(t);
-        const cb = h("input", { type: "checkbox", checked: has, disabled: !can });
+        const list0 = (ts[key] as number[] | undefined) ?? [];
+        const cb = box((x) => list0.includes(x));
         cb.addEventListener("change", () => {
-          editTileset(id, `Tile: ${label.toLowerCase()}`, (d) => {
+          editTileset(id, `${multi ? "Tiles" : "Tile"}: ${label.toLowerCase()}`, (d) => {
             const target = key === "walkable" ? d.walkable : ((d.rec![key] as number[] | undefined) ?? (d.rec![key] = []));
-            const list = target as number[];
-            const i = list.indexOf(t);
-            if (cb.checked && i < 0) list.push(t);
-            if (!cb.checked && i >= 0) list.splice(i, 1);
-            list.sort((a, b) => a - b);
+            setIn(target as number[], cb.checked);
           });
         });
         return h("label", { class: "inline-check", title: hint }, cb, label);
@@ -845,10 +868,10 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       const toggles: HTMLElement[] = [listToggle("walkable", "Walkable", "The player and NPCs can step on a cell whose bottom-left tile is walkable.")];
       // water / shore: the tileset's own lists (the engine's defaults until set)
       const wetToggle = (kind: "water" | "shore", label: string, hint: string) => {
-        const has = (kind === "water" ? waterTilesOf(ts) : shoreTilesOf(ts)).includes(t);
-        const cb = h("input", { type: "checkbox", checked: has, disabled: !can });
+        const list0 = kind === "water" ? waterTilesOf(ts) : shoreTilesOf(ts);
+        const cb = box((x) => list0.includes(x));
         cb.addEventListener("change", () =>
-          editTileset(id, `Tile: ${label.toLowerCase()}`, (d) => {
+          editTileset(id, `${multi ? "Tiles" : "Tile"}: ${label.toLowerCase()}`, (d) => {
             let list: number[];
             if (d.rec) {
               const key = kind === "water" ? "waterTiles" : "shoreTiles";
@@ -858,10 +881,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
               const ext = d as unknown as TilesetExtension;
               list = ext[kind] ??= [];
             }
-            const i = list.indexOf(t);
-            if (cb.checked && i < 0) list.push(t);
-            if (!cb.checked && i >= 0) list.splice(i, 1);
-            list.sort((a, b) => a - b);
+            setIn(list, cb.checked);
           }),
         );
         return h("label", { class: "inline-check", title: hint }, cb, label);
@@ -870,9 +890,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         wetToggle("water", "Water (surf)", "Surfable when the cell's bottom-left tile is water, on a tileset with surfable water."),
         wetToggle("shore", "Shore (surf)", "The water's edge: also surfable (like the game's shore tiles)."),
       );
-      const cutAs = (CUT_TILES[id] ?? []).find((c) => c.tile === t);
+      const cutAs = multi ? undefined : (CUT_TILES[id] ?? []).find((c) => c.tile === t);
       if (cutAs) toggles.push(h("span", { class: "hint", title: "Fixed in the engine" }, `Cuttable ${cutAs.what} (with a block swap)`));
-      if (ed.own) {
+      if (ed.own && !multi) {
         toggles.push(
           listToggle("doorTiles", "Door", "Stepping onto it from below warps (with a warp on that cell)."),
           listToggle("warpTiles", "Warp tile", "Any warp on a cell with this tile triggers when stepped on (stairs, mats)."),
@@ -889,11 +909,15 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       }
       out.push(
         h("div", { class: "card" },
-          h("div", { class: "card-head" }, h("h4", {}, `Tile #${t}`), can ? h("span", { class: "tag new" }, "yours") : h("span", { class: "hint" }, "the game's")),
+          h("div", { class: "card-head" },
+            h("h4", {}, multi ? `${tiles.length} tiles (#${tiles[0]}–#${tiles[tiles.length - 1]})` : `Tile #${t}`),
+            mine.length === tiles.length ? h("span", { class: "tag new" }, "yours") : can ? h("span", { class: "hint" }, "partly yours") : h("span", { class: "hint" }, "the game's")),
           h("div", { class: "row" }, prev, h("div", { class: "tile-flags" }, ...toggles)),
           ...animRow,
-          ...gbcRow(id, t, can),
-          can ? null : h("p", { class: "hint" }, "The game's tile: its settings can't change."),
+          ...gbcRow(id, tiles, mine),
+          !can ? h("p", { class: "hint" }, multi ? "The game's tiles: their settings can't change." : "The game's tile: its settings can't change.") : null,
+          can && mine.length < tiles.length ? h("p", { class: "hint" }, `Changes apply to your ${mine.length} tile${mine.length === 1 ? "" : "s"}; the game's keep theirs.`) : null,
+          multi && ed.own ? h("p", { class: "hint" }, "Door, warp, counter, tall grass and animation: select one tile.") : null,
         ),
       );
     }
@@ -1032,27 +1056,29 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
   };
 
-  const setGroup = (id: string, tile: number, group: number) =>
-    editColoring(id, "Tile: RED++ palette", (g) => {
-      g.groups = [...(g.groups ?? []).filter(([t]) => t !== tile), [tile, group] as [number, number]].sort((a, b) => a[0] - b[0]);
+  const setGroup = (id: string, tiles: number[], group: number) =>
+    editColoring(id, tiles.length > 1 ? "Tiles: RED++ palette" : "Tile: RED++ palette", (g) => {
+      g.groups = [...(g.groups ?? []).filter(([t]) => !tiles.includes(t)), ...tiles.map((t) => [t, group] as [number, number])].sort((a, b) => a[0] - b[0]);
     });
 
-  // the 8 palettes as swatches; the tile's is outlined
-  const gbcRow = (id: string, t: number, can: boolean): HTMLElement[] => {
+  // the 8 palettes as swatches; the tiles' one is outlined (when they share it)
+  const gbcRow = (id: string, tiles: number[], mine: number[]): HTMLElement[] => {
     const groups = groupColors(id);
     if (!gbcAvailable() || !groups) return [];
-    const current = groupOf(id, t);
+    const can = mine.length > 0;
+    const all = [...new Set(tiles.map((x) => groupOf(id, x)))];
+    const current = all.length === 1 ? all[0] : -1;
     const swatches = groups.map((colors, g) =>
       h("button", {
         class: `gbc-swatch${g === current ? " active" : ""}`,
         title: `${GROUP_NAMES[g] ?? g}${g === 6 ? " (its middle colors follow the town)" : ""}`,
         disabled: !can,
-        onclick: () => setGroup(id, t, g),
+        onclick: () => setGroup(id, mine, g),
       }, ...colors.map((c) => h("span", { style: `background: rgb(${c[0]}, ${c[1]}, ${c[2]})` }))),
     );
     return [
       h("div", { class: "field" },
-        h("span", { class: "field-label" }, `RED++ palette: ${GROUP_NAMES[current] ?? current}`),
+        h("span", { class: "field-label" }, `RED++ palette: ${current < 0 ? "mixed" : GROUP_NAMES[current] ?? current}`),
         h("div", { class: "gbc-swatches" }, ...swatches),
         h("p", { class: "hint" }, can
           ? "The colors this tile takes in the game's RED++ color mode (Game Boy Color). Your tiles start on Text, which rarely fits."

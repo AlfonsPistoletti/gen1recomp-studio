@@ -43,7 +43,9 @@ function imageOf(data: Uint8Array): Promise<HTMLImageElement | null> {
 export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
   let current: string | null = null;
   let selFrame = 0;
-  let viewPalette = "";
+  // the colors picked in the menu; null = the default (RED++ while the map
+  // view is in RED++, else this map's palette)
+  let viewPalette: string | null = null;
   // NPCs take 32 frames a step, the player 16 (src/world/NPC.lua, Player.lua)
   let stepFrames = 32;
   let raf = 0;
@@ -99,8 +101,9 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
   // RED++: the sprite's own palette (a "random" one shows one of its four)
   const gbcOf = () => (current ? spriteGbcColors(liveSprite(current), "preview", /yellow/i.test(store.project.version)) : null);
   // only when picked: "this map's" is always the map's own Game Boy palette
-  const useGbc = () => viewPalette === REDPP;
-  const colorKey = () => (useGbc() ? (gbcOf()?.key ?? GRAYS) : viewPalette && viewPalette !== REDPP ? viewPalette : store.palettes[store.currentMap] || "ROUTE");
+  const chosen = () => viewPalette ?? (store.colorMode === "redpp" && gbcOf() ? REDPP : "");
+  const useGbc = () => chosen() === REDPP;
+  const colorKey = () => (useGbc() ? (gbcOf()?.key ?? GRAYS) : chosen() && chosen() !== REDPP ? chosen() : store.palettes[store.currentMap] || "ROUTE");
   const colors = (): Rgb[] => (useGbc() ? (gbcOf()?.colors ?? GRAY_COLORS) : colorKey() === GRAYS ? GRAY_COLORS : store.adapter.spriteColors(store.ctx, colorKey()));
 
   const frameImg = (id: string, frame: number, flip: boolean) =>
@@ -126,10 +129,10 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     const names = store.adapter.mapFields.find((f) => f.kind === "select" && f.key === "palette");
     const paletteNames = names && names.kind === "select" ? names.options(store.ctx) : [];
     const view = h("select", { title: "How the sprite is shown here; in the game it takes the colors of the map it stands on" },
-      h("option", { value: "" }, `Colors: this map's (${store.palettes[store.currentMap] || "ROUTE"})`),
-      ...paletteNames.map((n) => h("option", { value: n, selected: viewPalette === n }, `Colors: ${n}`)),
-      h("option", { value: GRAYS, selected: viewPalette === GRAYS }, "Game Boy grays"),
-      ...(gbcOf() ? [h("option", { value: REDPP, selected: viewPalette === REDPP }, "Colors: RED++ (Game Boy Color)")] : []),
+      h("option", { value: "", selected: chosen() === "" }, `Colors: this map's (${store.palettes[store.currentMap] || "ROUTE"})`),
+      ...paletteNames.map((n) => h("option", { value: n, selected: chosen() === n }, `Colors: ${n}`)),
+      h("option", { value: GRAYS, selected: chosen() === GRAYS }, "Game Boy grays"),
+      ...(gbcOf() ? [h("option", { value: REDPP, selected: chosen() === REDPP }, "Colors: RED++ (Game Boy Color)")] : []),
     );
     view.disabled = !!s.trueColor;
     view.addEventListener("change", () => {

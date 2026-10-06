@@ -46,6 +46,17 @@ export const TILESET_RUNTIME = String.raw`
     for _, t in ipairs(base.walkable or {}) do walkable[#walkable + 1] = t end
     for _, t in ipairs(ext.walkable or {}) do walkable[#walkable + 1] = t end
     local patch = { blocks = blocks, walkable = walkable }
+    -- added water/shore tiles join the tileset's (Map.lua's defaults when it
+    -- names none)
+    local function joined(list, default, extra)
+      if #(extra or {}) == 0 then return nil end
+      local out = {}
+      for _, t in ipairs(list or default) do out[#out + 1] = t end
+      for _, t in ipairs(extra) do out[#out + 1] = t end
+      return out
+    end
+    patch.waterTiles = joined(base.waterTiles, { 20 }, ext.water)
+    patch.shoreTiles = joined(base.shoreTiles, id == "SHIP_PORT" and {} or { 50, 72 }, ext.shore)
     -- new tiles: the sheet the recipe built (none: blocks of vanilla tiles only)
     local rows = math.ceil(#(ext.tiles or {}) / per)
     if rows > 0 then

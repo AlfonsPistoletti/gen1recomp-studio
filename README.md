@@ -302,6 +302,13 @@ renamed before players have saves with it.
     imported one. Added tiles use the 4 shades; with the RED++ color pack they
     get its text palette. A mod with its own `assets_transforms` file can't
     extend tilesets.
+  - Surfing: a tile can be **Water** or **Shore**; the player surfs on a cell
+    whose bottom-left tile is one of them, on tilesets with **Surfable water**
+    (the tileset's settings). Your own tiles can be made water on the game's
+    tilesets too.
+  - Cut: only OVERWORLD (tree, tall grass) and GYM (plant) have cuttable tiles;
+    that is fixed in the engine. Each cuttable block needs **When cut, becomes
+    block #** in the block panel (the swap list is shared by both tilesets).
 - **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
   reads.
   - Names: the three player and rival names Oak offers, and the label of the

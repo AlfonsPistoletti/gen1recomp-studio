@@ -26,7 +26,33 @@ export interface TilesetExtension {
   animated?: AnimatedTile[];
   // RED++ palette groups of the added tiles (see gbc.ts)
   gbc?: GbcColoring;
+  // added tiles that are water / shore (surfable), appended to the tileset's
+  water?: number[];
+  shore?: number[];
 }
+
+// Surfing (gen1recomp src/world/Map.lua): a cell is surfable when its
+// tileset is in field.waterTilesets and its bottom-left tile is a water or
+// shore tile; a tileset without its own lists uses these (no shore on
+// SHIP_PORT, where $32 is the dock).
+export const DEFAULT_WATER = [0x14];
+export const DEFAULT_SHORE = [0x32, 0x48];
+
+export function waterTilesOf(ts: TilesetDef): number[] {
+  return (ts.waterTiles as number[] | undefined) ?? DEFAULT_WATER;
+}
+
+export function shoreTilesOf(ts: TilesetDef): number[] {
+  return (ts.shoreTiles as number[] | undefined) ?? (ts.id === "SHIP_PORT" ? [] : DEFAULT_SHORE);
+}
+
+// Cut (OverworldController tryCut): only these tilesets and tiles can be
+// cut, fixed in the engine; the faced cell's block also needs an entry in
+// field.cutTreeSwaps (shared by both tilesets, by block number).
+export const CUT_TILES: Record<string, { tile: number; what: string }[]> = {
+  OVERWORLD: [{ tile: 0x3d, what: "tree" }, { tile: 0x52, what: "tall grass" }],
+  GYM: [{ tile: 0x50, what: "plant" }],
+};
 
 export interface AnimatedTile {
   tile: number;
@@ -89,6 +115,8 @@ export function liveTileset(id: string): TilesetDef | undefined {
       imageHeight: (Number(base.imageHeight) || 0) + rows * TILE,
       blocks: [...base.blocks, ...ext.blocks],
       walkable: [...((base.walkable as number[] | undefined) ?? []), ...(ext.walkable ?? [])],
+      ...(ext.water?.length ? { waterTiles: [...waterTilesOf(base), ...ext.water] } : {}),
+      ...(ext.shore?.length ? { shoreTiles: [...shoreTilesOf(base), ...ext.shore] } : {}),
     };
     byExt.set(ext, out);
   }

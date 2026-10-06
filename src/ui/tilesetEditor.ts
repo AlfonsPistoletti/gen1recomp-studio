@@ -12,11 +12,11 @@ import { addAsset } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
 import type { TilesetDef } from "../core/types.ts";
 import {
-  animationsOf, canAnimate, EXTENSIONS, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
+  animationsOf, canAnimate, CUT_TILES, EXTENSIONS, shoreTilesOf, waterTilesOf, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
   tilesetIds, tilesetKey, tilesetUrl, type EngineAnimation, type TilesetExtension,
 } from "../core/tilesets.ts";
 import { blockAtlas, loadImage, markerIcon, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Footprints } from "lucide";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Footprints, Scissors, Waves } from "lucide";
 import type { Rgb } from "../render/color.ts";
 import { clear, field, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
@@ -33,11 +33,16 @@ const ARROWS = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRigh
 
 // a walk / ledge mark on a canvas: the icon on a dark disc (null until the
 // icon image has loaded; `ready` redraws then)
+const MARKS: Record<string, [typeof Footprints, string]> = {
+  walk: [Footprints, "#3cdc6e"],
+  water: [Waves, "#5aa8ff"],
+  cut: [Scissors, "#ff8a65"],
+};
+
 function drawMark(ctx: CanvasRenderingContext2D, kind: string, cx: number, cy: number, size: number, ready: () => void): void {
-  const walk = kind === "walk";
-  const node = walk ? Footprints : ARROWS[kind as keyof typeof ARROWS];
+  const [node, color] = MARKS[kind] ?? [ARROWS[kind as keyof typeof ARROWS], "#ffb340"];
   if (!node) return;
-  const img = markerIcon(`tiles-${kind}`, node, walk ? "#3cdc6e" : "#ffb340", ready);
+  const img = markerIcon(`tiles-${kind}`, node, color, ready);
   ctx.fillStyle = "rgba(10, 12, 16, 0.72)";
   ctx.beginPath();
   ctx.arc(cx, cy, size * 0.62, 0, Math.PI * 2);
@@ -108,6 +113,11 @@ function editTileset(id: string, label: string, mutate: (t: { blocks: number[][]
     });
   }
   store.seal();
+}
+
+// whether a tileset has surfable water (field.waterTilesets)
+function surfableTileset(id: string): boolean {
+  return ((store.table("field").waterTilesets as string[] | undefined) ?? []).includes(id);
 }
 
 // ------------------------------------------------------------------ pixels
@@ -493,7 +503,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       void render();
     });
     card.append(
-      h("div", { class: "card-head" }, h("h4", {}, `Tiles (${tileCount})`), h("label", { class: "inline-check" }, toggle, "Mark walkable tiles and ledges")),
+      h("div", { class: "card-head" }, h("h4", {}, `Tiles (${tileCount})`), h("label", { class: "inline-check" }, toggle, "Mark walkable, ledge, water and cut tiles")),
     );
     if (!sheet || !sheetImg) {
       card.append(h("p", { class: "hint warn" }, `The sheet ${ts.image} could not be loaded.`));
@@ -502,6 +512,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const walk = new Set((ts.walkable as number[] | undefined) ?? []);
     const ledges = store.adapter.ledgeTiles?.(store.ctx, current ?? "") ?? new Map<number, string>();
     // everything but the selection, drawn once
+    const wet = new Set([...waterTilesOf(ts), ...shoreTilesOf(ts)]);
+    const surfable = surfableTileset(current ?? "");
+    const cuts = new Set((CUT_TILES[current ?? ""] ?? []).map((c) => c.tile));
     const canvas = document.createElement("canvas");
     canvas.width = sheet.width * SHEET_ZOOM;
     canvas.height = sheet.height * SHEET_ZOOM;
@@ -515,6 +528,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       // walkable tiles: footprints; ledges: the hop direction
       const mark = walk.has(t) ? "walk" : ledges.get(t);
       if (showCollision && mark) drawMark(ctx, mark, x + T - 9, y + T - 9, 12, schedule);
+      // surfable (water/shore) bottom-left, cuttable top-right
+      if (showCollision && surfable && wet.has(t)) drawMark(ctx, "water", x + 9, y + T - 9, 12, schedule);
+      if (showCollision && cuts.has(t)) drawMark(ctx, "cut", x + T - 9, y + 9, 12, schedule);
       // animated tiles: a purple corner
       if (anims.has(t)) {
         ctx.fillStyle = "#c792ff";
@@ -734,10 +750,12 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       });
       const isLast = b === ts.blocks.length - 1;
       const used = highestBlockUsed(id) >= b;
+      const cutRow = cutSwapRow(id, b, block, ts.blocks.length);
       blockOut.push(
         h("div", { class: "card" },
           h("div", { class: "card-head" }, h("h4", {}, `Block #${b}`), can ? h("span", { class: "tag new" }, "yours") : h("span", { class: "hint" }, "the game's")),
           comp,
+          ...cutRow,
           h("p", { class: "hint" }, can
             ? "Click a slot to put the selected tile there (a dragged selection lands with its top-left corner there); right click picks a slot's tile. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."
             : "The game's block: read-only. + New block makes an editable copy. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."),
@@ -809,6 +827,35 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         return h("label", { class: "inline-check", title: hint }, cb, label);
       };
       const toggles: HTMLElement[] = [listToggle("walkable", "Walkable", "The player and NPCs can step on a cell whose bottom-left tile is walkable.")];
+      // water / shore: the tileset's own lists (the engine's defaults until set)
+      const wetToggle = (kind: "water" | "shore", label: string, hint: string) => {
+        const has = (kind === "water" ? waterTilesOf(ts) : shoreTilesOf(ts)).includes(t);
+        const cb = h("input", { type: "checkbox", checked: has, disabled: !can });
+        cb.addEventListener("change", () =>
+          editTileset(id, `Tile: ${label.toLowerCase()}`, (d) => {
+            let list: number[];
+            if (d.rec) {
+              const key = kind === "water" ? "waterTiles" : "shoreTiles";
+              list = [...(kind === "water" ? waterTilesOf(d.rec) : shoreTilesOf(d.rec))];
+              d.rec[key] = list;
+            } else {
+              const ext = d as unknown as TilesetExtension;
+              list = ext[kind] ??= [];
+            }
+            const i = list.indexOf(t);
+            if (cb.checked && i < 0) list.push(t);
+            if (!cb.checked && i >= 0) list.splice(i, 1);
+            list.sort((a, b) => a - b);
+          }),
+        );
+        return h("label", { class: "inline-check", title: hint }, cb, label);
+      };
+      toggles.push(
+        wetToggle("water", "Water (surf)", "Surfable when the cell's bottom-left tile is water, on a tileset with surfable water."),
+        wetToggle("shore", "Shore (surf)", "The water's edge: also surfable (like the game's shore tiles)."),
+      );
+      const cutAs = (CUT_TILES[id] ?? []).find((c) => c.tile === t);
+      if (cutAs) toggles.push(h("span", { class: "hint", title: "Fixed in the engine" }, `Cuttable ${cutAs.what} (with a block swap)`));
       if (ed.own) {
         toggles.push(
           listToggle("doorTiles", "Door", "Stepping onto it from below warps (with a warp on that cell)."),
@@ -843,6 +890,19 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
 
   const settingsCard = (id: string, ts: TilesetDef, ed: Editable, tileCount: number): HTMLElement[] => {
     const users = mapsUsing(id);
+    const surf = h("input", { type: "checkbox", checked: surfableTileset(id) });
+    surf.addEventListener("change", () => {
+      store.editRecord<string[]>("field", "waterTilesets", surf.checked ? "Surfable water" : "No surfable water", (l) => {
+        const i = l.indexOf(id);
+        if (surf.checked && i < 0) l.push(id);
+        if (!surf.checked && i >= 0) l.splice(i, 1);
+      }, { create: () => [] });
+      store.seal();
+    });
+    const surfCard = h("div", { class: "card" },
+      h("label", { class: "inline-check" }, surf, "Surfable water"),
+      h("p", { class: "hint" }, `The player can surf on its water and shore tiles (${[...waterTilesOf(ts), ...shoreTilesOf(ts)].map((t) => `#${t}`).join(", ") || "none"}).${CUT_TILES[id] ? ` Cuttable: ${CUT_TILES[id].map((c) => `${c.what} #${c.tile}`).join(", ")} (fixed in the engine; each block needs a cut swap, set in the block panel).` : " Nothing on this tileset can be cut (only OVERWORLD and GYM have cuttable tiles in the engine)."}`),
+    );
     const usedBy = h("div", { class: "card" },
       h("h4", {}, `Used by ${users.length} map${users.length === 1 ? "" : "s"}`),
       users.length
@@ -852,6 +912,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (!ed.own) {
       const ext = extensionOf(id);
       return [
+        surfCard,
         h("div", { class: "card" },
           h("h4", {}, "The game's tileset"),
           h("p", { class: "hint" }, "Your tiles and blocks are added after the game's, so every map keeps working. The game builds the combined sheet from the player's own imported one when the mod loads; the mod ships only your tiles."),
@@ -881,6 +942,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       }),
     );
     return [
+      surfCard,
       ...ownGbcCard(id, ts),
       h("div", { class: "card" },
         h("h4", {}, "Your tileset"),
@@ -899,6 +961,36 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         }, "Delete tileset"),
       ),
       usedBy,
+    ];
+  };
+
+  // ------------------------------------------------------------- cut
+  // field.cutTreeSwaps: a cut block turns into `after` (OVERWORLD and GYM
+  // share the list, by block number)
+  const cutSwapRow = (id: string, b: number, block: number[], count: number): HTMLElement[] => {
+    const tiles = CUT_TILES[id];
+    if (!tiles) return [];
+    const swaps = (store.table("field").cutTreeSwaps as { before: number; after: number }[] | undefined) ?? [];
+    const swap = swaps.find((s) => s.before === b);
+    const hasCutTile = [4, 6, 12, 14].some((slot) => tiles.some((c) => c.tile === block[slot]));
+    const input = h("input", { type: "number", min: 0, max: count - 1, value: swap ? String(swap.after) : "", placeholder: "none" });
+    input.addEventListener("change", () => {
+      const v = input.value.trim() === "" ? null : Math.max(0, Math.min(count - 1, Math.trunc(Number(input.value))));
+      store.editRecord<{ before: number; after: number }[]>("field", "cutTreeSwaps", v === null ? `Block #${b}: not cuttable` : `Block #${b}: cut into #${v}`, (l) => {
+        const i = l.findIndex((s) => s.before === b);
+        if (v === null) {
+          if (i >= 0) l.splice(i, 1);
+        } else if (i >= 0) l[i] = { before: b, after: v };
+        else l.push({ before: b, after: v });
+      }, { create: () => [] });
+      store.seal();
+    });
+    return [
+      h("div", { class: "row nowrap" }, h("span", { class: "field-label" }, "When cut, becomes block"), input,
+        swap ? h("button", { class: "btn small ghost", title: "Show that block", onclick: () => ((selBlock = swap.after), void render()) }, "→") : null),
+      h("p", { class: hasCutTile || !swap ? "hint" : "hint warn" }, hasCutTile
+        ? `Cut works on a quarter whose bottom-left tile is the ${tiles.map((c) => `${c.what} (#${c.tile})`).join(" or ")}. Empty: can't be cut. The swap list is shared by OVERWORLD and GYM.`
+        : `No quarter of this block has a cuttable tile (${tiles.map((c) => `${c.what} #${c.tile}`).join(", ")}) bottom-left, so Cut does nothing here.`),
     ];
   };
 
@@ -1273,7 +1365,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       selTile = null;
       selBlock = null;
       schedule();
-    } else if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS)) {
+    } else if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS || registry === "field")) {
       if (current && !tilesetsTable()[current]) current = tilesetIds()[0] ?? null;
       schedule();
     } else if (reason === "reveal" && (registry === "tilesets" || registry === EXTENSIONS) && id) {

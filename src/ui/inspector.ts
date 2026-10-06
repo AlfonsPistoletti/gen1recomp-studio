@@ -57,7 +57,7 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
   store.on((reason, _id, registry) => {
     if (["project", "map", "edit", "selection"].includes(reason)) schedule();
     const towns = store.adapter?.towns;
-    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
+    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === "studio_roofs" || registry === "encounters" || registry === "field" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
   });
   onFocusLeave(body, schedule);
 }
@@ -339,7 +339,9 @@ function roofField(map: MapDef): HTMLElement | null {
     if (sel.value === "__custom") return set(clone(current ?? [[255, 140, 120], [200, 80, 70]]));
     set(clone(towns.find(([t]) => t === sel.value)?.[1] ?? null));
   });
-  const pickers = (current ?? []).map((c, i) => {
+  // the color pickers only for custom colors (a town's roof is picked by name)
+  const custom = !!mine && !towns.some(([, c]) => same(c, mine.colors));
+  const pickers = (custom ? current ?? [] : []).map((c, i) => {
     const input = h("input", { type: "color", value: `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`, title: i === 0 ? "Light roof color" : "Dark roof color" });
     input.addEventListener("change", () => {
       const rgb = [1, 3, 5].map((k) => parseInt(input.value.slice(k, k + 2), 16)) as Rgb;

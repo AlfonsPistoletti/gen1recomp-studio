@@ -57,7 +57,7 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
   store.on((reason, _id, registry) => {
     if (["project", "map", "edit", "selection"].includes(reason)) schedule();
     const towns = store.adapter?.towns;
-    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === "studio_roofs" || registry === "encounters" || registry === "field" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
+    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === "studio_roofs" || registry === "palettes" || registry === "encounters" || registry === "field" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
   });
   onFocusLeave(body, schedule);
 }

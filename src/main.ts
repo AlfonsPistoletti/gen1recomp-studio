@@ -34,6 +34,7 @@ import { mountItemWorkspace } from "./ui/itemEditor.ts";
 import { mountTilesetWorkspace } from "./ui/tilesetEditor.ts";
 import { mountSpriteWorkspace } from "./ui/spriteEditor.ts";
 import { mountImageWorkspace } from "./ui/imageEditor.ts";
+import { mountPaletteWorkspace } from "./ui/paletteEditor.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
 import { playEvent } from "./ui/eventPreview.ts";
@@ -336,14 +337,15 @@ mountGlobalWorkspace($("#global-left"), $("#global-center"), $("#global-right"))
 mountTilesetWorkspace($("#tilesets-left"), $("#tilesets-center"), $("#tilesets-right"));
 mountSpriteWorkspace($("#sprites-left"), $("#sprites-center"), $("#sprites-right"));
 mountImageWorkspace($("#images-left"), $("#images-center"), $("#images-right"));
+mountPaletteWorkspace($("#palettes-left"), $("#palettes-center"), $("#palettes-right"));
 // the Graphics workspace's view switch, on top of both left panels
 const GRAPHICS_VIEW_KEY = "studio.graphicsView";
 const savedView = recall(GRAPHICS_VIEW_KEY);
-nav.graphicsView = savedView === "sprites" || savedView === "images" ? savedView : "tilesets";
+nav.graphicsView = savedView === "sprites" || savedView === "images" || savedView === "palettes" ? savedView : "tilesets";
 const viewSwitches: HTMLButtonElement[] = [];
-for (const host of [$("#tilesets-left"), $("#sprites-left"), $("#images-left")]) {
+for (const host of [$("#tilesets-left"), $("#sprites-left"), $("#images-left"), $("#palettes-left")]) {
   const seg = h("div", { class: "seg view-switch" });
-  for (const [view, label] of [["tilesets", "Tilesets"], ["sprites", "Sprites"], ["images", "Images"]] as const) {
+  for (const [view, label] of [["tilesets", "Tilesets"], ["sprites", "Sprites"], ["images", "Images"], ["palettes", "Palettes"]] as const) {
     const b = h("button", { class: "toggle", "data-view": view, onclick: () => nav.showGraphics(view) }, label);
     viewSwitches.push(b);
     seg.append(b);
@@ -371,7 +373,7 @@ function setWorkspace(id: WorkspaceId): void {
   for (const b of workspaceTabs) b.classList.toggle("active", b.dataset.ws === id);
   remember(WORKSPACE_KEY, id);
   if (id === "maps") view.invalidate();
-  if (id === "graphics") ({ tilesets: nav.onTilesetsShown, sprites: nav.onSpritesShown, images: nav.onImagesShown })[nav.graphicsView]();
+  if (id === "graphics") ({ tilesets: nav.onTilesetsShown, sprites: nav.onSpritesShown, images: nav.onImagesShown, palettes: nav.onPalettesShown })[nav.graphicsView]();
 }
 nav.setWorkspace = setWorkspace;
 nav.openMap = (mapId) => {

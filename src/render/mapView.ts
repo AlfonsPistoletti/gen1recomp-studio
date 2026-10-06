@@ -12,7 +12,7 @@ import { gbcColorsFor, gbcKey, isGbcKey, spriteGbcColors } from "../core/gbc.ts"
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
 import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
-import { atlasRect, blockAtlas, BLOCK, CELL, markerIcon, spriteFrame, type BlockAtlas } from "./graphics.ts";
+import { atlasRect, blockAtlas, clearColorCaches, BLOCK, CELL, markerIcon, spriteFrame, type BlockAtlas } from "./graphics.ts";
 
 interface CachedMap {
   map: MapDef;
@@ -96,6 +96,11 @@ export class MapView {
         this.relayout();
       } else if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS) && id) {
         this.tilesetChanged(id);
+      } else if (reason === "content" && registry === "palettes") {
+        clearColorCaches();
+        this.cache.clear();
+        this.atlases.clear();
+        store.refreshPalettes();
       } else if (reason === "colors") {
         this.relayout();
       } else if (reason === "edit") {

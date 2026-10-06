@@ -26,6 +26,7 @@ const NAMES: Record<string, [string, string]> = {
   tilesets: ["Tilesets", "tileset"],
   sprites: ["Sprites", "sprite"],
   image_overrides: ["Replaced images", "replaced image"],
+  palettes: ["Palettes", "palette"],
   studio_roofs: ["RED++ roofs", "RED++ roof"],
   studio_tilesets: ["Tiles added to the game's tilesets", "tileset addition"],
   field: ["Hidden events and landing spots", "field setting"],
@@ -109,6 +110,8 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       return store.table("trainers")[id] ? () => nav.openTrainer(id) : null;
     case "text":
       return removed ? null : () => nav.openText(id);
+    case "palettes":
+      return store.table("palettes")[id] ? () => nav.openPalette(id) : null;
     case "image_overrides":
       return () => nav.openImage(id);
     case "sprites":

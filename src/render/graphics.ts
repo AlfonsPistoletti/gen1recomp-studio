@@ -147,6 +147,13 @@ export function atlasRect(block: number): [number, number] {
 // ---------------------------------------------------------------- sprites
 
 const spriteCache = new Map<string, HTMLCanvasElement | null>();
+
+// drawn blocks and sprite frames are cached by palette name: after a
+// palette's colors change they must be drawn again
+export function clearColorCaches(): void {
+  atlasCache.clear();
+  spriteCache.clear();
+}
 const spritePending = new Set<string>();
 
 // Frames are stand down/up/left; right is the left frame mirrored

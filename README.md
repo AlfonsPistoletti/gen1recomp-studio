@@ -267,6 +267,9 @@ renamed before players have saves with it.
   instead of its own. **Back to the game's** removes it. **Use the art of…**
   shows another game image of the same size there instead (copied from the
   player's own files when the mod loads; the mod ships no ROM art).
+- **Graphics > Palettes**: the Game Boy palettes (4 colors each) maps,
+  Pokémon and screens use. Recolor one (the map view follows), or **+ New** to
+  add one a map can pick in its properties (Palette). RED++ uses its own colors.
 - **Graphics > Tilesets**: the tile sheet, the 32×32 blocks maps are painted with, and
   which tiles you can walk on (footprints; ledges show their hop arrow). You
   walk on a block in quarters, each decided by its bottom-left tile. **Edit**

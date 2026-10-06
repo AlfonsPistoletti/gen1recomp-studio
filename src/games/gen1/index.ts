@@ -40,8 +40,13 @@ function nextObjectIndex(map: MapDef): number {
   return g(map).objects.reduce((m, o) => Math.max(m, typeof o.index === "number" ? o.index : 0), 0) + 1;
 }
 
+// the palettes as edited (the "palettes" registry), in the game's order with
+// the mod's new ones after
 function palettes(ctx: GameContext): PaletteData {
-  return ctx.data.extra.palettes as PaletteData;
+  const base = ctx.data.extra.palettes as PaletteData;
+  const live = ctx.records.palettes as PaletteData["palettes"] | undefined;
+  if (!live) return base;
+  return { order: [...base.order.filter((n) => live[n]), ...Object.keys(live).filter((n) => !base.order.includes(n)).sort()], palettes: live };
 }
 
 // What the cascade would pick if the map named no palette of its own.
@@ -134,6 +139,9 @@ const content: ContentSpec[] = [
   { registry: "studio_tilesets", editable: true, build: () => ({}), studioFile: "studio_tilesets.lua", generates: "tilesets" },
   // overworld sprites (filled from Dataset.sprites in load): vanilla ones get
   // their art replaced (patched), the mod's own are registered whole
+  // the Game Boy palettes (name -> 4 colors, lightest first) maps, Pokémon
+  // and screens use; a map names its own in `palette`
+  { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => ({ ...((f as { palettes?: Record<string, unknown> }).palettes ?? {}) }) },
   { registry: "sprites", editable: true, build: () => ({}), fieldOrder: ["id", "image", "frames", "walker", "trueColor"] },
   // game images the mod replaces: files in mods/<id>/overrides/ (src/core/assets.ts)
   { registry: "image_overrides", editable: true, build: () => ({}), files: true },

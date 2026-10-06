@@ -888,3 +888,11 @@ dialog.modal { min-width: 420px; }
 .mod-ref { font-size: 11px; padding: 1px 6px; border-radius: 10px; border: 1px solid var(--line); }
 .mod-ref.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 50%, transparent); }
 .mod-ref.bad { color: #ff8a8a; border-color: #8a3b3b; }
+
+/* ------------------------------------------------------------ palettes */
+#palettes-center .ws-scroll { max-width: 980px; width: 100%; }
+.palette-swatches { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.palette-swatch { display: flex; flex-direction: column; gap: 4px; }
+.palette-swatch input[type="color"] { width: 100%; height: 56px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
+.palette-preview { display: block; max-width: 100%; image-rendering: pixelated; border: 1px solid var(--line); }
+.view-switch .toggle { padding-left: 4px; padding-right: 4px; }

@@ -243,6 +243,18 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   check("the helper writes no ROM path", !tsSrc.includes("assets/generated/") && !extSrc.includes("assets/generated/"));
 }
 
+// palettes: a recolored game palette is overridden whole, a new one registered
+{
+  const pals = project.data.content.palettes ?? {};
+  check("palette records = the game's palettes", !!pals.ROUTE && (pals.ROUTE as unknown[]).length === 4, String(Object.keys(pals).length));
+  const recolored = clone(pals.ROUTE) as number[][];
+  recolored[1] = [10, 20, 30];
+  const c1 = contentCalls(adapter, { palettes: pals }, { palettes: { ROUTE: recolored } }).calls;
+  check("a recolored palette is overridden", c1.length === 1 && c1[0].op === "override", JSON.stringify(c1).slice(0, 120));
+  const c2 = contentCalls(adapter, { palettes: pals }, { palettes: { MY_TOWN: recolored } }).calls;
+  check("a new palette is registered", c2.length === 1 && c2[0].op === "register", JSON.stringify(c2).slice(0, 120));
+}
+
 // in-game trades: a changed trade overrides the list, a new one is appended
 {
   const field = project.data.content.field ?? {};

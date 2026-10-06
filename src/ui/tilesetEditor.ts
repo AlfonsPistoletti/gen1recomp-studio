@@ -1002,7 +1002,12 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
           disabled: users.length > 0,
           title: users.length ? "Maps still use it" : "Delete this tileset",
           onclick: () => {
-            store.setRecord("tilesets", id, `Delete ${id}`, undefined);
+            // its RED++ colors go with it (they'd color a later tileset of
+            // the same name)
+            store.group(`Delete ${id}`, () => {
+              store.setRecord("tilesets", id, `Delete ${id}`, undefined);
+              if (store.table(EXTENSIONS)[id] !== undefined) store.setRecord(EXTENSIONS, id, `Delete ${id}`, undefined);
+            });
             store.seal();
             current = tilesetIds()[0] ?? null;
             void render();
@@ -1184,6 +1189,16 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       const canvas = sheetCanvas(all, plan.per);
       const path = plan.fresh.length ? addAsset(mod, id.toLowerCase(), bytesOf(canvas)) : null;
       const added = plan.anims.map(keepFrames);
+      // with RED++ palettes of its own, new tiles start on the first one (an
+      // unassigned tile gets the engine's Text palette: black and white)
+      const own = (store.table(EXTENSIONS)[id] as { gbc?: GbcColoring } | undefined)?.gbc;
+      const newTiles = Array.from({ length: plan.fresh.length }, (_v, i) => plan.have + i).filter((t) => !plan.filler?.has(t));
+      store.group(label, () => {
+      if (own?.palettes && newTiles.length) {
+        editColoring(id, label, (g) => {
+          g.groups = [...(g.groups ?? []).filter(([t]) => !newTiles.includes(t)), ...newTiles.map((t) => [t, 0] as [number, number])].sort((a, b) => a[0] - b[0]);
+        });
+      }
       editTileset(id, label, (d) => {
         if (path) {
           d.rec!.image = path;
@@ -1197,6 +1212,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
           const tiles = new Set(added.map((a) => a.tile));
           setOwnAnimations(d.rec!, [...ownAnimations(d.rec!).filter((a) => !tiles.has(a.tile!)), ...added], mod);
         }
+      });
       });
     } else {
       editTileset(id, label, (d) => {
@@ -1413,7 +1429,11 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         counterTiles: [],
         blocks,
       };
-      store.setRecord("tilesets", res.id, `New tileset ${res.id}`, clone(record));
+      store.group(`New tileset ${res.id}`, () => {
+        // colors left by a deleted tileset of the same name don't belong to it
+        if (store.table(EXTENSIONS)[res.id] !== undefined) store.setRecord(EXTENSIONS, res.id, `New tileset ${res.id}`, undefined);
+        store.setRecord("tilesets", res.id, `New tileset ${res.id}`, clone(record));
+      });
       store.seal();
       toast(`${res.id}: ${cut.tiles.length} tiles, ${blocks.length} blocks. All tiles start walkable: mark the ones you can't walk on.`, "ok");
       open(res.id);

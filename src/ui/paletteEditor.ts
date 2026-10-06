@@ -39,6 +39,8 @@ function mapsWith(name: string): string[] {
 
 export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
   let current: string | null = null;
+  // the map the preview draws (null: one that uses the palette, outdoor first)
+  let previewMap: string | null = null;
   const newBtn = h("button", { class: "btn small", title: "A new palette, starting as a copy of the selected one", onclick: () => newPalette() }, "+ New");
   const list = mountRecordList(left, {
     title: "Palettes",
@@ -85,7 +87,8 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
     const my = ++token;
     // an outdoor map shows a palette best
     const users = mapsWith(name);
-    const mapId = users.find((m) => store.maps[m]?.tileset === "OVERWORLD") ?? users[0] ?? (store.maps.PALLET_TOWN ? "PALLET_TOWN" : Object.keys(store.maps)[0]);
+    const mapId = (previewMap && store.maps[previewMap] ? previewMap : null)
+      ?? users.find((m) => store.maps[m]?.tileset === "OVERWORLD") ?? users[0] ?? (store.maps.PALLET_TOWN ? "PALLET_TOWN" : Object.keys(store.maps)[0]);
     const map = store.maps[mapId];
     const ts = map ? liveTileset(map.tileset) : undefined;
     if (!map || !ts) return;
@@ -102,6 +105,22 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
       ctx.drawImage(atlas.canvas, sx, sy, BLOCK, BLOCK, (i % map.width) * BLOCK, Math.floor(i / map.width) * BLOCK, BLOCK, BLOCK);
     });
     holder.replaceChildren(c, h("p", { class: "hint" }, `${mapId}${users.includes(mapId) ? "" : " (doesn't use it: shown as an example)"}`));
+  };
+
+  // which map to preview: the ones using the palette first, then all others
+  const previewPicker = (name: string): HTMLElement => {
+    const users = mapsWith(name);
+    const others = Object.keys(store.maps).filter((m) => !users.includes(m)).sort();
+    const sel = h("select", { title: "The map the preview draws in this palette" },
+      h("option", { value: "", selected: !previewMap }, "Preview on: a map that uses it"),
+      users.length ? h("optgroup", { label: "Uses this palette" }, ...users.map((m) => h("option", { value: m, selected: previewMap === m }, m))) : null,
+      h("optgroup", { label: "Other maps" }, ...others.map((m) => h("option", { value: m, selected: previewMap === m }, m))),
+    );
+    sel.addEventListener("change", () => {
+      previewMap = sel.value || null;
+      void render();
+    });
+    return sel;
   };
 
   const render = async () => {
@@ -130,7 +149,10 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
           ? h("button", { class: "btn small danger", onclick: () => store.revertRecord(REG, name, `${name}: the game's colors`) }, "Back to the game's colors")
           : null,
       ),
-      h("div", { class: "card" }, h("h4", {}, "Preview"), holder),
+      h("div", { class: "card" },
+        h("div", { class: "card-head" }, h("h4", {}, "Preview"), previewPicker(name)),
+        holder,
+      ),
     );
     void preview(name, holder);
     const users = mapsWith(name);

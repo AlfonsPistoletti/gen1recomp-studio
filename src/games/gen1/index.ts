@@ -579,7 +579,7 @@ const SPEEDS = [
 
 const globals: GlobalsSpec = {
   sections: [
-    { id: "wild", label: "Wild encounters", hint: "How likely each of the ten slots of a wild table is. The tables themselves are per map (Maps, Encounters tab)." },
+    { id: "wild", label: "Wild encounters", hint: "How likely each of the ten slots of a wild table is, and what the Old and Good Rod catch. The tables themselves (and Super Rod lists) are per map (Maps, Encounters tab)." },
     { id: "types", label: "Type chart", hint: "Type effectiveness, and which types are physical or special." },
     { id: "battle", label: "Pokémon & items", hint: "Level cap and bag size." },
     { id: "overworld", label: "Overworld", hint: "Walking and biking speed, poison, blacking out, Day-Care." },

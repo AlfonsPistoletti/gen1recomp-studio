@@ -304,6 +304,9 @@ renamed before players have saves with it.
     extend tilesets.
 - **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
   reads.
+  - Fishing: the Old and Good Rod catch the same everywhere (Global > Wild
+    encounters); the Super Rod has a list per map (Maps, Encounters tab). Half
+    the casts bite, then each entry (up to 4) is equally likely.
   - In-game trades: what each trade NPC wants, what the player gets, its
     nickname and dialogue, and who offers it. **+ New trade** adds one; an
     NPC offers it through the **Trade Pokémon** event command (once, by flag).

@@ -123,7 +123,7 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
 }
 
 // field keys the studio edits
-const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenExtras: "PCs, bench guys, gym statues", hiddenItems: "Hidden items", hiddenCoins: "Hidden coins", playerSprites: "The player's sprites" };
+const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenExtras: "PCs, bench guys, gym statues", hiddenItems: "Hidden items", hiddenCoins: "Hidden coins", playerSprites: "The player's sprites", superRod: "Super Rod lists", trades: "In-game trades", fishing: "Old Rod and Good Rod" };
 
 function displayName(record: unknown, id: string, registry = ""): string {
   if (registry === "field" && FIELD_NAMES[id]) return FIELD_NAMES[id];

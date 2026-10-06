@@ -1,6 +1,7 @@
 // ENCOUNTERS tab of the Maps workspace's right panel: the current map's
 // wild tables (the "encounters" registry, id = map id) and the slot chances.
 
+import { superRodCard } from "./fishingPanel.ts";
 import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { EncounterSpec, EncounterTerrain } from "../games/types.ts";
@@ -59,7 +60,7 @@ export function mountEncounterPane(host: HTMLElement): { render(): void } {
   };
   store.on((reason, _id, registry) => {
     if (["project", "map", "edit", "overlays", "saved"].includes(reason)) schedule();
-    if (reason === "content" && (registry === REG || registry === "pokemon" || registry === store.adapter?.encounters?.sharedOdds?.registry)) schedule();
+    if (reason === "content" && (registry === REG || registry === "pokemon" || registry === "field" || registry === store.adapter?.encounters?.sharedOdds?.registry)) schedule();
   });
   onFocusLeave(body, schedule);
   return { render };
@@ -83,6 +84,7 @@ export function encounterPanel(): HTMLElement[] {
     ),
     ...notes.map((n) => h("p", { class: "hint warn" }, n)),
     ...spec.terrains.map((t) => terrainCard(map.id, t, spec)),
+    superRodCard(map.id),
     spec.sharedOdds
       ? h(
           "div",

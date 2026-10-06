@@ -93,8 +93,11 @@ export function hasModkit(inst: Install): boolean {
   return inst.kind === "source" && fs.existsSync(path.join(inst.root, "tools", "modkit.py"));
 }
 
+// a finished import: the engine writes rom-cache.complete last
+// (gen1recomp src/import/CacheContract.lua); a data/generated without it is
+// a partial or stale dataset (the source tree's own one lacks audio.lua)
 function datasetOk(base: string): boolean {
-  return fs.existsSync(path.join(base, "data", "generated", "maps.lua"));
+  return fs.existsSync(path.join(base, "data", "generated", "maps.lua")) && fs.existsSync(path.join(base, "rom-cache.complete"));
 }
 
 // The directory holding data/generated and assets/generated of one version,

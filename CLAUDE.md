@@ -20,6 +20,8 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   Root `"game"` = folder holding `mods/`; `"cache:<version>"` = imported dataset.
 - Install detection (checkout vs release, mods dir, dataset lookup) exists twice and
   must stay in sync: `src-tauri/src/paths.rs` and `server/paths.ts`.
+  A version counts as imported only with `data/generated/maps.lua` and `rom-cache.complete`
+  (the source tree's own stale dataset has no marker).
 - `src/games/`: one `GameAdapter` per generation (data files, entity layers +
   declarative inspector fields, connections, collision, colors, new-map defaults,
   `content` registries, `pokemon`/`encounters` specs). Only `gen1` exists; Gen 2/3

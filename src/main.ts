@@ -116,6 +116,25 @@ modSelect.addEventListener("change", async () => {
 
 versionSelect.addEventListener("change", async () => {
   const version = versionSelect.value;
+  // not imported (yet): look again (it may have been imported meanwhile)
+  if (!hostInfo?.versions.find((v) => v.version === version)?.available) {
+    hostInfo = await host.info();
+    renderVersionSelect();
+    if (!hostInfo.versions.find((v) => v.version === version)?.available) {
+      versionSelect.value = currentVersion;
+      const name = `${version[0].toUpperCase()}${version.slice(1)}`;
+      openDialog(
+        `${name} isn't imported yet`,
+        [
+          h("p", {}, `The studio edits a game from the data gen1recomp imports from your own ROM, and there is no ${name} data yet.`),
+          h("p", {}, `Start gen1recomp, choose ${name} and give it your ${name} ROM: it imports the data once. Then pick ${name} here again.`),
+          h("p", { class: "hint" }, "Only a finished import counts (gen1recomp writes rom-cache.complete when it is done)."),
+        ],
+        [h("button", { class: "btn primary", onclick: () => dialog.close() }, "OK")],
+      );
+      return;
+    }
+  }
   if (store.unsaved && !confirm("Switching games discards unsaved edits. Continue?")) {
     versionSelect.value = currentVersion;
     return;
@@ -129,10 +148,12 @@ versionSelect.addEventListener("change", async () => {
 function renderVersionSelect(): void {
   clear(versionSelect);
   for (const v of hostInfo?.versions ?? []) {
-    if (!v.available) continue;
-    const game = GAME_OF_VERSION[v.version];
     const ready = !!adapterFor(v.version);
-    const label = `${v.version[0].toUpperCase()}${v.version.slice(1)} · ${GAME_NAMES[game]}${ready ? "" : " (coming soon)"}`;
+    // versions the studio supports are listed even without an import, so
+    // picking one can explain how to get its data
+    if (!v.available && !ready) continue;
+    const game = GAME_OF_VERSION[v.version];
+    const label = `${v.version[0].toUpperCase()}${v.version.slice(1)} · ${GAME_NAMES[game]}${!ready ? " (coming soon)" : !v.available ? " (not imported)" : ""}`;
     versionSelect.append(h("option", { value: v.version, selected: v.version === currentVersion, disabled: !ready }, label));
   }
 }

@@ -88,8 +88,10 @@ pub fn detect(dir: &Path) -> Option<Install> {
     None
 }
 
+// a finished import: the engine writes rom-cache.complete last
+// (gen1recomp src/import/CacheContract.lua); keep in sync with server/paths.ts
 fn dataset_ok(base: &Path) -> bool {
-    base.join("data").join("generated").join("maps.lua").is_file()
+    base.join("data").join("generated").join("maps.lua").is_file() && base.join("rom-cache.complete").is_file()
 }
 
 impl Install {

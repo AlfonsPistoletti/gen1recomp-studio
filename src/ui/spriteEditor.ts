@@ -98,7 +98,8 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
   // palette, or plain grays
   // RED++: the sprite's own palette (a "random" one shows one of its four)
   const gbcOf = () => (current ? spriteGbcColors(liveSprite(current), "preview", /yellow/i.test(store.project.version)) : null);
-  const useGbc = () => viewPalette === REDPP || (!viewPalette && store.colorMode === "redpp" && !!gbcOf());
+  // only when picked: "this map's" is always the map's own Game Boy palette
+  const useGbc = () => viewPalette === REDPP;
   const colorKey = () => (useGbc() ? (gbcOf()?.key ?? GRAYS) : viewPalette && viewPalette !== REDPP ? viewPalette : store.palettes[store.currentMap] || "ROUTE");
   const colors = (): Rgb[] => (useGbc() ? (gbcOf()?.colors ?? GRAY_COLORS) : colorKey() === GRAYS ? GRAY_COLORS : store.adapter.spriteColors(store.ctx, colorKey()));
 

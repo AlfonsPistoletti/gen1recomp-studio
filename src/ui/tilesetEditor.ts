@@ -440,7 +440,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const onIt = store.map?.tileset === id ? store.currentMap : mapsUsing(id)[0] ?? null;
     const redpp = gbcAvailable() ? gbcKey(id, onIt) : null;
     if (viewPalette === REDPP && !redpp) viewPalette = "";
-    const palette = viewPalette === REDPP ? redpp! : viewPalette || (store.colorMode === "redpp" && redpp ? redpp : auto);
+    // RED++ only when picked: "a map's" is always the map's own Game Boy palette
+    const palette = viewPalette === REDPP ? redpp! : viewPalette || auto;
     const colorsFor = palette === GRAYS ? () => GRAY_COLORS : palette === redpp ? gbcColorsFor(id, palette) : store.adapter.tileColors(store.ctx, ts, palette);
     const url = await tilesetUrl(id);
     const sheet = await readSheet(url);
@@ -468,7 +469,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const names = store.adapter.mapFields.find((f) => f.kind === "select" && f.key === "palette");
     const paletteNames = names && names.kind === "select" ? names.options(store.ctx) : [];
     const view = h("select", { title: "Gen 1 colors maps, not tilesets: each map has a palette (map properties). This only changes how the tileset is shown here." },
-      h("option", { value: "" }, `Colors: a map's (${store.colorMode === "redpp" && redpp ? "RED++" : auto})`),
+      h("option", { value: "" }, `Colors: a map's (${auto})`),
       ...(redpp ? [h("option", { value: REDPP, selected: viewPalette === REDPP }, "Colors: RED++ (Game Boy Color)")] : []),
       ...paletteNames.map((n) => h("option", { value: n, selected: viewPalette === n }, `Colors: ${n}`)),
       h("option", { value: GRAYS, selected: viewPalette === GRAYS }, "Game Boy grays"),

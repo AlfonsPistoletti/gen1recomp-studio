@@ -411,7 +411,8 @@ function typesCard(tc: NonNullable<GlobalsSpec["typeChart"]>, ids: string[], tab
       field("Category", newCat),
       h("button", { class: "btn small primary-ish", onclick: add }, "+ Add type"),
     ),
-    h("p", { class: "hint" }, "A new type starts neutral (1×) against every type; set its matchups in the chart above. Pokémon can use it right away. Moves of the new type need a moves editor, which the studio does not have yet."),
+    h("p", { class: "hint" }, "A new type starts neutral (1×) against every type; set its matchups in the chart above. Pokémon and moves can use it right away: pick it as a move's Type in the Moves workspace."),
+    h("button", { class: "btn small ghost", onclick: () => nav.setWorkspace("moves") }, "Open Moves →"),
   );
 }
 

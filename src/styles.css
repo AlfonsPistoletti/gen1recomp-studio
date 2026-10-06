@@ -877,3 +877,8 @@ dialog.modal { min-width: 420px; }
 .view-float { position: absolute; top: 8px; right: 8px; z-index: 15; display: flex; align-items: center; gap: 2px; padding: 3px; border-radius: 8px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35); }
 .view-float .zoom-label { min-width: 42px; text-align: center; font-size: 12px; font-variant-numeric: tabular-nums; }
 .view-float-sep { width: 1px; height: 18px; margin: 0 3px; background: var(--line); }
+.mod-details { width: min(640px, 94vw); }
+.mod-details-body { max-height: 66vh; overflow-y: auto; padding-right: 6px; display: flex; flex-direction: column; gap: 8px; }
+.mod-details-body h4 { margin: 8px 0 0; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
+.mod-details input[type="text"]:not([hidden]) { min-width: 0; }
+.perm-list { display: flex; flex-direction: column; gap: 4px; }

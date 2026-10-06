@@ -400,9 +400,12 @@ Pick a mod in the top bar, or choose **+ New mod…**, which runs
 - If `main.lua` does not load the studio file yet, the studio offers to add
   `require("mods.<id>.studio_content")(mod)` before its final `end`.
 
-**Mod details** (the gear next to the mod menu) edits the mod's name,
-description, version, category, priority, GitHub repository and the
-experimental flag in its `manifest.json`.
+**Mod details** (the gear next to the mod menu) edits the mod's
+`manifest.json`: name, description, version, category (or your own), the
+experimental flag; profile, priority, the engine version it needs and the
+games it is for; the mods it needs, works with, conflicts with or breaks with;
+the GitHub repository for updates and its permissions (`engine_internals` is
+managed by the studio).
 
 **Pack** saves, then runs `modkit pack <id>`, which validates strictly
 (warnings stop it too) and writes `<id>-<version>.modpkg` into the game folder:

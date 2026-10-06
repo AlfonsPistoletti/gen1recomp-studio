@@ -62,7 +62,7 @@ const modDetailsBtn = h("button", {
   class: "btn icon",
   title: "Mod details: name, description, version, category",
   "aria-label": "Mod details",
-  onclick: () => currentMod && void modDetailsDialog(host, currentMod, () => void refreshMods()),
+  onclick: () => currentMod && void modDetailsDialog(host, currentMod, () => void refreshMods(), allMods.map((m) => m.id)),
 }, icon(Settings));
 const saveBtn = h("button", { class: "btn primary", onclick: () => save(), title: "Save into the mod (Ctrl+S)" }, "Save");
 const validateBtn = h("button", { class: "btn", onclick: () => validate(), title: "Run modkit validate --strict and lint" }, "Validate");

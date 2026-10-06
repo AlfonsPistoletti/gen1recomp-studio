@@ -213,7 +213,9 @@ interface Cut {
   grid: number[][];
 }
 
-function cutPicture(img: HTMLImageElement, trueColor: boolean): Cut {
+// `dedupe`: identical tiles are stored once (else every cell is its own
+// tile, in reading order, so the picture's layout survives)
+function cutPicture(img: HTMLImageElement, trueColor: boolean, dedupe = true): Cut {
   const cols = Math.floor(img.width / TILE);
   const rows = Math.floor(img.height / TILE);
   const c = document.createElement("canvas");
@@ -240,7 +242,7 @@ function cutPicture(img: HTMLImageElement, trueColor: boolean): Cut {
     const row: number[] = [];
     for (let tx = 0; tx < cols; tx++) {
       const key = tileKey(px, c.width, tx * TILE, ty * TILE, trueColor);
-      let i = byKey.get(key);
+      let i = dedupe ? byKey.get(key) : undefined;
       if (i === undefined) {
         const one = new Uint8ClampedArray(TILE * TILE * 4);
         for (let y = 0; y < TILE; y++) one.set(px.subarray(((ty * TILE + y) * c.width + tx * TILE) * 4, ((ty * TILE + y) * c.width + tx * TILE + TILE) * 4), y * TILE * 4);
@@ -268,9 +270,8 @@ function blocksOf(cut: Cut, idOf: (tile: number) => number): number[][] {
   return out;
 }
 
-// A sheet image (16 tiles a row) from RGBA tiles.
-function sheetCanvas(tiles: Uint8ClampedArray[]): HTMLCanvasElement {
-  const per = 16;
+// A sheet image (`per` tiles a row) from RGBA tiles.
+function sheetCanvas(tiles: Uint8ClampedArray[], per = 16): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = per * TILE;
   c.height = Math.max(1, Math.ceil(tiles.length / per)) * TILE;
@@ -309,6 +310,12 @@ function existingKeys(sheet: Sheet | null, per: number, have: number, trueColor:
   return out;
 }
 
+// a white tile: fills the rest of a row when a picture keeps its layout
+function blankTile(): Cut["tiles"][number] {
+  const px = new Uint8ClampedArray(TILE * TILE * 4).fill(255);
+  return { key: "0".repeat(64), px };
+}
+
 function tileCanvas(px: Uint8ClampedArray): HTMLCanvasElement {
   const c = document.createElement("canvas");
   c.width = TILE;
@@ -329,6 +336,8 @@ interface ImportPlan {
   fresh: Cut["tiles"];
   blocks: number[][];
   anims: { tile: number; frames: Cut["tiles"] }[];
+  // new tiles that only fill a row (not walkable)
+  filler?: Set<number>;
 }
 
 function pickFile(): Promise<File | null> {
@@ -1172,7 +1181,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     });
     if (ed.own) {
       const all = [...(plan.sheet ? sheetTileList(plan.sheet, plan.per, plan.have) : []), ...plan.fresh.map((f) => f.px)];
-      const canvas = sheetCanvas(all);
+      const canvas = sheetCanvas(all, plan.per);
       const path = plan.fresh.length ? addAsset(mod, id.toLowerCase(), bytesOf(canvas)) : null;
       const added = plan.anims.map(keepFrames);
       editTileset(id, label, (d) => {
@@ -1180,10 +1189,10 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
           d.rec!.image = path;
           d.rec!.imageWidth = canvas.width;
           d.rec!.imageHeight = canvas.height;
-          d.rec!.tilesPerRow = 16;
+          d.rec!.tilesPerRow = plan.per;
         }
         d.blocks.push(...plan.blocks);
-        for (let t = plan.have; t < plan.have + plan.fresh.length; t++) d.walkable.push(t);
+        for (let t = plan.have; t < plan.have + plan.fresh.length; t++) if (!plan.filler?.has(t)) d.walkable.push(t);
         if (added.length) {
           const tiles = new Set(added.map((a) => a.tile));
           setOwnAnimations(d.rec!, [...ownAnimations(d.rec!).filter((a) => !tiles.has(a.tile!)), ...added], mod);
@@ -1194,7 +1203,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         const ext = d as unknown as TilesetExtension;
         ext.tiles.push(...plan.fresh.map((f) => f.key));
         ext.blocks.push(...plan.blocks);
-        for (let t = plan.have; t < plan.have + plan.fresh.length; t++) ext.walkable!.push(t);
+        for (let t = plan.have; t < plan.have + plan.fresh.length; t++) if (!plan.filler?.has(t)) ext.walkable!.push(t);
         if (plan.anims.length) {
           const tiles = new Set(plan.anims.map((a) => a.tile));
           ext.animated = [...(ext.animated ?? []).filter((a) => !tiles.has(a.tile)), ...plan.anims.map((a) => ({ tile: a.tile, period: 20, frames: a.frames.map((f) => f.key) }))];
@@ -1250,7 +1259,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       if (st.ed.own) {
         const all = sheetTileList(st.sheet!, st.per, st.have);
         all[tile] = frames[0].px;
-        const canvas = sheetCanvas(all);
+        const canvas = sheetCanvas(all, st.per);
         const path = addAsset(store.project.mod, id.toLowerCase(), bytesOf(canvas));
         store.group("Animate tile", () => {
           editTileset(id, "Animate tile", (d) => {
@@ -1329,12 +1338,31 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   // each whole 32x32 square becomes a block.
   const importTiles = async (id: string) => {
     if (!store.project.mod) return toast("Open a mod first: imported tiles are saved into it.", "error");
-    const file = await pickFile();
-    if (!file) return;
+    const res = await promptPicture("Import tiles", "Added below the sheet's tiles. Every whole 32×32 square also becomes a block.");
+    if (!res) return;
     try {
-      const img = await fileImage(file);
+      const img = await fileImage(res.file);
       if (img.width < TILE || img.height < TILE) throw new Error("The picture is smaller than one 8×8 tile.");
       const st = await sheetState(id);
+      // keep the layout: the picture's rows start on a fresh sheet row, the
+      // rest of each row stays blank (only when it fits the sheet's width)
+      if (!res.optimize && Math.floor(img.width / TILE) <= st.per) {
+        const cut = cutPicture(img, st.trueColor, false);
+        const start = Math.ceil(st.have / st.per) * st.per;
+        const fresh: Cut["tiles"] = Array.from({ length: start - st.have }, blankTile);
+        const filler = new Set<number>(Array.from({ length: start - st.have }, (_v, i) => st.have + i));
+        for (let y = 0; y < cut.rows; y++) {
+          for (let x = 0; x < st.per; x++) {
+            if (x >= cut.cols) filler.add(st.have + fresh.length);
+            fresh.push(x < cut.cols ? cut.tiles[cut.grid[y][x]] : blankTile());
+          }
+        }
+        const blocks = blocksOf(cut, (i) => start + Math.floor(i / cut.cols) * st.per + (i % cut.cols));
+        commitImport(id, { have: st.have, sheet: st.sheet, per: st.per, fresh, blocks, anims: [], filler }, "Import tiles");
+        toast(`${cut.cols * cut.rows} tiles added as laid out (from #${start}), ${blocks.length} new block${blocks.length === 1 ? "" : "s"}. New tiles start walkable.`, "ok");
+        return;
+      }
+      if (!res.optimize) toast(`The picture is wider than the sheet (${st.per} tiles a row), so its tiles were packed.`, "info");
       const cut = cutPicture(img, st.trueColor);
       const have = st.have;
       const existing = existingKeys(st.sheet, st.per, have, st.trueColor);
@@ -1363,8 +1391,11 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     try {
       const img = await fileImage(res.file);
       if (img.width < TILE || img.height < TILE) throw new Error("The picture is smaller than one 8×8 tile.");
-      const cut = cutPicture(img, res.trueColor);
-      const canvas = sheetCanvas(cut.tiles.map((t) => t.px));
+      // as laid out: the picture is the sheet (its own width); optimized:
+      // repeats stored once, 16 tiles a row
+      const cut = cutPicture(img, res.trueColor, res.optimize);
+      const per = res.optimize ? 16 : Math.max(1, cut.cols);
+      const canvas = sheetCanvas(cut.tiles.map((t) => t.px), per);
       const path = addAsset(store.project.mod!, res.id.toLowerCase(), bytesOf(canvas));
       let blocks = blocksOf(cut, (i) => i);
       if (!blocks.length) blocks = [new Array<number>(16).fill(0)];
@@ -1373,7 +1404,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         image: path,
         imageWidth: canvas.width,
         imageHeight: canvas.height,
-        tilesPerRow: 16,
+        tilesPerRow: per,
         ...(res.trueColor ? { trueColor: true } : {}),
         animation: "TILEANIM_NONE",
         walkable: cut.tiles.map((_t, i) => i),
@@ -1419,13 +1450,14 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
 }
 
 // id, picture and color mode of a new tileset
-function promptNewTileset(taken: string[]): Promise<{ id: string; file: File; trueColor: boolean } | null> {
+function promptNewTileset(taken: string[]): Promise<{ id: string; file: File; trueColor: boolean; optimize: boolean } | null> {
   return new Promise((resolve) => {
     const dialog = h("dialog", {});
     const id = h("input", { type: "text", spellcheck: false, placeholder: "MY_TILES" });
     const file = h("input", { type: "file", accept: "image/png,image/gif,image/bmp,image/webp" });
     const color = h("input", { type: "checkbox" });
-    const close = (v: { id: string; file: File; trueColor: boolean } | null) => {
+    const optimize = h("input", { type: "checkbox" });
+    const close = (v: { id: string; file: File; trueColor: boolean; optimize: boolean } | null) => {
       dialog.close();
       dialog.remove();
       resolve(v);
@@ -1436,7 +1468,7 @@ function promptNewTileset(taken: string[]): Promise<{ id: string; file: File; tr
       if (taken.includes(newId)) return toast(`${newId} already exists`, "error");
       const f = file.files?.[0];
       if (!f) return toast("Pick a picture", "error");
-      close({ id: newId, file: f, trueColor: color.checked });
+      close({ id: newId, file: f, trueColor: color.checked, optimize: optimize.checked });
     };
     id.addEventListener("keydown", (e) => e.key === "Enter" && create());
     dialog.addEventListener("cancel", (e) => {
@@ -1446,12 +1478,45 @@ function promptNewTileset(taken: string[]): Promise<{ id: string; file: File; tr
     dialog.append(
       h("h3", {}, "New tileset"),
       field("Id", id, "Maps name their tileset by this id; cannot be changed later."),
-      field("Picture", file, "Cut into 8×8 tiles (repeats are stored once); every whole 32×32 square also becomes a block. A map drawn as one picture works straight away."),
+      field("Picture", file, "Cut into 8×8 tiles; every whole 32×32 square also becomes a block. A map drawn as one picture works straight away."),
+      h("label", { class: "inline-check" }, optimize, "Optimize: store repeated tiles once and pack the sheet (smaller, but your layout isn't kept)"),
       h("label", { class: "inline-check" }, color, "Full color (keep the picture's colors instead of the 4 Game Boy shades the map palette colors)"),
       h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), h("button", { class: "btn primary", onclick: create }, "Create")),
     );
     document.body.append(dialog);
     dialog.showModal();
     id.focus();
+  });
+}
+
+// a picture to import, and whether to optimize it
+function promptPicture(title: string, hint: string): Promise<{ file: File; optimize: boolean } | null> {
+  return new Promise((resolve) => {
+    const dialog = h("dialog", {});
+    const file = h("input", { type: "file", accept: "image/png,image/gif,image/bmp,image/webp" });
+    const optimize = h("input", { type: "checkbox" });
+    const close = (v: { file: File; optimize: boolean } | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(v);
+    };
+    const go = () => {
+      const f = file.files?.[0];
+      if (!f) return toast("Pick a picture", "error");
+      close({ file: f, optimize: optimize.checked });
+    };
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      close(null);
+    });
+    dialog.append(
+      h("h3", {}, title),
+      field("Picture", file, hint),
+      h("label", { class: "inline-check" }, optimize, "Optimize: store repeated tiles once, reuse tiles the sheet already has, and pack them (fewer tiles, but your layout isn't kept)"),
+      h("p", { class: "hint" }, "Without it, the picture is added as laid out, starting on a new row of the sheet."),
+      h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), h("button", { class: "btn primary", onclick: go }, "Import")),
+    );
+    document.body.append(dialog);
+    dialog.showModal();
   });
 }

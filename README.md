@@ -295,7 +295,7 @@ renamed before players have saves with it.
     The speed is set per tile. The spinner tilesets (GYM, FACILITY) can't get
     animations of their own.
   - **+ New** makes a tileset from a picture: it is cut into 8×8 tiles
-    (repeats stored once), in the 4 Game Boy shades or full color, and every
+    (kept as laid out, or with **Optimize** repeats stored once and packed), in the 4 Game Boy shades or full color, and every
     whole 32×32 square becomes a block. Door, warp, counter and tall-grass
     tiles and the water animation are set per tile.
   - The game's own tilesets can be **extended** instead of copied: **+ Import

@@ -17,7 +17,7 @@ const GENERATED = "assets/generated/";
 const listed = new Map<string, Promise<string[]>>();
 
 // the cache's images below assets/generated, minus the spec's skipped folders
-function cacheImages(spec: ImageSpec): Promise<string[]> {
+export function cacheImages(spec: ImageSpec): Promise<string[]> {
   const version = store.project.version;
   let p = listed.get(version);
   if (!p) {

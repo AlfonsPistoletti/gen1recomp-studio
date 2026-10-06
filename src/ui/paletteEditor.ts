@@ -6,7 +6,9 @@
 import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import { liveTileset, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
-import { atlasRect, blockAtlas, BLOCK } from "../render/graphics.ts";
+import { atlasRect, blockAtlas, loadImage, BLOCK } from "../render/graphics.ts";
+import { cacheImages } from "./imageEditor.ts";
+import { spriteUrl as pokemonArtUrl } from "./pokemonEditor.ts";
 import type { Rgb } from "../render/color.ts";
 import { clear, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
@@ -17,6 +19,52 @@ const REG = "palettes";
 const MAP_PALETTES = ["ROUTE", "PALLET", "VIRIDIAN", "PEWTER", "CERULEAN", "LAVENDER", "VERMILION", "CELADON", "FUCHSIA", "CINNABAR", "INDIGO", "SAFFRON", "CAVE"];
 const SHADE_LABELS = ["Lightest (white in the art)", "Light gray", "Dark gray", "Darkest (black in the art)"];
 const NAME_RE = /^[A-Z][A-Z0-9_]*$/;
+// the screen a game palette colors (pokered SGB palettes), for its preview
+const SCREEN_IMAGE: Record<string, string> = {
+  TOWNMAP: "townmap/tiles.png",
+  LOGO1: "title/pokemon_logo.png",
+  LOGO2: "title/pokemon_logo.png",
+  SLOTS1: "slots/red_slots_1.png",
+  SLOTS2: "slots/red_slots_2.png",
+  SLOTS3: "slots/symbols.png",
+  SLOTS4: "slots/symbols.png",
+  BADGE: "trainer_card/badges.png",
+  GAMEFREAK: "intro/gamefreak_logo.png",
+  GREENBAR: "battle/battle_hud_1.png",
+  YELLOWBAR: "battle/battle_hud_1.png",
+  REDBAR: "battle/battle_hud_1.png",
+  BLACK: "credits/the_end.png",
+};
+
+// a gray image in the palette's 4 colors (lightest first), clear stays clear
+async function recolor(url: string, pal: Rgb[], zoom: number): Promise<HTMLCanvasElement | null> {
+  const img = await loadImage(url);
+  if (!img) return null;
+  const c = document.createElement("canvas");
+  c.width = img.width;
+  c.height = img.height;
+  const ctx = c.getContext("2d", { willReadFrequently: true })!;
+  ctx.drawImage(img, 0, 0);
+  const data = ctx.getImageData(0, 0, c.width, c.height);
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] === 0) continue;
+    const g = px[i];
+    const col = pal[g > 212 ? 0 : g > 127 ? 1 : g > 42 ? 2 : 3];
+    px[i] = col[0];
+    px[i + 1] = col[1];
+    px[i + 2] = col[2];
+  }
+  ctx.putImageData(data, 0, 0);
+  const out = document.createElement("canvas");
+  out.width = c.width * zoom;
+  out.height = c.height * zoom;
+  out.className = "palette-preview";
+  const octx = out.getContext("2d")!;
+  octx.imageSmoothingEnabled = false;
+  octx.drawImage(c, 0, 0, out.width, out.height);
+  return out;
+}
 
 type Palette = Rgb[];
 const table = () => store.table(REG) as Record<string, Palette>;
@@ -41,6 +89,9 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
   let current: string | null = null;
   // the map the preview draws (null: one that uses the palette, outdoor first)
   let previewMap: string | null = null;
+  // the Pokémon / game image the preview shows (null: one the palette colors)
+  let previewMon: string | null = null;
+  let previewImage: string | null = null;
   const newBtn = h("button", { class: "btn small", title: "A new palette, starting as a copy of the selected one", onclick: () => newPalette() }, "+ New");
   const list = mountRecordList(left, {
     title: "Palettes",
@@ -83,7 +134,60 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
 
   // a map drawn in the palette (the first map that uses it, or Pallet Town)
   let token = 0;
+  // species whose battle pictures a palette colors (their own `palette`, else
+  // the game's species -> palette table)
+  const monsWith = (name: string): string[] => {
+    const byGame = ((store.project.data.extra.palettes as { pokemon?: Record<string, string> } | undefined)?.pokemon) ?? {};
+    const all = store.table("pokemon") as Record<string, { palette?: unknown; dex?: number }>;
+    return Object.keys(all)
+      .filter((id) => (typeof all[id]?.palette === "string" ? all[id].palette : byGame[id] ?? "MEWMON") === name)
+      .sort((a, b) => (all[a]?.dex ?? 999) - (all[b]?.dex ?? 999));
+  };
+
   const preview = async (name: string, holder: HTMLElement) => {
+    const kind = kindOf(name);
+    if (kind === "Pokémon") return previewPokemon(name, holder);
+    if (kind === "screen") return previewScreen(name, holder);
+    return previewOnMap(name, holder);
+  };
+
+  const previewPokemon = async (name: string, holder: HTMLElement) => {
+    const my = ++token;
+    const all = store.table("pokemon") as Record<string, Record<string, unknown>>;
+    const users = monsWith(name);
+    const id = previewMon && all[previewMon] ? previewMon : users[0] ?? Object.keys(all)[0];
+    const rec = all[id];
+    const spec = store.adapter.pokemon;
+    if (!rec || !spec) return;
+    const pal = table()[name];
+    const [front, back] = await Promise.all([
+      recolor(pokemonArtUrl(spec.frontSprite(rec)), pal, 3),
+      // a 32x32 back is drawn doubled in battle, like the game does
+      loadImage(pokemonArtUrl(spec.backSprite(rec))).then((img) => recolor(pokemonArtUrl(spec.backSprite(rec)), pal, img && img.width <= 32 ? 6 : 3)),
+    ]);
+    if (my !== token) return;
+    holder.replaceChildren(
+      h("div", { class: "row wrap palette-mon" },
+        front ? h("div", {}, front, h("p", { class: "hint" }, "Front")) : null,
+        back ? h("div", {}, back, h("p", { class: "hint" }, "Back")) : null,
+      ),
+      h("p", { class: "hint" }, `${String(rec.name ?? id)}${users.includes(id) ? "" : " (doesn't use it: shown as an example)"}`),
+    );
+  };
+
+  const previewScreen = async (name: string, holder: HTMLElement) => {
+    const my = ++token;
+    const rel = previewImage ?? SCREEN_IMAGE[name] ?? "title/pokemon_logo.png";
+    const url = store.project.host.imageUrl(store.project.version, `assets/generated/${rel}`);
+    const img = await recolor(url, table()[name], 3);
+    if (my !== token) return;
+    holder.replaceChildren(
+      img ?? h("p", { class: "hint warn" }, `${rel} isn't in this version's imported files.`),
+      h("p", { class: "hint" }, `${rel}${SCREEN_IMAGE[name] === rel ? "" : " (shown as an example)"}`),
+    );
+  };
+
+  const previewOnMap = async (name: string, holder: HTMLElement) => {
     const my = ++token;
     // an outdoor map shows a palette best
     const users = mapsWith(name);
@@ -105,6 +209,42 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
       ctx.drawImage(atlas.canvas, sx, sy, BLOCK, BLOCK, (i % map.width) * BLOCK, Math.floor(i / map.width) * BLOCK, BLOCK, BLOCK);
     });
     holder.replaceChildren(c, h("p", { class: "hint" }, `${mapId}${users.includes(mapId) ? "" : " (doesn't use it: shown as an example)"}`));
+  };
+
+  // which Pokémon to preview: the ones the palette colors first
+  const monPicker = (name: string): HTMLElement => {
+    const all = store.table("pokemon") as Record<string, { name?: unknown; dex?: number }>;
+    const users = monsWith(name);
+    const others = Object.keys(all).filter((m) => !users.includes(m)).sort((a, b) => (all[a]?.dex ?? 999) - (all[b]?.dex ?? 999));
+    const label = (id: string) => String(all[id]?.name ?? id);
+    const sel = h("select", { title: "The Pokémon the preview shows in this palette" },
+      h("option", { value: "", selected: !previewMon }, "Preview on: a Pokémon that uses it"),
+      users.length ? h("optgroup", { label: "Uses this palette" }, ...users.map((m) => h("option", { value: m, selected: previewMon === m }, label(m)))) : null,
+      h("optgroup", { label: "Other Pokémon" }, ...others.map((m) => h("option", { value: m, selected: previewMon === m }, label(m)))),
+    );
+    sel.addEventListener("change", () => {
+      previewMon = sel.value || null;
+      void render();
+    });
+    return sel;
+  };
+
+  // which game image to preview: the palette's own screen, or any other
+  const imagePicker = (name: string): HTMLElement => {
+    const sel = h("select", { title: "The game image the preview shows in this palette" },
+      h("option", { value: "", selected: !previewImage }, `Preview on: ${SCREEN_IMAGE[name] ?? "the title logo"}`),
+    );
+    const spec = store.adapter.images;
+    if (spec) {
+      void cacheImages(spec).then((files) => {
+        for (const f of files) sel.append(h("option", { value: f, selected: previewImage === f }, f));
+      });
+    }
+    sel.addEventListener("change", () => {
+      previewImage = sel.value || null;
+      void render();
+    });
+    return sel;
   };
 
   // which map to preview: the ones using the palette first, then all others
@@ -150,7 +290,7 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
           : null,
       ),
       h("div", { class: "card" },
-        h("div", { class: "card-head" }, h("h4", {}, "Preview"), previewPicker(name)),
+        h("div", { class: "card-head" }, h("h4", {}, "Preview"), kindOf(name) === "Pokémon" ? monPicker(name) : kindOf(name) === "screen" ? imagePicker(name) : previewPicker(name)),
         holder,
       ),
     );

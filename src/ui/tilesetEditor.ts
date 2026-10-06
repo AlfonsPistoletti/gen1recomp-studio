@@ -703,7 +703,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       COLLISION_SLOTS.forEach((slot, cell) => {
         const x = (cell % 2) * SLOT * 2;
         const y = Math.floor(cell / 2) * SLOT * 2;
-        const mark = walk.has(block[slot]) ? "walk" : ledges.get(block[slot]);
+        // one mark per quarter, in its middle: walk, ledge, surf or cut
+        const q = quarterMarks(id, ts, b)[cell];
+        const mark = walk.has(block[slot]) ? "walk" : ledges.get(block[slot]) ?? (q.water ? "water" : q.cut ? "cut" : undefined);
         if (!mark) {
           ctx.fillStyle = "rgba(255, 50, 70, 0.22)";
           ctx.fillRect(x, y, SLOT * 2, SLOT * 2);
@@ -714,9 +716,6 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ctx.strokeRect(x + 1.5, y + SLOT + 1.5, SLOT - 3, SLOT - 3);
         ctx.setLineDash([]);
         if (mark) drawMark(ctx, mark, x + SLOT, y + SLOT, 22, schedule);
-        const q = quarterMarks(id, ts, b)[cell];
-        if (q.water) drawMark(ctx, "water", x + SLOT * 2 - 14, y + 14, 16, schedule);
-        if (q.cut) drawMark(ctx, "cut", x + 14, y + 14, 16, schedule);
       });
       ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
       ctx.lineWidth = 1;

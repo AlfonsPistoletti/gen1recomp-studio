@@ -15,7 +15,8 @@ import { createMod, listMods, openProject as loadProject, saveProject, validateM
 import { isTyping, MapView } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { mountChangesMenu } from "./ui/changesMenu.ts";
-import { Grid3x3, MousePointer2, PaintBucket, Paintbrush, Pipette, Redo2, Square, Undo2, ZoomIn, ZoomOut, type IconNode } from "lucide";
+import { Grid3x3, MousePointer2, PaintBucket, Paintbrush, Pipette, Redo2, Settings, Square, Undo2, ZoomIn, ZoomOut, type IconNode } from "lucide";
+import { modDetailsDialog } from "./ui/modDetails.ts";
 import { $, clear, field, h, icon, numberInput, toast, errorText } from "./ui/dom.ts";
 import { addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
 import { mountMapList } from "./ui/mapList.ts";
@@ -56,6 +57,13 @@ const view = new MapView($("#viewport"));
 
 const versionSelect = h("select", { class: "version-select", title: "Which imported ROM to edit" });
 const modSelect = h("select", { class: "mod-select", title: "The mod your edits are saved into" });
+// the mod's name, description, version, ... (manifest.json)
+const modDetailsBtn = h("button", {
+  class: "btn icon",
+  title: "Mod details: name, description, version, category",
+  "aria-label": "Mod details",
+  onclick: () => currentMod && void modDetailsDialog(host, currentMod, () => void refreshMods()),
+}, icon(Settings));
 const saveBtn = h("button", { class: "btn primary", onclick: () => save(), title: "Save into the mod (Ctrl+S)" }, "Save");
 const validateBtn = h("button", { class: "btn", onclick: () => validate(), title: "Run modkit validate --strict and lint" }, "Validate");
 const undoBtn = h("button", { class: "btn icon", onclick: () => store.undo(), title: "Undo (Ctrl+Z)", "aria-label": "Undo" }, icon(Undo2));
@@ -92,7 +100,7 @@ const workspaceTabs = WORKSPACES.map((w) =>
 $("#topbar").append(
   installBtn,
   h("div", { class: "group" }, h("span", { class: "muted" }, "Game"), versionSelect),
-  h("div", { class: "group" }, h("span", { class: "muted" }, "Mod"), modSelect),
+  h("div", { class: "group" }, h("span", { class: "muted" }, "Mod"), modSelect, modDetailsBtn),
   h("nav", { class: "ws-tabs" }, ...workspaceTabs),
   h("div", { class: "group" }, undoBtn, redoBtn),
   h("div", { class: "spacer" }),
@@ -182,6 +190,7 @@ function refreshTopbar(): void {
   redoBtn.disabled = !store.canRedo;
   undoBtn.title = store.canUndo ? `Undo ${store.undoLabel()} (Ctrl+Z)` : "Undo (Ctrl+Z)";
   validateBtn.disabled = !currentMod || !hostInfo?.modkit;
+  modDetailsBtn.disabled = !currentMod;
   validateBtn.title = hostInfo && !hostInfo.modkit
     ? "Validate needs a source checkout of gen1recomp (tools/modkit.py); release builds do not ship it"
     : "Run modkit validate --strict and lint";

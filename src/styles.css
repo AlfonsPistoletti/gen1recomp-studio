@@ -862,3 +862,6 @@ dialog.modal { min-width: 420px; }
   background: repeating-conic-gradient(#2a2f38 0% 25%, #20242c 0% 50%) 50% / 16px 16px; }
 .image-pic { image-rendering: pixelated; }
 .view-switch .toggle { font-size: 12px; }
+.mod-details { width: min(560px, 92vw); }
+.mod-details textarea { width: 100%; resize: vertical; }
+.mod-details .row > .field { flex: 1; }

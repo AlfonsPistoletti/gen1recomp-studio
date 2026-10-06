@@ -241,7 +241,20 @@ renamed before players have saves with it.
     copy**; ones that are code in the game can be replaced by a new event.
   - Events are saved as the engine's own command rows in
     `mods/<id>/studio_events.lua`; a fixed helper registers them.
-- **Tilesets**: the tile sheet, the 32×32 blocks maps are painted with, and
+- **Graphics**: two views, switched at the top of the left panel.
+- **Graphics > Sprites**: the overworld sprites of NPCs, the player
+  (SPRITE_RED, _RED_BIKE, SEEL for surfing, BIRD for flying) and objects. A
+  preview walks the sprite in all four directions at NPC or player speed;
+  the frames are listed below it.
+  - **Import sheet…** takes 16×16 frames stacked or side by side (walkers:
+    stand ↓ ↑ ←, walk ↓ ↑ ←; turners 3 frames; objects 1) and replaces the
+    game's art (only the image is patched). **Replace frame…** works on
+    sheets the mod already owns. **+ New** adds a sprite NPCs can use.
+  - Known issue: modkit's ROM-art check (MK302) compares tiny 8×8
+    fingerprints, so most person-shaped sprites are flagged as near-duplicates
+    of a game sprite and validation fails (the game's own walker sheets match
+    each other in 177 of 780 pairs). Reported to gen1recomp.
+- **Graphics > Tilesets**: the tile sheet, the 32×32 blocks maps are painted with, and
   which tiles you can walk on (footprints; ledges show their hop arrow). You
   walk on a block in quarters, each decided by its bottom-left tile. **Edit**
   in the map's block palette opens the map's tileset. Drag over several tiles

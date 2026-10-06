@@ -70,6 +70,9 @@ function render(img: HTMLImageElement, t: ArtTarget, shades: boolean, brightness
   // is fitted and repeated
   if (frames > 1 && img.width === t.width && img.height === t.height * frames) {
     ctx.drawImage(img, 0, 0);
+  } else if (frames > 1 && img.width === t.width * frames && img.height === t.height) {
+    // the frames side by side: stacked the way the sheet holds them
+    for (let f = 0; f < frames; f++) ctx.drawImage(img, f * t.width, 0, t.width, t.height, 0, f * t.height, t.width, t.height);
   } else {
     const frame = fitFrame(img, t.width, t.height, t.align);
     for (let f = 0; f < frames; f++) ctx.drawImage(frame, 0, f * t.height);

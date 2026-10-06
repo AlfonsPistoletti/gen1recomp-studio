@@ -131,6 +131,9 @@ const content: ContentSpec[] = [
   // tiles and blocks added to vanilla tilesets: plain data in
   // studio_tilesets.lua, patched in by the generated helper
   { registry: "studio_tilesets", editable: true, build: () => ({}), studioFile: "studio_tilesets.lua", generates: "tilesets" },
+  // overworld sprites (filled from Dataset.sprites in load): vanilla ones get
+  // their art replaced (patched), the mod's own are registered whole
+  { registry: "sprites", editable: true, build: () => ({}), fieldOrder: ["id", "image", "frames", "walker", "trueColor"] },
   // RED++ roof colors of maps (map id -> { index, colors }), see src/core/gbc.ts
   { registry: "studio_roofs", editable: true, build: () => ({}), studioFile: "studio_roofs.lua" },
 ];
@@ -638,6 +641,7 @@ export const gen1: GameAdapter = {
     const contentTables: Dataset["content"] = {};
     content.forEach((c, i) => (contentTables[c.registry] = c.build ? c.build(tables[i] ?? {}, version) : tables[i] ?? {}));
     contentTables.tilesets = { ...tilesets };
+    contentTables.sprites = { ...sprites };
     // only what the editor reads from the big field table
     const fieldExtra: Field = { waterTilesets: fieldData.waterTilesets, indoorEncounters: fieldData.indoorEncounters, ledges: fieldData.ledges };
     return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, field: fieldExtra, icons } };
@@ -673,7 +677,7 @@ export const gen1: GameAdapter = {
       color: "#3cc8e6",
       fields: [
         { kind: "text", key: "name", label: "Name" },
-        { kind: "select", key: "sprite", label: "Sprite", options: (ctx) => Object.keys(ctx.data.sprites).sort() },
+        { kind: "select", key: "sprite", label: "Sprite", options: (ctx) => Object.keys(ctx.records.sprites ?? ctx.data.sprites).sort() },
         {
           kind: "pair",
           fields: [

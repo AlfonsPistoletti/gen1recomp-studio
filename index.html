@@ -51,9 +51,13 @@
       <section id="events-center" class="panel ws-main" data-ws="events" hidden></section>
       <aside id="events-right" class="panel side-right" data-ws="events" hidden></aside>
 
-      <aside id="tilesets-left" class="panel side-left" data-ws="tilesets" hidden></aside>
-      <section id="tilesets-center" class="panel ws-main" data-ws="tilesets" hidden></section>
-      <aside id="tilesets-right" class="panel side-right" data-ws="tilesets" hidden></aside>
+      <!-- Graphics: two views (data-view), switched in src/main.ts -->
+      <aside id="tilesets-left" class="panel side-left" data-ws="graphics" data-view="tilesets" hidden></aside>
+      <section id="tilesets-center" class="panel ws-main" data-ws="graphics" data-view="tilesets" hidden></section>
+      <aside id="tilesets-right" class="panel side-right" data-ws="graphics" data-view="tilesets" hidden></aside>
+      <aside id="sprites-left" class="panel side-left" data-ws="graphics" data-view="sprites" hidden></aside>
+      <section id="sprites-center" class="panel ws-main" data-ws="graphics" data-view="sprites" hidden></section>
+      <aside id="sprites-right" class="panel side-right" data-ws="graphics" data-view="sprites" hidden></aside>
 
       <aside id="global-left" class="panel side-left" data-ws="global" hidden></aside>
       <section id="global-center" class="panel ws-main" data-ws="global" hidden></section>

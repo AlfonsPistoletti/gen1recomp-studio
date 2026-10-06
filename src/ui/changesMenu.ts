@@ -24,6 +24,7 @@ const NAMES: Record<string, [string, string]> = {
   studio_events: ["Events", "event"],
   map_songs: ["Map music", "map's music"],
   tilesets: ["Tilesets", "tileset"],
+  sprites: ["Sprites", "sprite"],
   studio_roofs: ["RED++ roofs", "RED++ roof"],
   studio_tilesets: ["Tiles added to the game's tilesets", "tileset addition"],
   field: ["Hidden events and landing spots", "field setting"],
@@ -106,6 +107,8 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       return store.table("trainers")[id] ? () => nav.openTrainer(id) : null;
     case "text":
       return removed ? null : () => nav.openText(id);
+    case "sprites":
+      return store.table("sprites")[id] ? () => nav.openSprite(id) : null;
     case "studio_roofs":
       return store.maps[id] ? () => nav.openMap(id) : null;
     case "tilesets":

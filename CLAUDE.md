@@ -30,7 +30,7 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   history. Map edits emit `"edit"`, other registries `"content"`, and undo/redo of a
   non-map record emits `"reveal"`. Save writes every editable registry; ops of
   registries the studio doesn't edit are kept verbatim.
-- UI workspaces (Maps / Pokémon / Moves / Items / Trainers / Text / Events / Tilesets / Global): `index.html` has one panel set per
+- UI workspaces (Maps / Pokémon / Moves / Items / Trainers / Text / Events / Graphics / Global; Graphics has two views, Tilesets and Sprites: panels carry `data-view`, `nav.showGraphics`): `index.html` has one panel set per
   workspace (`data-ws`), switched in `main.ts`. Cross-links go through `src/ui/nav.ts`;
   the top-bar changes dropdown (`src/ui/changesMenu.ts`) maps each changed record to a nav call.
   Encounters live in the Maps right panel, not in a workspace: its bottom tab bar
@@ -126,6 +126,11 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   built-ins of `animation`, so they are restated (water hshift; flower frames = recipe copies of
   the cache's). Extensions keep frames as digits (`animated`, recipe writes them); mod tilesets keep
   engine entries with mod asset images (`ownAnimations`/`setOwnAnimations`). Never on GYM/FACILITY.
+- Sprites (`src/core/sprites.ts`, `src/ui/spriteEditor.ts`): `sprites` is an editable registry (dataset
+  sprites as base records). Vanilla art is replaced by patching `image` only; a game sheet is never
+  composed into a mod asset (Replace frame needs the mod's own sheet). Read sprites through
+  `liveSprite`/`spriteUrl`, never `data.sprites`. Walk preview restates movement.asm (walk frame on
+  ticks 4..11 of 16, up/down mirrored every other step; NPC 32 frames a step, player 16).
 - RED++ colors (`src/core/gbc.ts`): read from gen1recomp `data/palettes_gbc.lua` (+ `_yellow`) via the
   "game" root, so checkout only (null otherwise: the toggle is disabled). Restates PaletteFX's
   per-map/per-tileset tile exceptions; not the LOBBY alias or dark caves. Map view keys are

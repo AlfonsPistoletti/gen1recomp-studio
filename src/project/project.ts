@@ -32,7 +32,6 @@ export interface Project {
   // (null = removed)
   studio: Record<string, Record<string, unknown>>;
   tilesetImages: Record<string, string>;
-  spriteImages: Record<string, string>;
   warnings: string[];
   // the manifest's assets_transforms file, if the mod has one
   transforms: string | null;
@@ -186,9 +185,6 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
   const { data, studioOps, warnings } = await buildLayers(host, version, adapter, modId);
   const studio: Record<string, Record<string, unknown>> = {};
   if (studioOps.length) {
-    // what the studio file says about records the studio cannot edit (a
-    // sprite it registered earlier, ...) is part of the base
-    applyOps(data.sprites, studioOps, "sprites");
     for (const c of adapter.content) if (!c.editable) applyOps(data.content[c.registry], studioOps, c.registry, !!c.deep);
     for (const registry of editableRegistries(adapter)) {
       const source = (registry === "maps" ? data.maps : data.content[registry]) as Record<string, unknown>;
@@ -204,8 +200,6 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
   }
   const tilesetImages: Record<string, string> = {};
   for (const [id, ts] of Object.entries(data.tilesets)) tilesetImages[id] = ts.image ? host.imageUrl(version, ts.image) : "";
-  const spriteImages: Record<string, string> = {};
-  for (const [id, sp] of Object.entries(data.sprites)) spriteImages[id] = sp.image ? host.imageUrl(version, sp.image) : "";
   // records the studio keeps as plain data files in the mod (custom effects)
   if (modId) {
     for (const c of adapter.content) {
@@ -222,7 +216,7 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
   }
   const manifest = modId ? await readManifest(host, modId) : null;
   const transforms = typeof manifest?.assets_transforms === "string" ? manifest.assets_transforms : null;
-  return { host, version, adapter, mod: modId, data, studio, tilesetImages, spriteImages, warnings, transforms };
+  return { host, version, adapter, mod: modId, data, studio, tilesetImages, warnings, transforms };
 }
 
 // ------------------------------------------------------------------ save

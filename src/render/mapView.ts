@@ -7,6 +7,7 @@
 import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../core/geometry.ts";
 import { store, type Selection, type Stamp } from "../core/store.ts";
 import { EXTENSIONS, liveTileset, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
+import { liveSprite, spriteUrl } from "../core/sprites.ts";
 import { gbcColorsFor, gbcKey, isGbcKey } from "../core/gbc.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
@@ -540,7 +541,7 @@ export class MapView {
     // sprites keep the map's Game Boy palette in both color modes
     const palette = store.palettes[store.currentMap] || "ROUTE";
     const img = ref
-      ? spriteFrame(store.project.data.sprites[ref.sprite], store.project.spriteImages[ref.sprite] ?? "",
+      ? spriteFrame(liveSprite(ref.sprite), spriteUrl(ref.sprite),
           store.adapter.spriteColors(store.ctx, palette), palette, ref.facing, () => this.invalidate())
       : null;
     if (img) {

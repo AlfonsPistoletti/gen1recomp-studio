@@ -385,7 +385,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     left.querySelector<HTMLElement>(`.map-row[data-id="${id}"]`)?.scrollIntoView({ block: "nearest" });
   };
   nav.openTileset = (id) => {
-    nav.setWorkspace("tilesets");
+    nav.setWorkspace("graphics");
+    nav.showGraphics("tilesets");
     open(id);
   };
 
@@ -1263,7 +1264,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     queued = true;
     requestAnimationFrame(() => {
       queued = false;
-      if (nav.workspace === "tilesets") void render();
+      if (nav.workspace === "graphics" && nav.graphicsView === "tilesets") void render();
     });
   };
   store.on((reason, id, registry) => {

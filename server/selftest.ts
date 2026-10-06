@@ -243,6 +243,19 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   check("the helper writes no ROM path", !tsSrc.includes("assets/generated/") && !extSrc.includes("assets/generated/"));
 }
 
+// sprites: every dataset sprite is a record; new art patches only the image
+{
+  const base = project.data.content.sprites ?? {};
+  check("sprite records = dataset sprites", Object.keys(base).length === Object.keys(project.data.sprites).length && !!base.SPRITE_GIRL, String(Object.keys(base).length));
+  check("unchanged sprites write nothing", contentCalls(adapter, { sprites: base }, { sprites: {} }).calls.length === 0);
+  const girl = { ...(base.SPRITE_GIRL as Record<string, unknown>), image: "mods/studio_selftest/assets/studio/sprite_girl_00000000.png" };
+  const patch = contentCalls(adapter, { sprites: base }, { sprites: { SPRITE_GIRL: girl } }).calls;
+  check("new art patches only the image", patch.length === 1 && patch[0].op === "patch" && JSON.stringify(Object.keys(patch[0].value as object)) === '["image"]', JSON.stringify(patch));
+  const mine = { id: "SPRITE_TEST", image: "mods/studio_selftest/assets/studio/sprite_test_00000000.png", frames: 6, walker: true };
+  const reg = contentCalls(adapter, { sprites: base }, { sprites: { SPRITE_TEST: mine } }).calls;
+  check("a new sprite registers whole", reg.length === 1 && reg[0].op === "register", JSON.stringify(reg));
+}
+
 // the game's own events (checkout): Oak's talk is a list, cutscenes are code
 {
   const game = await gameEvents(nodeHost, version);

@@ -31,6 +31,7 @@ import { mountTrainerWorkspace } from "./ui/trainerEditor.ts";
 import { mountMoveWorkspace } from "./ui/moveEditor.ts";
 import { mountItemWorkspace } from "./ui/itemEditor.ts";
 import { mountTilesetWorkspace } from "./ui/tilesetEditor.ts";
+import { mountSpriteWorkspace } from "./ui/spriteEditor.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
 import { playEvent } from "./ui/eventPreview.ts";
@@ -296,6 +297,27 @@ mountTrainerWorkspace($("#trainers-left"), $("#trainers-center"), $("#trainers-r
 mountTextWorkspace($("#text-left"), $("#text-center"), $("#text-right"));
 mountGlobalWorkspace($("#global-left"), $("#global-center"), $("#global-right"));
 mountTilesetWorkspace($("#tilesets-left"), $("#tilesets-center"), $("#tilesets-right"));
+mountSpriteWorkspace($("#sprites-left"), $("#sprites-center"), $("#sprites-right"));
+// the Graphics workspace's view switch, on top of both left panels
+const GRAPHICS_VIEW_KEY = "studio.graphicsView";
+nav.graphicsView = recall(GRAPHICS_VIEW_KEY) === "sprites" ? "sprites" : "tilesets";
+const viewSwitches: HTMLButtonElement[] = [];
+for (const host of [$("#tilesets-left"), $("#sprites-left")]) {
+  const seg = h("div", { class: "seg view-switch" });
+  for (const [view, label] of [["tilesets", "Tilesets"], ["sprites", "Sprites"]] as const) {
+    const b = h("button", { class: "toggle", "data-view": view, onclick: () => nav.showGraphics(view) }, label);
+    viewSwitches.push(b);
+    seg.append(b);
+  }
+  host.prepend(seg);
+}
+nav.showGraphics = (view) => {
+  nav.graphicsView = view;
+  remember(GRAPHICS_VIEW_KEY, view);
+  for (const b of viewSwitches) b.classList.toggle("active", b.dataset.view === view);
+  if (nav.workspace === "graphics") setWorkspace("graphics");
+};
+for (const b of viewSwitches) b.classList.toggle("active", b.dataset.view === nav.graphicsView);
 mountSplitters($("#layout"));
 
 // ---------------------------------------------------------------- workspaces
@@ -304,11 +326,13 @@ function setWorkspace(id: WorkspaceId): void {
   if (drawing && id !== "maps") drawing.finish(true);
   nav.workspace = id;
   document.body.dataset.ws = id;
-  for (const el of document.querySelectorAll<HTMLElement>("#layout > [data-ws]")) el.hidden = el.dataset.ws !== id;
+  for (const el of document.querySelectorAll<HTMLElement>("#layout > [data-ws]")) {
+    el.hidden = el.dataset.ws !== id || (el.dataset.view !== undefined && el.dataset.view !== nav.graphicsView);
+  }
   for (const b of workspaceTabs) b.classList.toggle("active", b.dataset.ws === id);
   remember(WORKSPACE_KEY, id);
   if (id === "maps") view.invalidate();
-  if (id === "tilesets") nav.onTilesetsShown();
+  if (id === "graphics") (nav.graphicsView === "sprites" ? nav.onSpritesShown : nav.onTilesetsShown)();
 }
 nav.setWorkspace = setWorkspace;
 nav.openMap = (mapId) => {

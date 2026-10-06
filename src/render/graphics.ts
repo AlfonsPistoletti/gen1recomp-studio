@@ -166,11 +166,20 @@ export function spriteFrame(
   sprite: SpriteDef | undefined, url: string, colors: Rgb[], paletteKey: string, facing: Facing,
   onReady: () => void,
 ): HTMLCanvasElement | null {
-  if (!sprite || !url) return null;
   const { frame, flip } = facingFrame(facing);
+  return spriteFrameAt(sprite, url, colors, paletteKey, frame, flip, onReady);
+}
+
+// One frame of a sprite sheet (`frame` past the sheet's end: frame 0), drawn
+// in `colors` (full-color sprites as they are), mirrored with `flip`.
+export function spriteFrameAt(
+  sprite: SpriteDef | undefined, url: string, colors: Rgb[], paletteKey: string, frame: number, flip: boolean,
+  onReady: () => void,
+): HTMLCanvasElement | null {
+  if (!sprite || !url) return null;
   const frames = sprite.frames || 1;
   const f = frame < frames ? frame : 0;
-  const key = `${sprite.id}|${paletteKey}|${f}|${flip}`;
+  const key = `${sprite.id}|${url}|${sprite.trueColor ? "true" : paletteKey}|${f}|${flip}`;
   if (spriteCache.has(key)) return spriteCache.get(key)!;
   if (!spritePending.has(key)) {
     spritePending.add(key);
@@ -193,7 +202,8 @@ export function spriteFrame(
             if (sx >= sheet.width || sy >= sheet.height) continue;
             const shade = sheet.px[sy * sheet.width + sx];
             if (shade === 255 || shade === 3) continue;
-            const c = colors[shade];
+            const i = (sy * sheet.width + sx) * 4;
+            const c = sprite.trueColor ? [sheet.rgba[i], sheet.rgba[i + 1], sheet.rgba[i + 2]] : colors[shade];
             const o = (y * fw + x) * 4;
             img.data[o] = c[0];
             img.data[o + 1] = c[1];

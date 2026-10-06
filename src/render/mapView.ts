@@ -277,10 +277,14 @@ export class MapView {
     c.width = map.width * 2;
     c.height = map.height * 2;
     const ctx = c.getContext("2d")!;
-    ctx.fillStyle = "rgba(255, 40, 60, 0.42)";
+    // blocked red; ledges (hopped down, not walked on) amber
+    const ledges = store.adapter.ledgeTiles?.(store.ctx, map.tileset);
     for (let cy = 0; cy < map.height * 2; cy++) {
       for (let cx = 0; cx < map.width * 2; cx++) {
-        if (!store.adapter.cell(map, ts, cx, cy).walkable) ctx.fillRect(cx, cy, 1, 1);
+        const cell = store.adapter.cell(map, ts, cx, cy);
+        if (cell.walkable) continue;
+        ctx.fillStyle = cell.tile !== undefined && ledges?.has(cell.tile) ? "rgba(255, 180, 60, 0.5)" : "rgba(255, 40, 60, 0.42)";
+        ctx.fillRect(cx, cy, 1, 1);
       }
     }
     entry.collision = c;

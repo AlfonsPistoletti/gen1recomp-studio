@@ -15,7 +15,8 @@ import {
   EXTENSIONS, extensionOf, isBaseTileset, liveTileset, perRow, sheetTiles, SHADE_GRAY, tilesetIds, tilesetKey, tilesetUrl,
   type TilesetExtension,
 } from "../core/tilesets.ts";
-import { blockAtlas, loadImage, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
+import { blockAtlas, loadImage, markerIcon, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Footprints } from "lucide";
 import type { Rgb } from "../render/color.ts";
 import { clear, field, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
@@ -24,9 +25,24 @@ import { nav } from "./nav.ts";
 const SHEET_ZOOM = 4;
 const BLOCK_ZOOM = 2;
 const SLOT = 40; // composer tile size, px
-// the tiles of a block that decide where you can walk: each 2x2 cell's
-// bottom-left tile (Gen 1 collision)
+// Gen 1 collision is per 16x16 cell (a quarter of a block): the cell's
+// bottom-left tile decides it. Slots of a block, per cell (top-left first).
 const COLLISION_SLOTS = [4, 6, 12, 14];
+const ARROWS = { up: ArrowUp, down: ArrowDown, left: ArrowLeft, right: ArrowRight };
+
+// a walk / ledge mark on a canvas: the icon on a dark disc (null until the
+// icon image has loaded; `ready` redraws then)
+function drawMark(ctx: CanvasRenderingContext2D, kind: string, cx: number, cy: number, size: number, ready: () => void): void {
+  const walk = kind === "walk";
+  const node = walk ? Footprints : ARROWS[kind as keyof typeof ARROWS];
+  if (!node) return;
+  const img = markerIcon(`tiles-${kind}`, node, walk ? "#3cdc6e" : "#ffb340", ready);
+  ctx.fillStyle = "rgba(10, 12, 16, 0.72)";
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.62, 0, Math.PI * 2);
+  ctx.fill();
+  if (img) ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+}
 const ANIMATIONS = ["TILEANIM_NONE", "TILEANIM_WATER", "TILEANIM_WATER_FLOWER"];
 
 // ------------------------------------------------------------------ model
@@ -379,13 +395,14 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       void render();
     });
     card.append(
-      h("div", { class: "card-head" }, h("h4", {}, `Tiles (${tileCount})`), h("label", { class: "inline-check" }, toggle, "Mark walkable tiles")),
+      h("div", { class: "card-head" }, h("h4", {}, `Tiles (${tileCount})`), h("label", { class: "inline-check" }, toggle, "Mark walkable tiles and ledges")),
     );
     if (!sheet || !sheetImg) {
       card.append(h("p", { class: "hint warn" }, `The sheet ${ts.image} could not be loaded.`));
       return card;
     }
     const walk = new Set((ts.walkable as number[] | undefined) ?? []);
+    const ledges = store.adapter.ledgeTiles?.(store.ctx, current ?? "") ?? new Map<number, string>();
     const canvas = h("canvas", { class: "tile-sheet" });
     canvas.width = sheet.width * SHEET_ZOOM;
     canvas.height = sheet.height * SHEET_ZOOM;
@@ -396,13 +413,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     for (let t = 0; t < tileCount; t++) {
       const x = (t % per) * T;
       const y = Math.floor(t / per) * T;
-      // walkable tiles get a green dot in the corner
-      if (showCollision && walk.has(t)) {
-        ctx.fillStyle = "#111";
-        ctx.fillRect(x + T - 8, y + T - 8, 7, 7);
-        ctx.fillStyle = "#3cdc6e";
-        ctx.fillRect(x + T - 7, y + T - 7, 5, 5);
-      }
+      // walkable tiles: footprints; ledges: the hop direction
+      const mark = walk.has(t) ? "walk" : ledges.get(t);
+      if (showCollision && mark) drawMark(ctx, mark, x + T - 9, y + T - 9, 12, schedule);
       if (t < ed.firstTile) {
         // vanilla tiles: read-only, dimmed slightly
         ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
@@ -515,15 +528,34 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ctx.lineTo(comp.width, i * SLOT + 0.5);
         ctx.stroke();
       }
-      // collision: the four tiles that decide, marked red when blocked
+      // collision per quarter (16x16 cell): footprints where you can walk,
+      // the hop direction on a ledge, a red tint where you can't; the tile
+      // that decides (bottom-left) gets a dashed frame
       const walk = new Set((ts.walkable as number[] | undefined) ?? []);
-      for (const slot of COLLISION_SLOTS) {
-        const x = (slot % 4) * SLOT;
-        const y = Math.floor(slot / 4) * SLOT;
-        ctx.strokeStyle = walk.has(block[slot]) ? "rgba(60,220,110,0.9)" : "rgba(255,60,80,0.9)";
-        ctx.lineWidth = 2;
-        ctx.strokeRect(x + 2, y + 2, SLOT - 4, SLOT - 4);
-      }
+      const ledges = store.adapter.ledgeTiles?.(store.ctx, id) ?? new Map<number, string>();
+      COLLISION_SLOTS.forEach((slot, cell) => {
+        const x = (cell % 2) * SLOT * 2;
+        const y = Math.floor(cell / 2) * SLOT * 2;
+        const mark = walk.has(block[slot]) ? "walk" : ledges.get(block[slot]);
+        if (!mark) {
+          ctx.fillStyle = "rgba(255, 50, 70, 0.22)";
+          ctx.fillRect(x, y, SLOT * 2, SLOT * 2);
+        }
+        ctx.setLineDash([4, 3]);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.55)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x + 1.5, y + SLOT + 1.5, SLOT - 3, SLOT - 3);
+        ctx.setLineDash([]);
+        if (mark) drawMark(ctx, mark, x + SLOT, y + SLOT, 22, schedule);
+      });
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(SLOT * 2 + 0.5, 0);
+      ctx.lineTo(SLOT * 2 + 0.5, comp.height);
+      ctx.moveTo(0, SLOT * 2 + 0.5);
+      ctx.lineTo(comp.width, SLOT * 2 + 0.5);
+      ctx.stroke();
       const slotAt = (e: MouseEvent) => {
         const r = comp.getBoundingClientRect();
         const sx = Math.floor(((e.clientX - r.left) / r.width) * 4);
@@ -553,8 +585,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
           h("div", { class: "card-head" }, h("h4", {}, `Block #${b}`), can ? h("span", { class: "tag new" }, "yours") : h("span", { class: "hint" }, "the game's")),
           comp,
           h("p", { class: "hint" }, can
-            ? "Click a slot to put the selected tile there; right click picks a slot's tile. Framed slots decide collision (green: walkable)."
-            : "The game's block: read-only. + New block makes an editable copy."),
+            ? "Click a slot to put the selected tile there; right click picks a slot's tile. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."
+            : "The game's block: read-only. + New block makes an editable copy. You walk on a block in quarters: each quarter's bottom-left tile (dashed) decides it. Footprints: walkable; arrow: a ledge you hop down; red: blocked."),
           can
             ? h("div", { class: "row" },
                 h("button", {

@@ -135,6 +135,7 @@ const content: ContentSpec[] = [
 
 interface Field {
   waterTilesets?: string[];
+  ledges?: { tileset?: string; facing: string; ledgeTile: number }[];
   indoorEncounters?: { firstIndoorMap: number; excludedTileset: string };
 }
 
@@ -636,7 +637,7 @@ export const gen1: GameAdapter = {
     content.forEach((c, i) => (contentTables[c.registry] = c.build ? c.build(tables[i] ?? {}, version) : tables[i] ?? {}));
     contentTables.tilesets = { ...tilesets };
     // only what the editor reads from the big field table
-    const fieldExtra: Field = { waterTilesets: fieldData.waterTilesets, indoorEncounters: fieldData.indoorEncounters };
+    const fieldExtra: Field = { waterTilesets: fieldData.waterTilesets, indoorEncounters: fieldData.indoorEncounters, ledges: fieldData.ledges };
     return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, field: fieldExtra, icons } };
   },
 
@@ -737,6 +738,13 @@ export const gen1: GameAdapter = {
     return { tile, walkable };
   },
 
+  // engine/overworld/ledges.asm (field.ledges): the ledge tile, hopped over
+  // in its facing direction
+  ledgeTiles(ctx, tilesetId) {
+    const out = new Map<number, string>();
+    for (const l of field(ctx).ledges ?? []) if ((l.tileset ?? "OVERWORLD") === tilesetId) out.set(l.ledgeTile, l.facing);
+    return out;
+  },
   paletteKeys: (ctx) => resolveMapPalettes(ctx.maps),
   tileColors: (ctx, _tileset, key) => {
     const colors = paletteColors(palettes(ctx), key);

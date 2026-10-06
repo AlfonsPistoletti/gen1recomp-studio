@@ -489,6 +489,9 @@ export interface GameAdapter {
   setConnection(draft: MapDef, dir: Direction, target: string | null, offset: number): void;
 
   cell(map: MapDef, tileset: TilesetDef | undefined, cx: number, cy: number): CellInfo;
+  // ledge tiles of a tileset -> the direction the player hops over them
+  // (not walkable, but jumped down)
+  ledgeTiles?(ctx: GameContext, tilesetId: string): Map<number, string>;
 
   // palette key per map (what an atlas is colored with)
   paletteKeys(ctx: GameContext): Record<string, string>;

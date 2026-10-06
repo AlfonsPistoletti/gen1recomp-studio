@@ -6,13 +6,13 @@
 
 import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../core/geometry.ts";
 import { store, type Selection, type Stamp } from "../core/store.ts";
-import { EXTENSIONS, liveTileset, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
+import { EXTENSIONS, liveTileset, mapAnimations, perRow, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
 import { liveSprite, playerSprites, spriteUrl } from "../core/sprites.ts";
 import { gbcColorsFor, gbcKey, isGbcKey, spriteGbcColors } from "../core/gbc.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
 import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
-import { atlasRect, blockAtlas, clearColorCaches, BLOCK, CELL, markerIcon, spriteFrame, type BlockAtlas } from "./graphics.ts";
+import { animationFrames, atlasRect, blockAtlas, clearColorCaches, BLOCK, CELL, markerIcon, spriteFrame, TILE, type BlockAtlas } from "./graphics.ts";
 
 interface CachedMap {
   map: MapDef;
@@ -20,6 +20,17 @@ interface CachedMap {
   canvas: HTMLCanvasElement | null;
   collision: HTMLCanvasElement | null;
   wild: HTMLCanvasElement | null;
+  // animated tiles: drawn into `canvas` when their frame changes (undefined:
+  // not looked at yet, null: nothing moves)
+  anim?: MapAnim | null;
+}
+
+interface MapAnim {
+  list: { frames: HTMLCanvasElement[]; sequence: number[]; period: number }[];
+  // per animation: x, y pairs of its 8x8 cells in the map canvas
+  cells: number[][];
+  // the frame each animation shows now (-1: the atlas's still one)
+  shown: number[];
 }
 
 export interface HoverInfo {
@@ -71,6 +82,8 @@ export class MapView {
   private drag: Drag | null = null;
   private spaceDown = false;
   private frame = 0;
+  private animTimer = 0;
+  private animOn = false;
   // the last fit stays live (re-applied on resize) until the user pans or
   // zooms, so a fit made while the page layout is still settling corrects itself
   private liveFit: "map" | "world" | null = "map";
@@ -230,8 +243,9 @@ export class MapView {
     // with the atlas in memory a redraw is synchronous: no blank frame
     const atlas = this.atlases.get(`${map.tileset}|${palette}`);
     if (atlas) {
-      const entry = { map, palette, canvas: this.paint(map, atlas), collision: null, wild: null };
+      const entry: CachedMap = { map, palette, canvas: this.paint(map, atlas), collision: null, wild: null };
       this.cache.set(id, entry);
+      void this.loadAnim(id, entry);
       return entry;
     }
     const buildKey = `${id}|${palette}`;
@@ -254,6 +268,83 @@ export class MapView {
     // an edit made while this one was drawing wins
     if (tilesetKey(tilesetId) === version) this.atlases.set(`${tilesetId}|${palette}`, atlas);
     return atlas;
+  }
+
+  // The animated tiles of a cached map: their colored frames and where they
+  // sit. Attached only while the entry is still the cached one.
+  private async loadAnim(id: string, entry: CachedMap): Promise<void> {
+    const map = entry.map;
+    const ts = liveTileset(map.tileset);
+    const anims = ts ? mapAnimations(map.tileset) : [];
+    if (!ts || !anims.length) {
+      entry.anim = null;
+      return;
+    }
+    const palette = entry.palette;
+    const colorsFor = ts.trueColor ? null : isGbcKey(palette) ? gbcColorsFor(map.tileset, palette) : store.adapter.tileColors(store.ctx, ts, palette);
+    const url = await tilesetUrl(map.tileset);
+    const per = perRow(ts);
+    const built = await Promise.all(anims.map((a) => animationFrames(a, url, per, colorsFor ? colorsFor(a.tile) : null)));
+    if (this.cache.get(id) !== entry) return;
+    const list: MapAnim["list"] = [];
+    const index = new Map<number, number>();
+    anims.forEach((a, i) => {
+      const frames = built[i];
+      if (!frames) return;
+      index.set(a.tile, list.length);
+      list.push({ frames, sequence: a.sequence, period: a.period });
+    });
+    const cells: number[][] = list.map(() => []);
+    // per block: which of its 16 tiles move
+    const moving = new Map<number, [number, number][]>();
+    const slotsOf = (b: number) => {
+      let m = moving.get(b);
+      if (!m) {
+        m = [];
+        (ts.blocks[b] ?? []).forEach((tile, slot) => {
+          const k = index.get(tile);
+          if (k !== undefined) m!.push([slot, k]);
+        });
+        moving.set(b, m);
+      }
+      return m;
+    };
+    for (let by = 0; by < map.height; by++) {
+      for (let bx = 0; bx < map.width; bx++) {
+        for (const [slot, k] of slotsOf(map.blocks[by * map.width + bx])) {
+          cells[k].push(bx * BLOCK + (slot % 4) * TILE, by * BLOCK + Math.floor(slot / 4) * TILE);
+        }
+      }
+    }
+    entry.anim = cells.some((c) => c.length) ? { list, cells, shown: list.map(() => -1) } : null;
+    if (entry.anim) this.invalidate();
+  }
+
+  // Draws the animated tiles whose frame changed; returns the milliseconds
+  // until the next change (Infinity: nothing moves).
+  private stepAnim(entry: CachedMap): number {
+    const a = entry.anim;
+    if (!a || !entry.canvas) return Infinity;
+    const ctx = entry.canvas.getContext("2d")!;
+    const frame = performance.now() / (1000 / 60);
+    let next = Infinity;
+    a.list.forEach((anim, k) => {
+      const step = Math.floor(frame / anim.period);
+      const img = anim.frames[(anim.sequence[step % anim.sequence.length] ?? 1) - 1];
+      next = Math.min(next, ((step + 1) * anim.period - frame) * (1000 / 60));
+      if (!img || a.shown[k] === step % anim.sequence.length) return;
+      a.shown[k] = step % anim.sequence.length;
+      const cells = a.cells[k];
+      for (let i = 0; i < cells.length; i += 2) ctx.drawImage(img, cells[i], cells[i + 1]);
+    });
+    return next;
+  }
+
+  // Animation turned off: maps that moved are repainted still.
+  private stopAnims(): void {
+    for (const [id, entry] of [...this.cache]) {
+      if (entry.anim?.shown.some((v) => v !== -1)) this.cache.set(id, { ...entry, canvas: null, palette: "", anim: undefined });
+    }
   }
 
   // a tileset was edited: maps on it redraw with the new blocks
@@ -358,6 +449,10 @@ export class MapView {
     const view = { x0: this.camX, y0: this.camY, x1: this.camX + this.viewW / this.zoom, y1: this.camY + this.viewH / this.zoom };
     const showNeighbors = store.overlays.neighbors;
     const labels: Placed[] = [];
+    const animate = store.overlays.animate;
+    if (!animate && this.animOn) this.stopAnims();
+    this.animOn = animate;
+    let nextAnim = Infinity;
     for (const p of this.placed) {
       if (p.id !== store.currentMap && !showNeighbors) continue;
       const m = store.maps[p.id];
@@ -365,6 +460,7 @@ export class MapView {
       const h = m.height * BLOCK_PX;
       if (p.x > view.x1 || p.y > view.y1 || p.x + w < view.x0 || p.y + h < view.y0) continue;
       const entry = this.mapCanvas(p.id);
+      if (entry && animate) nextAnim = Math.min(nextAnim, this.stepAnim(entry));
       if (entry?.canvas) ctx.drawImage(entry.canvas, p.x, p.y);
       else {
         ctx.fillStyle = "#222";
@@ -376,6 +472,8 @@ export class MapView {
         labels.push(p);
       }
     }
+    clearTimeout(this.animTimer);
+    if (nextAnim < Infinity) this.animTimer = window.setTimeout(() => this.invalidate(), Math.max(16, nextAnim));
     // labels after every map image, so no neighbour paints over one
     for (const p of labels) this.label(p.x, p.y, p.id, this.mapTag(p.id));
 

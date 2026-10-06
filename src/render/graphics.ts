@@ -251,3 +251,49 @@ export function markerIcon(name: string, node: IconNode, color: string, onReady:
   iconImages.set(key, img);
   return null;
 }
+
+// ---------------------------------------------------------------- animation
+
+// The frames of an animated tile, colored like the atlas draws its static
+// tile: `shift` = the sheet tile moved 0..7 pixels right (water), else the
+// first 8x8 of each frame image. `colors` null: full-color, drawn as is.
+export async function animationFrames(
+  anim: { tile: number; shift?: boolean; urls?: string[] },
+  sheetUrl: string,
+  perRow: number,
+  colors: Rgb[] | null,
+): Promise<HTMLCanvasElement[] | null> {
+  const paint = (src: Shades, sx: number, sy: number, shift: number): HTMLCanvasElement => {
+    const c = document.createElement("canvas");
+    c.width = TILE;
+    c.height = TILE;
+    const ctx = c.getContext("2d")!;
+    const img = ctx.createImageData(TILE, TILE);
+    for (let y = 0; y < TILE; y++) {
+      for (let x = 0; x < TILE; x++) {
+        const s = (sy + y) * src.width + sx + x;
+        const o = (y * TILE + ((x + shift) % TILE)) * 4;
+        let c3: Rgb;
+        if (!colors) c3 = src.rgba[s * 4 + 3] === 0 ? [255, 255, 255] : [src.rgba[s * 4], src.rgba[s * 4 + 1], src.rgba[s * 4 + 2]];
+        else c3 = colors[src.px[s] === 255 ? 3 : src.px[s]];
+        img.data[o] = c3[0];
+        img.data[o + 1] = c3[1];
+        img.data[o + 2] = c3[2];
+        img.data[o + 3] = 255;
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+    return c;
+  };
+  if (anim.shift) {
+    const sheet = await shades(sheetUrl);
+    if (!sheet) return null;
+    const sx = (anim.tile % perRow) * TILE;
+    const sy = Math.floor(anim.tile / perRow) * TILE;
+    if (sx + TILE > sheet.width || sy + TILE > sheet.height) return null;
+    return Array.from({ length: TILE }, (_v, o) => paint(sheet, sx, sy, o));
+  }
+  const frames = await Promise.all((anim.urls ?? []).map((u) => shades(u)));
+  if (!frames.length || frames.some((f) => !f || f.width < TILE || f.height < TILE)) return null;
+  return frames.map((f) => paint(f!, 0, 0, 0));
+}

@@ -216,6 +216,7 @@ const OVERLAYS: { id: keyof Overlays; label: string; key: string; icon?: IconNod
   { id: "entities", label: "Entities", key: "E" },
   { id: "neighbors", label: "Neighbours", key: "N" },
   { id: "wild", label: "Wild", key: "W" },
+  { id: "animate", label: "Animate", key: "A" },
 ];
 
 const toolButtons = TOOLS.map((t) =>

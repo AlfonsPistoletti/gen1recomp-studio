@@ -286,3 +286,31 @@ export function paintTile(rgba: Uint8ClampedArray, digits: string): void {
     rgba[p * 4 + 3] = 255;
   }
 }
+
+// What moves on a map drawn with this tileset, as the engine animates it
+// (TileRenderer defaultAnimatedTiles + the mod's own): water shifts tile 20
+// sideways, flowers cycle the cache's three frames, added tiles their own.
+// `sequence` holds 1-based frame numbers (for a shift: offset + 1).
+export interface MapAnimation {
+  tile: number;
+  period: number;
+  sequence: number[];
+  shift?: boolean;
+  urls?: string[];
+}
+
+export function mapAnimations(id: string): MapAnimation[] {
+  const rec = store.table("tilesets")[id] as TilesetDef | undefined;
+  if (!rec) return [];
+  const byTile = new Map<number, MapAnimation>();
+  const anim = rec.animation;
+  if (anim === "TILEANIM_WATER" || anim === "TILEANIM_WATER_FLOWER") {
+    byTile.set(20, { tile: 20, period: 20, sequence: [1, 2, 3, 2, 1, 0, 7, 0].map((o) => o + 1), shift: true });
+  }
+  if (anim === "TILEANIM_WATER_FLOWER") {
+    const { host, version } = store.project;
+    byTile.set(3, { tile: 3, period: 20, sequence: [1, 2, 3, 1, 1, 2, 3, 1], urls: FLOWERS.map((f) => host.imageUrl(version, `assets/generated/${f}`)) });
+  }
+  for (const [tile, a] of animationsOf(id)) byTile.set(tile, { tile, period: a.period, sequence: a.urls.map((_u, k) => k + 1), urls: a.urls });
+  return [...byTile.values()];
+}

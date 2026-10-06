@@ -57,6 +57,18 @@ export const EVENT_RUNTIME = String.raw`
         ctx.lastCheck = ctx.lastChoice ~= nil and ctx.lastChoice.index == n
       end,
     })
+    -- Game Corner coins (the engine has take_coins only); 9999 is the
+    -- coin case's cap (MAX_COINS)
+    mod.content.commands:register("studio:give_coins", {
+      fn = function(ctx, n)
+        ctx.save.coins = math.min(9999, (ctx.save.coins or 0) + (n or 0))
+      end,
+    })
+    mod.content.commands:register("studio:check_coins", {
+      fn = function(ctx, n)
+        ctx.lastCheck = (ctx.save.coins or 0) >= (n or 0)
+      end,
+    })
     for map, m in pairs(studioEvents(events)) do
       local value = { talk = m.talk }
       if #m.steps > 0 then

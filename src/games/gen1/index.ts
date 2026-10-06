@@ -7,7 +7,7 @@
 
 import { GEN1_IMAGES } from "./images.ts";
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
 import { vanillaPrizes } from "./prizes.ts";
 import { GEN1_EVENTS } from "./events.ts";
@@ -131,6 +131,10 @@ const content: ContentSpec[] = [
   // catch numbers per ball id; the vanilla records live in the engine
   // (src/battle/Catching.lua), so they are restated (written with override)
   { registry: "balls", editable: true, replace: true, build: () => structuredClone(VANILLA_BALLS), fieldOrder: ["randMax", "hpFactor", "wobbleFactor", "autoCatch", "flicker", "tossAnim"] },
+  // the number parts of the status conditions; the records (with their
+  // battle code) live in the engine (src/battle/Status.lua), so the numbers
+  // are restated and changes are patched, never overridden
+  { registry: "statuses", editable: true, build: () => structuredClone(VANILLA_STATUSES) },
   // tilesets (filled from Dataset.tilesets in load): the mod's own are
   // registered whole; vanilla ones are only extended, through studio_tilesets
   { registry: "tilesets", editable: true, build: () => ({}), fieldOrder: ["id", "image", "imageWidth", "imageHeight", "tilesPerRow", "trueColor", "animation", "grassTile", "walkable", "doorTiles", "warpTiles", "counterTiles", "blocks"] },
@@ -576,6 +580,18 @@ const HM_BADGES = {
   FLASH: { badge: "BOULDERBADGE" },
 };
 
+// src/battle/Status.lua's numbers (catch bonus: subtracted from the ball's
+// roll; shake bonus: added to the wobble count on a miss; statPenalty: the
+// stat divided while the status lasts)
+const VANILLA_STATUSES: Record<string, Record<string, unknown>> = {
+  SLP: { id: "SLP", label: "SLP", catchBonus: 25, shakeBonus: 10 },
+  FRZ: { id: "FRZ", label: "FRZ", catchBonus: 25, shakeBonus: 10 },
+  PSN: { id: "PSN", label: "PSN", catchBonus: 12, shakeBonus: 5 },
+  BRN: { id: "BRN", label: "BRN", catchBonus: 12, shakeBonus: 5, statPenalty: { stat: "attack", div: 2 } },
+  PAR: { id: "PAR", label: "PAR", catchBonus: 12, shakeBonus: 5, statPenalty: { stat: "speed", div: 4 } },
+};
+const STATUS_NAMES: [string, string][] = [["SLP", "Sleep"], ["FRZ", "Freeze"], ["PSN", "Poison"], ["BRN", "Burn"], ["PAR", "Paralysis"]];
+
 const BADGES = ["BOULDERBADGE", "CASCADEBADGE", "THUNDERBADGE", "RAINBOWBADGE", "SOULBADGE", "MARSHBADGE", "VOLCANOBADGE", "EARTHBADGE"];
 
 // frames per step: fewer is faster; divisors of 16 keep movement on whole pixels
@@ -590,15 +606,23 @@ const globals: GlobalsSpec = {
     { id: "wild", label: "Wild encounters", hint: "How likely each of the ten slots of a wild table is, and what the Old and Good Rod catch. The tables themselves (and Super Rod lists) are per map (Maps, Encounters tab)." },
     { id: "types", label: "Type chart", hint: "Type effectiveness, and which types are physical or special." },
     { id: "battle", label: "Pokémon & items", hint: "Level cap and bag size." },
+    { id: "status", label: "Status conditions", hint: "How much each status helps catching, and the stat Burn and Paralysis cut. What the statuses do in battle (damage, skipped turns) is the engine's code and stays as it is." },
     { id: "overworld", label: "Overworld", hint: "Walking and biking speed, poison, blacking out, Day-Care." },
     { id: "fieldmoves", label: "Field moves", hint: "Which badge each HM needs outside of battle." },
     { id: "names", label: "Names", hint: "The names Oak offers for the player and the rival in the intro; NEW NAME lets the player type one." },
     { id: "trades", label: "In-game trades", hint: "The Pokémon trades NPCs offer: what they want, what the player gets and its nickname. A trade happens once (its done flag). New trades are offered through the Trade event command." },
+    { id: "slots", label: "Slot machines", hint: "The symbols on the Game Corner's three slot wheels. Coin sellers at another price: an event with Has money, Take money and Give coins (Events workspace)." },
     { id: "prizes", label: "Game Corner prizes", hint: "What each prize counter trades for coins: three prizes per counter, items or Pokémon. Any NPC or sign can be made a counter (Maps, select it, Role)." },
   ],
   numbers: [
     { section: "battle", registry: "constants", id: "levelCap", label: "Level cap", hint: "Pokémon stop gaining levels here.", min: 1, max: 100 },
     { section: "battle", registry: "constants", id: "bagSize", label: "Bag size", hint: "How many different items the bag holds.", min: 1, max: 99 },
+    ...STATUS_NAMES.flatMap(([id, name]): GlobalNumber[] => [
+      { section: "status", registry: "statuses", id, key: "catchBonus", label: `${name}: catch bonus`, hint: `Makes a ${name.toLowerCase()} Pokémon easier to catch: subtracted from the ball's random roll (out of 256 for a Poké Ball; higher is easier).`, min: 0, max: 255 },
+      { section: "status", registry: "statuses", id, key: "shakeBonus", label: `${name}: shake bonus`, hint: "Added to the wobble count when a catch fails (only how often the ball shakes, not the odds).", min: 0, max: 255 },
+    ]),
+    { section: "status", registry: "statuses", id: "BRN", key: "statPenalty.div", label: "Burn: Attack divided by", hint: "A burned Pokémon's Attack is divided by this (1 = no cut).", min: 1, max: 255 },
+    { section: "status", registry: "statuses", id: "PAR", key: "statPenalty.div", label: "Paralysis: Speed divided by", hint: "A paralyzed Pokémon's Speed is divided by this (1 = no cut).", min: 1, max: 255 },
     { section: "overworld", registry: "constants", id: "world", key: "stepFrames", label: "Walking speed", hint: "Frames per step on foot; fewer is faster.", min: 1, max: 32, choices: SPEEDS },
     { section: "overworld", registry: "constants", id: "world", key: "bikeStepFrames", label: "Bike speed", hint: "Frames per step on the bicycle; fewer is faster.", min: 1, max: 32, choices: SPEEDS },
     { section: "overworld", registry: "constants", id: "world", key: "turnFrames", label: "Turn window", hint: "Frames a tap may last to only turn instead of stepping.", min: 1, max: 16 },
@@ -608,6 +632,7 @@ const globals: GlobalsSpec = {
     { section: "overworld", registry: "constants", id: "world", key: "daycareExpPerStep", label: "Day-Care EXP per step", hint: "EXP the Day-Care Pokémon gains for each step you walk.", min: 0, max: 255 },
   ],
   defaults: {
+    statuses: VANILLA_STATUSES,
     constants: { levelCap: 100, bagSize: 20, world: WORLD_DEFAULTS, hmBadges: HM_BADGES, encounterBuckets: ENCOUNTER_BUCKETS },
   },
   hmBadges: { registry: "constants", id: "hmBadges", moves: Object.keys(HM_BADGES), badges: BADGES },

@@ -151,6 +151,15 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   into `require("data.palettes_gbc").world` at load (no API), GENERATORS `internals` predicate.
   Roofs: `studio_roofs` (map id -> { index, colors }) -> `world.roofByMapIndex[index]` (mod maps have
   index >= 1000 and no town roof otherwise).
+- Status numbers (Global > Status conditions): `statuses` restated from the engine's Status.lua
+  (catch/shake bonus, statPenalty.div; GlobalNumber keys may be dotted paths). Records carry battle
+  code in the engine, so the registry is patched, never `replace`.
+- Game Corner: coin price and win odds are engine code (field.coinPurchases is never read); the
+  studio edits `field.slotWheels` (`src/ui/slotEditor.ts`, 15 symbols + first 3 again) and offers
+  `studio:give_coins` / `studio:check_coins` event commands (eventRuntime) for coin sellers.
+- Map view animation (overlay "Animate", A): `mapAnimations` (water shift tile 20, flowers from the
+  cache, the mod's own) -> `animationFrames`; each cached map redraws only its animated 8x8 cells
+  into its canvas when a frame changes (`stepAnim`), timed by a setTimeout to the next step.
 - Mod trainers (`src/ui/trainerEvents.ts`): no registry writes trainer_headers, so a studio trainer
   is a talk event + one step event per sight cell (ids `<MAP>:step:trainer<objIndex>_<k>`); the
   settings live in the talk event's `trainer` field and the events are rebuilt from them.

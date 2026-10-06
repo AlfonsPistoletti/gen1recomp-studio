@@ -897,3 +897,10 @@ dialog.modal { min-width: 420px; }
 .palette-preview { display: block; max-width: 100%; image-rendering: pixelated; border: 1px solid var(--line); }
 .view-switch .toggle { padding-left: 4px; padding-right: 4px; }
 .palette-mon > div { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+
+/* slot machine wheels (Global > Slot machines) */
+.slot-strip { display: flex; flex-wrap: wrap; gap: 4px; }
+.slot-cell { padding: 3px; border: 1px solid var(--line-2); border-radius: 4px; background: #fff; cursor: pointer; line-height: 0; }
+.slot-cell:hover { border-color: var(--accent); }
+.slot-face { display: inline-block; zoom: 2; background-repeat: no-repeat; image-rendering: pixelated; }
+.slot-name { display: inline-block; min-width: 32px; font-size: 11px; line-height: 32px; color: #000; }

@@ -30,6 +30,7 @@ export interface Overlays {
   entities: boolean;
   neighbors: boolean;
   wild: boolean;
+  animate: boolean;
 }
 
 export type Records = Record<string, Record<string, unknown>>;
@@ -66,7 +67,7 @@ export class Store {
   tool: Tool = "select";
   stamp: Stamp = { w: 1, h: 1, blocks: [0] };
   selection: Selection = null;
-  overlays: Overlays = { grid: false, collision: false, entities: true, neighbors: true, wild: false };
+  overlays: Overlays = { grid: false, collision: false, entities: true, neighbors: true, wild: false, animate: true };
   // how maps are colored: the Game Boy palettes, or RED++ (pokered-gbc)
   colorMode: "sgb" | "redpp" = "sgb";
   private undoStack: Command[] = [];

@@ -4,7 +4,7 @@
 // Only settings the adapter lists appear, and each has the engine's default,
 // so a value set back to vanilla is dropped instead of saved.
 
-import { deepEqual } from "../core/merge.ts";
+import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { GlobalNumber, GlobalsSpec } from "../games/types.ts";
 import { clear, field, h, numberInput, onFocusLeave, rerender, toast } from "./dom.ts";
@@ -13,6 +13,7 @@ import { nav } from "./nav.ts";
 import { counterLabel, counters, prizeCounterEditor, showCounter } from "./prizeEditor.ts";
 import { recall, remember } from "./storage.ts";
 import { rodsCard } from "./fishingPanel.ts";
+import { slotCards, slotsEdited, SLOTS_ID } from "./slotEditor.ts";
 import { tradeCards, tradesEdited, TRADES_ID, TRADES_REGISTRY } from "./tradeEditor.ts";
 
 const SECTION_KEY = "studio.globalSection";
@@ -38,9 +39,16 @@ function write(registry: string, id: string, label: string, value: unknown): voi
   store.seal();
 }
 
+// a key of a record; "a.b" reads a nested table
+function keyOf(rec: unknown, key: string): unknown {
+  let v = rec;
+  for (const k of key.split(".")) v = (v as Record<string, unknown> | undefined)?.[k];
+  return v;
+}
+
 function numberValue(n: GlobalNumber): number {
   const v = current(n.registry, n.id);
-  if (n.key) return Number((v as Record<string, unknown> | undefined)?.[n.key] ?? 0);
+  if (n.key) return Number(keyOf(v, n.key) ?? 0);
   return Number(v ?? 0);
 }
 
@@ -50,7 +58,12 @@ function setNumber(n: GlobalNumber, value: number): void {
   const def = (spec()?.defaults[n.registry]?.[n.id] ?? {}) as Record<string, unknown>;
   const now = (current(n.registry, n.id) ?? {}) as Record<string, unknown>;
   // override replaces the whole table: always write every key
-  write(n.registry, n.id, n.label, { ...def, ...now, [n.key]: v });
+  const next = clone({ ...def, ...now }) as Record<string, unknown>;
+  const path = n.key.split(".");
+  let at = next;
+  for (const k of path.slice(0, -1)) at = (at[k] ??= {}) as Record<string, unknown>;
+  at[path[path.length - 1]] = v;
+  write(n.registry, n.id, n.label, next);
 }
 
 // the Global section a record is edited in, or null
@@ -62,6 +75,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (registry === TRADES_REGISTRY && id === TRADES_ID && s.sections.some((x) => x.id === "trades")) return "trades";
   if (registry === "field" && id === "fishing") return "wild";
   if (registry === "field" && id === "presetNames") return "names";
+  if (registry === "field" && id === SLOTS_ID) return "slots";
   const odds = store.adapter.encounters?.sharedOdds;
   if (odds && registry === odds.registry && id === odds.id) return "wild";
   if (s.hmBadges && registry === s.hmBadges.registry && id === s.hmBadges.id) return "fieldmoves";
@@ -78,6 +92,7 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (section === "trades") return "In-game trades";
   if (registry === "field" && id === "fishing") return "Old Rod and Good Rod";
   if (registry === "field" && id === "presetNames") return "Preset names";
+  if (registry === "field" && id === SLOTS_ID) return "Slot machine wheels";
   if (section === "wild") return "Wild slot chances";
   if (section === "fieldmoves") return "HM badges";
   const labels = s.numbers.filter((n) => n.registry === registry && n.id === id).map((n) => n.label);
@@ -96,6 +111,7 @@ function sectionChanged(id: string): boolean {
   if (regs.some(([r, i]) => store.isRecordEdited(r, i))) return true;
   if (id === "trades" && tradesEdited()) return true;
   if (id === "names" && store.isRecordEdited("field", "presetNames")) return true;
+  if (id === "slots" && slotsEdited()) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
@@ -230,6 +246,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "fieldmoves" && s.hmBadges) out.push(hmBadgesCard(s.hmBadges));
   if (id === "trades") out.push(...tradeCards());
   if (id === "names") out.push(namesCard());
+  if (id === "slots") out.push(...slotCards());
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
     for (const cid of Object.keys(counters(towns)).sort()) {
@@ -251,7 +268,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
 function numberRow(n: GlobalNumber): HTMLElement {
   const value = numberValue(n);
   const defRec = spec()?.defaults[n.registry]?.[n.id];
-  const def = n.key ? (defRec as Record<string, unknown> | undefined)?.[n.key] : defRec;
+  const def = n.key ? keyOf(defRec, n.key) : defRec;
   let control: HTMLElement;
   if (n.choices) {
     const sel = h("select", {}, ...n.choices.map((c) => h("option", { value: c.value, selected: c.value === value }, c.label)));
@@ -438,10 +455,11 @@ function changedList(s: GlobalsSpec, open: (section: string) => void): HTMLEleme
     seen.add(key);
     // a table of several settings: name the ones that differ from vanilla
     const same = s.numbers.filter((m) => m.registry === n.registry && m.id === n.id);
-    const changed = n.key ? same.filter((m) => numberValue(m) !== Number((s.defaults[m.registry]?.[m.id] as Record<string, unknown> | undefined)?.[m.key!])) : [n];
+    const changed = n.key ? same.filter((m) => numberValue(m) !== Number(keyOf(s.defaults[m.registry]?.[m.id], m.key!))) : [n];
     add(n.section, (changed.length ? changed : same).map((m) => m.label).join(", "), n.registry, n.id);
   }
   if (s.hmBadges && store.isRecordEdited(s.hmBadges.registry, s.hmBadges.id)) add("fieldmoves", "HM badges", s.hmBadges.registry, s.hmBadges.id);
+  if (slotsEdited()) add("slots", "Slot machine wheels", "field", SLOTS_ID);
   if (s.typeChart) {
     const reg = s.typeChart.registry;
     const ids = new Set([...Object.keys(store.table(reg)), ...Object.keys(store.baseTable(reg))]);

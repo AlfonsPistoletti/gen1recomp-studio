@@ -21,7 +21,7 @@ import { nav } from "./nav.ts";
 const ZOOM = 4;
 const GRAYS = "__grays";
 const GRAY_COLORS: Rgb[] = [[0, 0, 0], [85, 85, 85], [170, 170, 170], [255, 255, 255]];
-const KIND_LABELS: Record<SpriteKind, string> = { walker: "Walks (6 frames)", turner: "Turns, never walks (3 frames)", object: "Object (1 frame)" };
+const KIND_LABELS: Record<SpriteKind, string> = { walker: "Walks (6 frames)", turner: "Turns, never walks (3 frames)", object: "Still (1 frame)" };
 const DIRS = ["down", "up", "left", "right"] as const;
 const STAND: Record<string, number> = { down: 0, up: 1, left: 2, right: 2 };
 const WALK: Record<string, number> = { down: 3, up: 4, left: 5, right: 5 };
@@ -58,7 +58,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
         return {
           id,
           label: id.replace(/^SPRITE_/, ""),
-          meta: PLAYER_ROLES[id] ? "player" : { walker: "walks", turner: "turns", object: "object" }[kindOf(s)],
+          meta: PLAYER_ROLES[id] ? "player" : { walker: "walks", turner: "turns", object: "still" }[kindOf(s)],
           search: id,
           edited: !own && store.isRecordEdited(SPRITES, id),
           isNew: own,
@@ -198,7 +198,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
         kind === "turner" ? h("p", { class: "hint" }, "This sprite has no walking frames: it only turns. Import a 6-frame sheet to make it walk.") : null,
       ),
       h("div", { class: "card" },
-        h("div", { class: "card-head" }, h("h4", {}, `Frames (${frames})`), h("span", { class: "hint" }, "Right is the left frame mirrored")),
+        h("div", { class: "card-head" }, h("h4", {}, `Frames (${frames})`), h("span", { class: "hint" }, `${typeof s.image === "string" && s.image.startsWith("mods/") ? "Your art" : "The game's art (read-only)"} · right is the left frame mirrored`)),
         strip,
         isSimpleSheet(s) ? null : h("p", { class: "hint warn" }, "This sheet has a custom layout (set by mod code); the studio shows it but can't edit it."),
       ),
@@ -211,12 +211,36 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     const out: HTMLElement[] = [];
     const simple = isSimpleSheet(s);
     const ownSheet = typeof s.image === "string" && s.image.startsWith("mods/");
-    const kindSel = h("select", {}, ...(["walker", "turner", "object"] as SpriteKind[]).map((k) => h("option", { value: k, selected: kindOf(s) === k }, KIND_LABELS[k])));
+    // the kind: fixed for the game's art (its sheet has the frames it has);
+    // the mod's own sheet can use fewer of its frames, or as many as it holds
+    let kindRow: HTMLElement;
+    if (ownSheet && simple) {
+      const kindSel = h("select", {}, ...(["walker", "turner", "object"] as SpriteKind[]).map((k) => h("option", { value: k, selected: kindOf(s) === k }, KIND_LABELS[k])));
+      void loadImage(spriteUrl(id)).then((img) => {
+        const has = img ? Math.floor(img.height / FRAME) : s.frames || 1;
+        for (const o of kindSel.options) o.disabled = KIND_FRAMES[o.value as SpriteKind] > has;
+      });
+      kindSel.addEventListener("change", () => {
+        const k = kindSel.value as SpriteKind;
+        store.editRecord<SpriteDef>(SPRITES, id, "Sprite kind", (d) => {
+          d.frames = KIND_FRAMES[k];
+          d.walker = k === "walker";
+        });
+        store.seal();
+      });
+      kindRow = field("Kind", kindSel, "Kinds that need more frames than this sheet has are greyed out: import a sheet with more frames for them.");
+    } else {
+      kindRow = h("div", { class: "kv" }, h("span", {}, "Kind"), h("span", {}, KIND_LABELS[kindOf(s)]));
+    }
+    const gameArt = !ownSheet;
     out.push(h("div", { class: "card" },
-      h("h4", {}, "Import"),
-      field("Kind", kindSel, "Walkers: stand ↓ ↑ ←, then walk ↓ ↑ ← (right is left mirrored). Frames 16×16, stacked or side by side; white is see-through."),
+      h("h4", {}, "Art"),
+      kindRow,
+      gameArt
+        ? h("p", { class: "hint" }, "This is the game's own art, read from your imported ROM, so it is read-only: its pixels can't be edited or copied into a mod (a mod may not ship ROM art). Import a sheet of your own to replace it; you choose its kind (walks, turns, still) when importing.")
+        : h("p", { class: "hint" }, "Your mod's own sheet. Walkers: stand ↓ ↑ ←, then walk ↓ ↑ ← (right is left mirrored); 16×16 frames, white is see-through."),
       h("div", { class: "row wrap" },
-        h("button", { class: "btn small", disabled: !simple, onclick: () => void importSheet(id, kindSel.value as SpriteKind) }, "Import sheet…"),
+        h("button", { class: "btn small", disabled: !simple, onclick: () => void importSheet(id) }, "Import sheet…"),
         h("button", {
           class: "btn small",
           disabled: !simple || !ownSheet,
@@ -268,9 +292,12 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     store.seal();
   };
 
-  const importSheet = async (id: string, kind: SpriteKind) => {
+  const importSheet = async (id: string) => {
     if (!store.project.mod) return toast("Open a mod first: imported art is saved into it.", "error");
-    const res = await importArt(target(kind), { trueColor: !!liveSprite(id)?.trueColor });
+    const s = liveSprite(id);
+    const kind = await promptKind(s ? kindOf(s) : "walker");
+    if (!kind) return;
+    const res = await importArt(target(kind), { trueColor: !!s?.trueColor });
     if (!res) return;
     setArt(id, "Import sprite sheet", addAsset(store.project.mod, id.toLowerCase(), res.data), kind, res.trueColor);
   };
@@ -333,6 +360,31 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     }
   });
   nav.onSpritesShown = () => render();
+}
+
+// the kind of sheet about to be imported
+function promptKind(current: SpriteKind): Promise<SpriteKind | null> {
+  return new Promise((resolve) => {
+    const dialog = h("dialog", {});
+    const kind = h("select", {}, ...(["walker", "turner", "object"] as SpriteKind[]).map((k) => h("option", { value: k, selected: k === current }, KIND_LABELS[k])));
+    const close = (v: SpriteKind | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(v);
+    };
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      close(null);
+    });
+    dialog.append(
+      h("h3", {}, "Import a sprite sheet"),
+      field("Kind", kind, "Walks: 6 frames (stand ↓ ↑ ←, walk ↓ ↑ ←). Turns: 3 (stand only). Still: 1. Frames are 16×16, stacked or side by side."),
+      h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), h("button", { class: "btn primary", onclick: () => close(kind.value as SpriteKind) }, "Next: picture")),
+    );
+    document.body.append(dialog);
+    dialog.showModal();
+    kind.focus();
+  });
 }
 
 // id and kind of a new sprite

@@ -755,13 +755,45 @@ function wireUpDialog(snippet: string): void {
   );
 }
 
-async function validate(): Promise<void> {
-  if (!currentMod) return;
-  if (store.unsaved) await save();
-  validateBtn.disabled = true;
-  validateBtn.textContent = "Validating…";
+// A modal "working" box: nothing else can be clicked or typed into until
+// `run` finishes (keys are swallowed by the capture listener below).
+let busy = false;
+async function whileBusy<T>(title: string, run: (step: (text: string) => void) => Promise<T>): Promise<T> {
+  const stepText = h("p", { class: "hint" });
+  const box = h("dialog", { class: "busy-dialog" }, h("div", { class: "spinner" }), h("div", {}, h("strong", {}, title), stepText));
+  box.addEventListener("cancel", (e) => e.preventDefault());
+  document.body.append(box);
+  box.showModal();
+  busy = true;
+  document.body.classList.add("busy");
   try {
-    const result = await validateMod(host, currentMod);
+    return await run((text) => (stepText.textContent = text));
+  } finally {
+    busy = false;
+    document.body.classList.remove("busy");
+    box.close();
+    box.remove();
+  }
+}
+window.addEventListener("keydown", (e) => {
+  if (!busy) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+}, true);
+
+async function validate(): Promise<void> {
+  if (!currentMod || busy) return;
+  const mod = currentMod;
+  validateBtn.disabled = true;
+  try {
+    const result = await whileBusy(`Validating ${mod}`, async (step) => {
+      if (store.unsaved) {
+        step("Saving first…");
+        await save();
+      }
+      step("Running modkit validate --strict and lint… (this can take a minute)");
+      return validateMod(host, mod);
+    });
     openDialog(
       result.ok ? "✓ Validate + lint passed" : "✗ Validate / lint reported problems",
       [h("pre", { class: `mono output ${result.ok ? "ok" : "bad"}` }, result.output)],
@@ -771,7 +803,6 @@ async function validate(): Promise<void> {
     toast(errorText(err), "error");
   } finally {
     validateBtn.disabled = false;
-    validateBtn.textContent = "Validate";
   }
 }
 

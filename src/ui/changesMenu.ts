@@ -99,6 +99,7 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     case "map_songs":
       return store.maps[id] ? () => nav.openMap(id) : null;
     case "field":
+      if (id === "playerSprites") return () => nav.openSprite(String((store.table("field").playerSprites as { walk?: string } | undefined)?.walk ?? "SPRITE_RED"));
       // hiddenExtras (PC tiles) and flyWarps (landing spots): the maps say which
       return () => nav.setWorkspace("maps");
     case "trainers":
@@ -119,7 +120,7 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
 }
 
 // field keys the studio edits
-const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenExtras: "PCs, bench guys, gym statues", hiddenItems: "Hidden items", hiddenCoins: "Hidden coins" };
+const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenExtras: "PCs, bench guys, gym statues", hiddenItems: "Hidden items", hiddenCoins: "Hidden coins", playerSprites: "The player's sprites" };
 
 function displayName(record: unknown, id: string, registry = ""): string {
   if (registry === "field" && FIELD_NAMES[id]) return FIELD_NAMES[id];

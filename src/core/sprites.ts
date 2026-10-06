@@ -13,13 +13,24 @@ import { assetUrl } from "./assets.ts";
 export const SPRITES = "sprites";
 export const FRAME = 16;
 
-// the player's sprites (src/world/FieldDefaults.lua playerSprites)
-export const PLAYER_ROLES: Record<string, string> = {
-  SPRITE_RED: "the player, walking",
-  SPRITE_RED_BIKE: "the player, on the bike",
-  SPRITE_SEEL: "the player, surfing",
-  SPRITE_BIRD: "the player, flying",
-};
+// What the player wears: field.playerSprites (on foot, bike, surf, fly),
+// the engine's defaults (src/world/FieldDefaults.lua PLAYER_SPRITES) unless
+// the mod sets them.
+export type PlayerRole = "walk" | "bike" | "surf" | "fly";
+export const PLAYER_ROLES: PlayerRole[] = ["walk", "bike", "surf", "fly"];
+export const ROLE_LABELS: Record<PlayerRole, string> = { walk: "On foot", bike: "On the bike", surf: "Surfing", fly: "Flying" };
+export const DEFAULT_PLAYER: Record<PlayerRole, string> = { walk: "SPRITE_RED", bike: "SPRITE_RED_BIKE", surf: "SPRITE_SEEL", fly: "SPRITE_BIRD" };
+
+export function playerSprites(): Record<PlayerRole, string> {
+  const set = store.table("field").playerSprites as Partial<Record<PlayerRole, string>> | undefined;
+  return { ...DEFAULT_PLAYER, ...(set ?? {}) };
+}
+
+// the player roles a sprite fills
+export function rolesOf(id: string): PlayerRole[] {
+  const p = playerSprites();
+  return PLAYER_ROLES.filter((r) => p[r] === id);
+}
 
 export type SpriteKind = "walker" | "turner" | "object";
 export const KIND_FRAMES: Record<SpriteKind, number> = { walker: 6, turner: 3, object: 1 };

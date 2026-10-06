@@ -250,6 +250,9 @@ renamed before players have saves with it.
     stand ↓ ↑ ←, walk ↓ ↑ ←; turners 3 frames; objects 1) and replaces the
     game's art (only the image is patched). **Replace frame…** works on
     sheets the mod already owns. **+ New** adds a sprite NPCs can use.
+  - **The player** card picks the sprite the player wears on foot, on the
+    bike, surfing and flying (`field.playerSprites`): any sprite, the game's
+    or the mod's. Player sprites carry a "player" tag in the list.
   - Known issue: modkit's ROM-art check (MK302) compares tiny 8×8
     fingerprints, so most person-shaped sprites are flagged as near-duplicates
     of a game sprite and validation fails (the game's own walker sheets match

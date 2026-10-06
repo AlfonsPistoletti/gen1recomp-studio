@@ -7,7 +7,7 @@
 import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../core/geometry.ts";
 import { store, type Selection, type Stamp } from "../core/store.ts";
 import { EXTENSIONS, liveTileset, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
-import { liveSprite, spriteUrl } from "../core/sprites.ts";
+import { liveSprite, playerSprites, spriteUrl } from "../core/sprites.ts";
 import { gbcColorsFor, gbcKey, isGbcKey } from "../core/gbc.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
@@ -942,7 +942,7 @@ export class MapView {
     const npcLayer = store.adapter.layers.find((l) => l.kind === "npc");
     const player = p.actors.player;
     if (npcLayer && player && !player.hidden) {
-      this.drawNpc(npcLayer, { x: player.x, y: player.y, sprite: p.playerSprite ?? "SPRITE_RED", movement: "STAY", range: player.facing.toUpperCase() });
+      this.drawNpc(npcLayer, { x: player.x, y: player.y, sprite: p.playerSprite ?? playerSprites().walk, movement: "STAY", range: player.facing.toUpperCase() });
     }
     const who = p.emote ? p.actors[p.emote] : undefined;
     if (who) {

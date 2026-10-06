@@ -8,8 +8,8 @@ import { addAsset } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
 import type { SpriteDef } from "../core/types.ts";
 import {
-  FRAME, FRAME_LABELS, isBaseSprite, isSimpleSheet, KIND_FRAMES, kindOf, liveSprite, PLAYER_ROLES, SPRITES, spriteIds, spriteUrl, spriteUsers,
-  type SpriteKind,
+  DEFAULT_PLAYER, FRAME, FRAME_LABELS, isBaseSprite, isSimpleSheet, KIND_FRAMES, kindOf, liveSprite, PLAYER_ROLES, playerSprites, ROLE_LABELS, rolesOf,
+  SPRITES, spriteIds, spriteUrl, spriteUsers, type SpriteKind,
 } from "../core/sprites.ts";
 import { loadImage, spriteFrameAt } from "../render/graphics.ts";
 import type { Rgb } from "../render/color.ts";
@@ -58,7 +58,8 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
         return {
           id,
           label: id.replace(/^SPRITE_/, ""),
-          meta: PLAYER_ROLES[id] ? "player" : { walker: "walks", turner: "turns", object: "still" }[kindOf(s)],
+          meta: { walker: "walks", turner: "turns", object: "still" }[kindOf(s)],
+          tags: rolesOf(id).length ? ["player"] : [],
           search: id,
           edited: !own && store.isRecordEdited(SPRITES, id),
           isNew: own,
@@ -66,7 +67,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       }),
     current: () => current,
     pick: (id) => open(id),
-    refreshOn: (reason, _id, registry) => reason === "content" && registry === SPRITES,
+    refreshOn: (reason, id, registry) => reason === "content" && (registry === SPRITES || (registry === "field" && id === "playerSprites")),
   });
 
   const title = h("span", { class: "head-title" }, "Sprites");
@@ -254,18 +255,18 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     ));
     // who uses it
     const users = spriteUsers(id);
-    const role = PLAYER_ROLES[id];
+    const roles = rolesOf(id);
     out.push(h("div", { class: "card" },
       h("h4", {}, "Used by"),
-      role ? h("p", { class: "hint" }, `${role[0].toUpperCase()}${role.slice(1)}: changing it changes the player.`) : null,
+      roles.length ? h("p", { class: "hint" }, `The player (${roles.map((r) => ROLE_LABELS[r].toLowerCase()).join(", ")}): changing it changes the player.`) : null,
       users.length
         ? h("div", { class: "row wrap" }, ...users.slice(0, 40).map(([m, i]) => h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(m, "objects", i) }, `${m} #${i + 1}`)))
-        : role ? null : h("p", { class: "hint" }, "No NPC uses it yet: pick it as an NPC's Sprite on a map."),
+        : roles.length ? null : h("p", { class: "hint" }, "No NPC uses it yet: pick it as an NPC's Sprite on a map."),
       !isBaseSprite(id)
         ? h("button", {
             class: "btn small danger",
-            disabled: users.length > 0,
-            title: users.length ? "NPCs still use it" : "Delete this sprite",
+            disabled: users.length > 0 || roles.length > 0,
+            title: users.length || roles.length ? "NPCs or the player still use it" : "Delete this sprite",
             onclick: () => {
               store.setRecord(SPRITES, id, `Delete ${id}`, undefined);
               store.seal();
@@ -275,7 +276,35 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
           }, "Delete sprite")
         : null,
     ));
+    out.push(playerCard(id));
     return out;
+  };
+
+  // which sprites the player wears (field.playerSprites); a role set back to
+  // the game's sprite is dropped
+  const playerCard = (id: string): HTMLElement => {
+    const now = playerSprites();
+    const ids = spriteIds();
+    const rows = PLAYER_ROLES.map((role) => {
+      const sel = h("select", {}, ...ids.map((s) => h("option", { value: s, selected: now[role] === s }, `${s}${s === DEFAULT_PLAYER[role] ? " (the game's)" : ""}`)));
+      sel.addEventListener("change", () => {
+        const cur = { ...((store.table("field").playerSprites as Record<string, string> | undefined) ?? {}) };
+        if (sel.value === DEFAULT_PLAYER[role]) delete cur[role];
+        else cur[role] = sel.value;
+        store.setRecord("field", "playerSprites", `Player sprite: ${ROLE_LABELS[role].toLowerCase()}`, Object.keys(cur).length ? cur : undefined);
+        store.seal();
+      });
+      const use = h("button", { class: "btn small ghost", disabled: now[role] === id, title: `Make ${id} the player's sprite ${ROLE_LABELS[role].toLowerCase()}`, onclick: () => {
+        sel.value = id;
+        sel.dispatchEvent(new Event("change"));
+      } }, "Use this");
+      return h("div", { class: "field" }, h("span", { class: "field-label" }, ROLE_LABELS[role]), h("div", { class: "row nowrap" }, sel, use));
+    });
+    return h("div", { class: "card" },
+      h("h4", {}, "The player"),
+      h("p", { class: "hint" }, "Which sprite the player wears. Pick any sprite, or replace that sprite's art. On foot also sets the Town Map marker and Oak's intro."),
+      ...rows,
+    );
   };
 
   // ---------------------------------------------------------------- import
@@ -352,7 +381,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project") {
       if (!current || !liveSprite(current)) current = "SPRITE_RED";
       schedule();
-    } else if (reason === "content" && registry === SPRITES) {
+    } else if (reason === "content" && (registry === SPRITES || (registry === "field" && id === "playerSprites"))) {
       if (current && !liveSprite(current)) current = null;
       schedule();
     } else if (reason === "reveal" && registry === SPRITES && id) {

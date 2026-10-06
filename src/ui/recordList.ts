@@ -16,6 +16,8 @@ export interface ListItem {
   isNew?: boolean;
   // listed in the collapsed `folded` section at the bottom
   folded?: boolean;
+  // extra labels after the name ("player")
+  tags?: string[];
 }
 
 export interface RecordListOptions {
@@ -62,6 +64,7 @@ export function mountRecordList(host: HTMLElement, opts: RecordListOptions): Rec
         { class: `map-row${it.id === current ? " active" : ""}`, onclick: () => opts.pick(it.id), title: it.id, "data-id": it.id },
         it.icon ? h("img", { class: "row-icon", src: it.icon, alt: "", loading: "lazy" }) : null,
         h("span", { class: "map-name" }, it.label),
+        ...(it.tags ?? []).map((t) => h("span", { class: "tag role" }, t)),
         it.isNew ? h("span", { class: "tag new" }, "new") : it.edited ? h("span", { class: "tag edited" }, "edited") : null,
         it.meta ? h("span", { class: "map-meta" }, it.meta) : null,
       );

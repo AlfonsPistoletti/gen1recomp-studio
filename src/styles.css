@@ -294,6 +294,7 @@ body.resizing * { cursor: col-resize !important; }
 
 .tag.edited { background: #3a3220; color: var(--warn); }
 .tag.new { background: #1d3a2e; color: var(--ok); }
+.tag.role { background: #23304a; color: #9cc0ff; }
 .tag.removed { background: #3a2024; color: var(--bad); }
 
 /* ---------------------------------------------------------- toolbar */

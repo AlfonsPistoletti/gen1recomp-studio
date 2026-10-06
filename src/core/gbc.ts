@@ -25,6 +25,9 @@ interface GbcWorld {
   groupColors: Record<string, Rgb[][]>;
   roofGroup: Record<string, number>;
   roofByMapIndex: Table<Rgb[]>;
+  // overworld sprites: ROM picture number -> palette (or "random"), palettes
+  spriteAssignment: Table<number | string>;
+  spritePalettes: Table<Rgb[]>;
 }
 
 // what a mod adds (a studio_tilesets record's `gbc`): groups as [tile, group]
@@ -65,13 +68,22 @@ export function loadGbc(host: Host, version: string): Promise<GbcWorld | null> {
       const pack = await loadLuaData<{ world?: GbcWorld }>(text, "palettes_gbc.lua");
       const w = pack?.world;
       if (!w?.tileGroups || !w.groupColors) return null;
-      const world: GbcWorld = { tileGroups: { ...w.tileGroups }, groupColors: { ...w.groupColors }, roofGroup: w.roofGroup ?? {}, roofByMapIndex: w.roofByMapIndex ?? {} };
+      const world: GbcWorld = {
+        tileGroups: { ...w.tileGroups },
+        groupColors: { ...w.groupColors },
+        roofGroup: w.roofGroup ?? {},
+        roofByMapIndex: w.roofByMapIndex ?? {},
+        spriteAssignment: w.spriteAssignment ?? {},
+        spritePalettes: { ...(w.spritePalettes ?? {}) },
+      };
       // Yellow replaces some tilesets' tables (PaletteFX.worldPack)
       if (/yellow/i.test(version)) {
         const y = await host.readText("game", "data/palettes_gbc_yellow.lua").catch(() => null);
         const yw = y ? (await loadLuaData<{ world?: Partial<GbcWorld> }>(y, "palettes_gbc_yellow.lua"))?.world : undefined;
         Object.assign(world.tileGroups, yw?.tileGroups ?? {});
         Object.assign(world.groupColors, yw?.groupColors ?? {});
+        if (yw?.spriteAssignment) world.spriteAssignment = yw.spriteAssignment;
+        Object.assign(world.spritePalettes, yw?.spritePalettes ?? {});
       }
       return world;
     })().catch(() => null);
@@ -180,4 +192,42 @@ export function gbcColorsFor(tilesetId: string, key: string): (tile: number) => 
   });
   const gray: Rgb[] = [[0, 0, 0], [85, 85, 85], [170, 170, 170], [255, 255, 255]];
   return (tile) => byGroup[groupOf(tilesetId, tile, fixes || null)] ?? gray;
+}
+
+// ------------------------------------------------------------------ sprites
+// PaletteFX.spriteObp: a sprite's ROM picture number (its `source`, or
+// `paletteSource` for mod art that borrows one) picks a palette; "random"
+// ones hash the NPC's id ("<MAP>_obj_<index>", the player "player") into one
+// of the first four. The bike sheet (no number) wears the player's. Mod
+// sprites without a source stay in plain shades.
+
+export interface SpriteSource {
+  source?: unknown;
+  paletteSource?: unknown;
+}
+
+function seedGroup(seed: string): number {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 4294967296;
+  return h % 4;
+}
+
+// RED++ colors of a sprite (darkest first, as spriteFrame wants them) and a
+// cache key, or null when the sprite has none
+export function spriteGbcColors(def: (SpriteSource & Record<string, unknown>) | undefined, seed: string, yellow = false): { colors: Rgb[]; key: string } | null {
+  if (!world) return null;
+  const src = typeof def?.paletteSource === "string" ? def.paletteSource : typeof def?.source === "string" ? def.source : "";
+  if (!src) return null;
+  const m = /\[(\d+)\]/.exec(src);
+  let idx = m ? Number(m[1]) : null;
+  if (idx === null && src.includes("RedBikeSprite")) idx = 0;
+  if (idx === null && src.includes("SurfingPikachuSprite")) idx = yellow ? 60 : 0;
+  if (idx === null) return null;
+  let group = at(world.spriteAssignment, idx + 1 - (Array.isArray(world.spriteAssignment) ? 0 : 1));
+  if (group === undefined) return null;
+  if (group === "random") group = seedGroup(seed);
+  const pal = at(world.spritePalettes, Number(group) + (Array.isArray(world.spritePalettes) ? 1 : 0));
+  if (!pal || pal.length < 4) return null;
+  // sheet shades darkest first: black, dark gray, light gray, white (clear)
+  return { colors: [pal[3], pal[2], pal[1], pal[0]], key: `GBCS|${group}` };
 }

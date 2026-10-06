@@ -8,7 +8,7 @@ import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../co
 import { store, type Selection, type Stamp } from "../core/store.ts";
 import { EXTENSIONS, liveTileset, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
 import { liveSprite, playerSprites, spriteUrl } from "../core/sprites.ts";
-import { gbcColorsFor, gbcKey, isGbcKey } from "../core/gbc.ts";
+import { gbcColorsFor, gbcKey, isGbcKey, spriteGbcColors } from "../core/gbc.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
 import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
@@ -538,11 +538,14 @@ export class MapView {
   private drawNpc(layer: EntityLayer, o: EntityRecord): void {
     const ctx = this.ctx;
     const ref = layer.sprite?.(o) ?? null;
-    // sprites keep the map's Game Boy palette in both color modes
+    // the map's Game Boy palette, or in RED++ the sprite's own palette
     const palette = store.palettes[store.currentMap] || "ROUTE";
+    const def = ref ? liveSprite(ref.sprite) : undefined;
+    const seed = o.index === undefined ? "player" : `${store.currentMap}_obj_${String(o.index)}`;
+    const gbc = store.colorMode === "redpp" && def ? spriteGbcColors(def, seed, /yellow/i.test(store.project.version)) : null;
     const img = ref
-      ? spriteFrame(liveSprite(ref.sprite), spriteUrl(ref.sprite),
-          store.adapter.spriteColors(store.ctx, palette), palette, ref.facing, () => this.invalidate())
+      ? spriteFrame(def, spriteUrl(ref.sprite),
+          gbc ? gbc.colors : store.adapter.spriteColors(store.ctx, palette), gbc ? gbc.key : palette, ref.facing, () => this.invalidate())
       : null;
     if (img) {
       // ghosts only appear through scripts

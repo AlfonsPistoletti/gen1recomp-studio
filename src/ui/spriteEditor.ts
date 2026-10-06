@@ -14,6 +14,7 @@ import {
 import { loadImage, spriteFrameAt } from "../render/graphics.ts";
 import type { Rgb } from "../render/color.ts";
 import { importArt } from "./artImport.ts";
+import { spriteGbcColors } from "../core/gbc.ts";
 import { canDerive, NO_RECIPE, reusable } from "../core/reuse.ts";
 import { clear, field, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
@@ -21,6 +22,7 @@ import { nav } from "./nav.ts";
 
 const ZOOM = 4;
 const GRAYS = "__grays";
+const REDPP = "__redpp";
 const GRAY_COLORS: Rgb[] = [[0, 0, 0], [85, 85, 85], [170, 170, 170], [255, 255, 255]];
 const KIND_LABELS: Record<SpriteKind, string> = { walker: "Walks (6 frames)", turner: "Turns, never walks (3 frames)", object: "Still (1 frame)" };
 const DIRS = ["down", "up", "left", "right"] as const;
@@ -94,8 +96,11 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
 
   // the colors sprites are shown in: a map's palette (the current one), any
   // palette, or plain grays
-  const colorKey = () => viewPalette || store.palettes[store.currentMap] || "ROUTE";
-  const colors = (): Rgb[] => (colorKey() === GRAYS ? GRAY_COLORS : store.adapter.spriteColors(store.ctx, colorKey()));
+  // RED++: the sprite's own palette (a "random" one shows one of its four)
+  const gbcOf = () => (current ? spriteGbcColors(liveSprite(current), "preview", /yellow/i.test(store.project.version)) : null);
+  const useGbc = () => viewPalette === REDPP || (!viewPalette && store.colorMode === "redpp" && !!gbcOf());
+  const colorKey = () => (useGbc() ? (gbcOf()?.key ?? GRAYS) : viewPalette && viewPalette !== REDPP ? viewPalette : store.palettes[store.currentMap] || "ROUTE");
+  const colors = (): Rgb[] => (useGbc() ? (gbcOf()?.colors ?? GRAY_COLORS) : colorKey() === GRAYS ? GRAY_COLORS : store.adapter.spriteColors(store.ctx, colorKey()));
 
   const frameImg = (id: string, frame: number, flip: boolean) =>
     spriteFrameAt(liveSprite(id), spriteUrl(id), colors(), colorKey(), frame, flip, schedule);
@@ -123,6 +128,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       h("option", { value: "" }, `Colors: this map's (${store.palettes[store.currentMap] || "ROUTE"})`),
       ...paletteNames.map((n) => h("option", { value: n, selected: viewPalette === n }, `Colors: ${n}`)),
       h("option", { value: GRAYS, selected: viewPalette === GRAYS }, "Game Boy grays"),
+      ...(gbcOf() ? [h("option", { value: REDPP, selected: viewPalette === REDPP }, "Colors: RED++ (Game Boy Color)")] : []),
     );
     view.disabled = !!s.trueColor;
     view.addEventListener("change", () => {

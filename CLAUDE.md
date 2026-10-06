@@ -144,7 +144,8 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
 - RED++ colors (`src/core/gbc.ts`): read from gen1recomp `data/palettes_gbc.lua` (+ `_yellow`) via the
   "game" root, so checkout only (null otherwise: the toggle is disabled). Restates PaletteFX's
   per-map/per-tileset tile exceptions; not the LOBBY alias or dark caves. Map view keys are
-  `GBC|<roof map index>|<map with fixes>`; sprites keep SGB colors. A mod's choices live in
+  `GBC|<roof colors>|<map with fixes>`; sprites use `spriteGbcColors` (source picture number ->
+  spriteAssignment, "random" hashed from `<MAP>_obj_<index>` like PaletteFX.spriteObp). A mod's choices live in
   `studio_tilesets[id].gbc` ({groups: [tile, group][], palettes?: 8x4 for its own tilesets}; a mod
   tileset's record holds only `gbc`, so `extensionOf` ignores non-base ids); the helper writes them
   into `require("data.palettes_gbc").world` at load (no API), GENERATORS `internals` predicate.

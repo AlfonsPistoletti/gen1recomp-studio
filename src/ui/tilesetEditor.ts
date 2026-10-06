@@ -643,15 +643,6 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ctx.lineWidth = 2;
         ctx.strokeRect(x + 1, y + 1, B - 2, B - 2);
       }
-      // surfable / cuttable quarters
-      if (showCollision && current) {
-        quarterMarks(current, ts, b).forEach((q, cell) => {
-          const qx = x + (cell % 2) * (B / 2) + B / 4;
-          const qy = y + Math.floor(cell / 2) * (B / 2) + B / 4;
-          if (q.water) drawMark(ctx, "water", qx, qy, 12, schedule);
-          if (q.cut) drawMark(ctx, "cut", qx, qy, 12, schedule);
-        });
-      }
     }
     if (selBlock !== null) {
       ctx.strokeStyle = "#fff";

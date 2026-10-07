@@ -269,10 +269,19 @@ const SHORE_TILES = [0x32, 0x48];
 const ENCOUNTER_BUCKETS = [51, 102, 141, 166, 191, 216, 229, 242, 253, 256];
 
 // Indoor maps (index past the last outdoor one, tileset not FOREST) roll
-// their grass table on every step, not only on grass.
+// their grass table on every step, not only on grass; a map marked outdoor
+// (or on OVERWORLD without the mark) never does
+// (gen1recomp OverworldState.rollsIndoorEncounters, Map.isOutdoor).
+export function isOutdoorMap(map: MapDef): boolean {
+  const o = (map as { outdoor?: unknown }).outdoor;
+  return typeof o === "boolean" ? o : map.tileset === "OVERWORLD";
+}
+
 function rollsEverywhere(map: MapDef, ctx: GameContext): boolean {
   const indoor = field(ctx).indoorEncounters;
-  return !!indoor && (map.index ?? 0) >= indoor.firstIndoorMap && map.tileset !== indoor.excludedTileset;
+  if (!indoor || isOutdoorMap(map)) return false;
+  if (typeof map.index === "number" && map.index < indoor.firstIndoorMap) return false;
+  return map.tileset !== indoor.excludedTileset;
 }
 
 const encounters: EncounterSpec = {
@@ -432,7 +441,7 @@ const towns: TownSpec = {
   ],
   benchText: (label) => BENCH_GUY_TEXT[label] ?? `_${label}`,
   // Teleport/Dig/Escape Rope land outside: OVERWORLD (or a map marked outdoor)
-  isTown: (map) => (map as { outdoor?: boolean }).outdoor === true || map.tileset === "OVERWORLD",
+  isTown: (map) => isOutdoorMap(map),
 };
 
 // ------------------------------------------------------------------ trainers

@@ -236,6 +236,9 @@ export class MapView {
       if (hit.map === map) return hit;
       // moving a warp/NPC/sign or editing a field leaves the pixels alone
       if (sameGraphics(hit.map, map)) {
+        // where wild Pokémon appear also depends on the outdoor mark and index
+        const wildKey = (m: MapDef) => `${(m as { outdoor?: unknown }).outdoor}|${m.index}`;
+        if (wildKey(hit.map) !== wildKey(map)) hit.wild = null;
         hit.map = map;
         return hit;
       }

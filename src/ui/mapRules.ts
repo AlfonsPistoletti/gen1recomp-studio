@@ -74,6 +74,26 @@ function addGate(map: MapDef, badge: string): void {
 export function mapRulesSection(map: MapDef): HTMLElement[] {
   const out: HTMLElement[] = [h("h4", {}, "Rules")];
 
+  // outdoor or indoor (map.outdoor; unset: OVERWORLD maps are outdoor)
+  const mark = (map as { outdoor?: unknown }).outdoor;
+  const auto = map.tileset === "OVERWORLD" ? "outdoor" : "indoor";
+  const where = h("select", {},
+    h("option", { value: "", selected: typeof mark !== "boolean" }, `By tileset (${auto}: ${map.tileset})`),
+    h("option", { value: "out", selected: mark === true }, "Outdoor"),
+    h("option", { value: "in", selected: mark === false }, "Indoor"),
+  );
+  where.addEventListener("change", () => {
+    store.edit(map.id, "Outdoor / indoor", (d) => {
+      const r = d as { outdoor?: boolean };
+      if (where.value === "out") r.outdoor = true;
+      else if (where.value === "in") r.outdoor = false;
+      else delete r.outdoor;
+    });
+    store.seal();
+  });
+  out.push(field("Outdoor or indoor", where,
+    "Outdoor: wild Pokémon only in grass and water, and Fly and Teleport can be used. Indoor (caves, towers): with an index of 37 or more, every step can meet a wild Pokémon (not on the FOREST tileset). Needs a gen1recomp from October 2026 or later."));
+
   // dark until Flash
   const dark = fieldRec<DarkMaps>("darkMaps");
   if (dark) {

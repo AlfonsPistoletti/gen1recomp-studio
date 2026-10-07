@@ -151,6 +151,9 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   into `require("data.palettes_gbc").world` at load (no API), GENERATORS `internals` predicate.
   Roofs: `studio_roofs` (map id -> { index, colors }) -> `world.roofByMapIndex[index]` (mod maps have
   index >= 1000 and no town roof otherwise).
+- Outdoor maps: `map.outdoor` (engine Oct 2026+, Map.isOutdoor; unset = tileset OVERWORLD) decides
+  indoor every-step encounters (index >= firstIndoorMap, not FOREST) and Fly/Teleport; the studio
+  mirrors it in `isOutdoorMap`/`rollsEverywhere` and offers it in map Rules (`mapRules.ts`).
 - Status numbers (Global > Status conditions): `statuses` restated from the engine's Status.lua
   (catch/shake bonus, statPenalty.div; GlobalNumber keys may be dotted paths). Records carry battle
   code in the engine, so the registry is patched, never `replace`.

@@ -242,7 +242,7 @@ function gameSongsCard(ids: string[]): HTMLElement {
   });
   return h("section", { class: "card" },
     h("h4", {}, "The game's songs"),
-    h("p", { class: "hint" }, "Replacing one plays your file everywhere the game plays that song (maps, battles, jingles). A song that should not repeat, like a jingle, still loops if it's a single file."),
+    h("p", { class: "hint" }, "Replacing one plays your file everywhere the game plays that song (maps, battles, jingles). Where the game plays a song once (a jingle), your file plays once too."),
     h("div", { class: "sound-list" }, ...rows),
   );
 }

@@ -165,6 +165,14 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   tabs, undo/redo, changes, Play, Save (icon-only so it fits 1280 px, a 1920 laptop at 150%). Map
   toolbar: tools | view toggles (icons, keys G C E N W A) + RED++ | add icons, one row. Menus use
   `dropdown()` (`src/ui/dom.ts`, `.menu`/`.menu-row`/`.menu-sep`).
+- Sharing (gear menu, `src/ui/share.ts`): Export .zip (`src/core/zip.ts`, CompressionStream, files via
+  `host.imageUrl`, `host.saveExport`) and Publish on GitHub (`publishMod` in `src/project/publish.ts`: manifest
+  github/version, modkit's release workflow copied once (checkout `tools/mod_release_workflow.yml`, else the
+  studio's copy in src/project/), then git in `mods/<id>/` through `host.git`, an allow-list of subcommands).
+- Mod page (gear menu, `src/ui/modPage.ts`): README.md, written to disk directly (outline from the manifest;
+  modkit's developer README counts as missing). DIFFERENCES.md is rewritten on every save from
+  `store.changed()` (`differencesMarkdown`, changesMenu.ts). Changes are grouped by `grouped()`: Global-edited
+  records join the constants group "Global settings".
 - New game (Global > New game, `newGameCard`): `field.boot` start map/cell/facing, startMoney, lastHeal (unset = the
   engine derives it, SaveData.defaultHeal). boot is not in field.lua (Data.lua seeds it), so the gen1 adapter
   restates BOOT_DEFAULTS as the base record (field `build`) and a change is a patch of the changed keys.

@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { PLAY_ENV, type DirEntry, type Host, type HostInfo, type ProcessResult, type Root } from "../src/host/types.ts";
-import { cacheRoot, gameCommand, hasModkit, install, VERSIONS, within } from "./paths.ts";
+import { cacheRoot, gameCommand, hasModkit, install, MOD_ID_RE, VERSIONS, within } from "./paths.ts";
 
 function rootDir(root: Root): string {
   if (root === "game") return install().modsParent;
@@ -66,6 +66,37 @@ export function runModkit(args: string[]): Promise<ProcessResult> {
     };
     attempt(0);
   });
+}
+
+// git <args> in mods/<modId>/ only, and only what publishing needs (same
+// rules as the git command in src-tauri/src/main.rs)
+const GIT_COMMANDS = ["--version", "init", "remote", "add", "commit", "push", "config", "rev-parse", "status"];
+
+export function runGit(modId: string, args: string[]): Promise<ProcessResult> {
+  if (!MOD_ID_RE.test(modId)) throw new Error(`bad mod id ${modId}`);
+  let i = 0;
+  while (args[i] === "-c") i += 2;
+  if (!GIT_COMMANDS.includes(args[i])) throw new Error(`git ${args[i] ?? ""} is not allowed`);
+  const cwd = path.join(install().modsParent, "mods", modId);
+  if (!fs.existsSync(cwd)) throw new Error(`${cwd} not found`);
+  return new Promise((done) => {
+    let output = "";
+    const child = spawn("git", args, { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } });
+    child.stdout.on("data", (d) => (output += d));
+    child.stderr.on("data", (d) => (output += d));
+    child.on("error", () => done({ code: -1, output: "git not found" }));
+    child.on("close", (code) => done({ code: code ?? -1, output }));
+  });
+}
+
+// shows mods/<modId> (or mods/) in the file manager of the machine the dev
+// server runs on (the same machine in browser mode)
+export async function openFolder(modId: string): Promise<void> {
+  if (modId && !MOD_ID_RE.test(modId)) throw new Error(`bad mod id ${modId}`);
+  const dir = path.join(install().modsParent, "mods", modId);
+  if (!fs.existsSync(dir)) throw new Error(`${dir} not found`);
+  const cmd = process.platform === "win32" ? "explorer" : process.platform === "darwin" ? "open" : "xdg-open";
+  spawn(cmd, [dir], { detached: true, stdio: "ignore" }).unref();
 }
 
 export async function playGame(version: string): Promise<void> {
@@ -133,4 +164,10 @@ export const nodeHost: Host = {
   async openUrl() {},
   modkit: runModkit,
   play: playGame,
+  // only the web front offers files (httpHost.saveExport downloads them)
+  async saveExport() {
+    return null;
+  },
+  git: runGit,
+  openFolder,
 };

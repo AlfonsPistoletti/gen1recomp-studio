@@ -44,19 +44,36 @@ const NAMES: Record<string, [string, string]> = {
 export function changeSummary(): { total: number; text: string } {
   const parts: string[] = [];
   let total = 0;
-  for (const [registry, records] of ordered()) {
-    const n = Object.keys(records).length;
+  for (const [group, changes] of grouped()) {
+    const n = changes.length;
     total += n;
-    const [heading, one] = NAMES[registry] ?? [registry, registry];
+    const [heading, one] = NAMES[group] ?? [group, group];
     parts.push(`${n} ${n === 1 ? one : heading.toLowerCase()}`);
   }
   return { total, text: parts.join(" · ") };
 }
 
-function ordered(): [string, Record<string, unknown>][] {
+interface Change {
+  registry: string;
+  id: string;
+  record: unknown; // null: removed
+}
+
+// the changed records in display groups: one per registry, except that
+// everything edited in Global (new game, names, trades, ...) joins "Global
+// settings" (the constants group) whatever registry stores it
+function grouped(): [string, Change[]][] {
+  const groups = new Map<string, Change[]>();
+  for (const [registry, records] of Object.entries(store.changed())) {
+    for (const id of Object.keys(records).sort()) {
+      const group = globalLabelOf(registry, id) ? "constants" : registry;
+      if (!groups.has(group)) groups.set(group, []);
+      groups.get(group)!.push({ registry, id, record: records[id] });
+    }
+  }
   const order = Object.keys(NAMES);
   const rank = (r: string) => (order.includes(r) ? order.indexOf(r) : order.length);
-  return Object.entries(store.changed()).sort(([a], [b]) => rank(a) - rank(b));
+  return [...groups].sort(([a], [b]) => rank(a) - rank(b));
 }
 
 const mapIdOfLabel = (label: string): string | undefined =>
@@ -137,6 +154,54 @@ function displayName(record: unknown, id: string, registry = ""): string {
   return typeof name === "string" && name && name.toUpperCase() !== id.toUpperCase() ? `${id} · ${name}` : id;
 }
 
+// what a record's fields are called in DIFFERENCES.md (the rest: "baseStats"
+// -> "base stats")
+const KEY_NAMES: Record<string, string> = {
+  blocks: "layout", objects: "people and objects", warps: "warps", signs: "signs", borderBlock: "border",
+  tmhm: "TM/HM moves", level1Moves: "starting moves", dexEntry: "Pokédex entry", spriteFront: "front sprite",
+  spriteBack: "back sprite", trueColor: "full color", aiMods: "AI", basePic: "portrait", pic: "portrait",
+};
+const fieldName = (k: string) => KEY_NAMES[k] ?? k.replace(/([a-z])([A-Z0-9])/g, "$1 $2").replace(/_/g, " ").toLowerCase();
+
+// which top-level fields of a record differ from the game's
+function changedFields(base: unknown, now: unknown): string[] {
+  if (!base || !now || typeof base !== "object" || typeof now !== "object" || Array.isArray(now)) return [];
+  const b = base as Record<string, unknown>;
+  const n = now as Record<string, unknown>;
+  const keys = [...new Set([...Object.keys(b), ...Object.keys(n)])].filter((k) => k !== "id" && JSON.stringify(b[k]) !== JSON.stringify(n[k]));
+  return [...new Set(keys.map(fieldName))];
+}
+
+// DIFFERENCES.md: everything the mod adds, changes or removes compared with
+// the game (and the mod's hand-written main.lua), grouped like the changes
+// menu, written on every save
+export function differencesMarkdown(modName: string): string {
+  const lines = [
+    `# ${modName}: what it changes`,
+    "",
+    "Everything this mod adds or changes compared with the original game. Written by Gen1Recomp Studio on every save.",
+    "",
+  ];
+  const groups = grouped();
+  if (!groups.length) lines.push("Nothing yet.", "");
+  for (const [group, changes] of groups) {
+    const [heading] = NAMES[group] ?? [group];
+    lines.push(`## ${heading}`, "");
+    for (const { registry, id, record } of changes) {
+      const base = store.baseTable(registry);
+      const name = globalLabelOf(registry, id) ?? displayName(record, id, registry);
+      if (record === null) lines.push(`- ${name}: removed`);
+      else if (!(id in base) && !globalLabelOf(registry, id)) lines.push(`- ${name}: new`);
+      else {
+        const fields = changedFields(base[id], record);
+        lines.push(`- ${name}${fields.length ? `: ${fields.join(", ")}` : ": changed"}`);
+      }
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
 export function mountChangesMenu(): HTMLElement {
   const badge = h("span", { class: "badge" });
   const dot = h("span", { class: "unsaved-dot", title: "Unsaved" });
@@ -152,17 +217,15 @@ export function mountChangesMenu(): HTMLElement {
 
   const render = () => {
     clear(panel);
-    const groups = ordered();
+    const groups = grouped();
     if (!groups.length) {
       panel.append(h("p", { class: "hint empty" }, "No changes against the game yet."));
       return;
     }
-    for (const [registry, records] of groups) {
-      const ids = Object.keys(records).sort();
-      const [heading] = NAMES[registry] ?? [registry];
-      panel.append(h("div", { class: "menu-head" }, h("span", {}, heading), h("span", { class: "muted" }, String(ids.length))));
-      for (const id of ids) {
-        const record = records[id];
+    for (const [group, changes] of groups) {
+      const [heading] = NAMES[group] ?? [group];
+      panel.append(h("div", { class: "menu-head" }, h("span", {}, heading), h("span", { class: "muted" }, String(changes.length))));
+      for (const { registry, id, record } of changes) {
         const removed = record === null;
         const global = globalLabelOf(registry, id);
         // global settings always exist in the game, even when the dataset omits a default

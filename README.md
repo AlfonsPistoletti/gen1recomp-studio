@@ -1,479 +1,233 @@
 # Gen1Recomp Studio
 
-A content editor for [gen1recomp](../gen1recomp): maps, wild encounters,
-Pokémon data and in-game text. It reads the game's own Lua data through a real
-Lua VM, renders maps from cached block atlases, and saves edits as a normal mod
-that passes `modkit validate --strict` and `lint`.
+A visual editor for making mods for [gen1recomp](https://github.com/bryanthaboi/gen1recomp), the
+Pokémon Red, Blue and Yellow recompilation. Paint maps, place people and signs, change Pokémon,
+moves, items and trainers, write dialogue and small cutscenes, and replace graphics and music,
+all without writing code. What you make is saved as a normal gen1recomp mod.
 
-## Run
+## Download
 
-Desktop app (needs Rust and, on Windows, the Visual Studio C++ Build Tools;
-see https://v2.tauri.app/start/prerequisites/):
+Get the installer from the **[latest release](https://github.com/AlfonsPistoletti/gen1recomp-studio/releases/latest)**
+(Windows: the `-setup.exe` or the `.msi`).
 
-```sh
-npm install
-npm run tauri dev      # desktop window, hot-reloads the front end
-npm run tauri build    # installers in src-tauri/target/release/bundle/
-```
+The installer isn't signed yet, so Windows may show a blue "Windows protected your PC" box on the
+first start. Click **More info**, then **Run anyway**.
 
-In the browser, without Rust:
+## Before you start
 
-```sh
-npm run dev            # opens http://localhost:5178
-```
+- **gen1recomp:** the normal download (a release) works, and so does a developer copy of its
+  source code.
+- **Your game imported once:** start gen1recomp, pick Red, Blue or Yellow and give it your ROM.
+  gen1recomp reads the data it needs out of your own ROM; the studio works from that.
 
-### Which gen1recomp
+  Every version you imported shows up in the studio's game picker.
 
-The studio works with either a **source checkout** of gen1recomp or a
-**release build** (the folder with `gen1recomp.exe`, `gen1recomp.app` or the
-Linux binary/AppImage). The desktop app asks for the folder on first start
-and remembers it; the last entry of the mod menu (the gear) switches folders. In
-the browser, set `GEN1RECOMP_ROOT` or create `studio.config.json`:
+Some features need the developer copy of gen1recomp, because the tools for them only come with it:
+- **Validate** and **Pack**, the tools that check a mod and package it for sharing;
+- the **RED++** (Game Boy Color) colors;
+- showing the game's own events in the Events workspace.
 
-```json
-{ "gameRoot": "D:/code/gen1recomp" }
-```
+With a normal gen1recomp download, those parts are greyed out.
 
-|  | Source checkout | Release build |
-|---|---|---|
-| Mods are read and written in | `<repo>/mods` | the game's save folder, `%APPDATA%\pokemon-love2d\mods` on Windows (`~/Library/Application Support/pokemon-love2d` on macOS, `~/.local/share/pokemon-love2d` on Linux), or next to the executable in portable mode (`portable.txt`) |
-| Imported ROM data | `POKEPORT_DATA_DIR`, `<repo>/<version>`, the LÖVE save folder (`…/LOVE/pokemon-love2d/<version>`), then for Gen 1 `<repo>/data/generated`, the same lookup as `tools/modkit.py` | `<save folder>/<version>`, or `<release>/<version>` in portable mode |
-| New mod | `tools/modkit.py scaffold` | the studio writes the same manifest itself |
-| Validate | `modkit validate --strict` + `lint` | unavailable (releases ship no Python tools) |
+## First start
 
-A release only loads mods from its save folder; a mod dropped next to a
-non-portable executable is a "stray" the launcher copies into the save folder
-once, so editing that copy would not reach the game. The studio therefore
-always edits the save folder's copy.
+1. **Folder:** the studio asks for your gen1recomp folder (the one with `gen1recomp.exe`, or the
+   source code folder). It remembers it; to switch later, open the gear menu next to the mod picker.
+2. **Game:** pick the game at the top left (for example "Red · Gen 1").
+3. **Mod:** pick a mod in the mod picker, or **+ New mod…** to start one.
 
-Boot the game once with your ROM so its dataset exists. Every imported
-version shows up in the game picker.
+   Without a mod you can look around, but you can't save.
+4. **Edit:** edit anything, then **Save** (the disk icon, or Ctrl+S). Your changes go into the mod;
+   the game's own files are never touched.
 
-`npm run selftest` checks the round trip without touching `mods/`. Every
-vanilla map must diff to nothing, and edited maps, Pokémon, encounter tables
-and text written to Lua and read back must come out identical.
+The tabs along the top are the workspaces (keys 1 to 9). One **Undo** and one **Save** cover all
+of them. The page icon next to **Play** shows how many things your mod changes; click it for a list
+you can jump into.
 
-## Workspaces
+## What you can edit
 
-The tabs in the top bar switch between workspaces (keys 1 to 9). Game, mod,
-undo/redo, Play and Save are shared: one undo history and one save cover every
-tab. The gear next to the mod picker opens the mod menu: Mod details, Validate,
-Pack, and which gen1recomp folder the studio works on.
+### Maps
+- **Painting:** paint maps with blocks from the panel on the right. Right-click a block on the map
+  to pick it up; right-drag to copy a whole area as a stamp.
+- **Neighbours:** the neighbouring maps are drawn around the open one, so towns and routes read as
+  one world. Double-click a neighbour to open it.
+- **Warps, people and signs:** add them with the **+** buttons in the toolbar, or drag them around.
+  Select one to edit it on the right, including what a person or sign says.
+- **New text:** **Create text** gives a person new lines. **New text for this one** gives them
+  their own copy of a game line to change; the game's line stays as it is.
+- **Roles:** a person can be a **shop clerk** (with what the shop sells), a **nurse**, a **PC**, a
+  **Game Corner prize counter**, a **trainer** (class, team, how far they see, what they say), or
+  run an **event**.
+- **Map properties:** music, color palette, the RED++ roof color, and **Rules**:
+  - dark until Flash;
+  - bike allowed;
+  - a badge check that turns the player back;
+  - whether the map counts as outdoors.
+- **Hidden things:** PCs, people drawn into the tiles (like the man on the Pokémon Center bench),
+  hidden items and coins, and gym statues.
+- **Landing spot:** for towns, where Teleport, Dig and blacking out bring the player back.
+- **Wild Pokémon:** the **Encounters** tab at the bottom of the right panel edits grass, water and
+  Super Rod Pokémon. The swords button in the toolbar shows which cells can start a wild battle.
+- **New maps:** **+ New** in the map list starts an empty map, or a copy of another one (handy
+  for a new Pokémon Center or shop).
 
-The changes button next to Play shows how many records differ from the
-game, with a dot while something is unsaved. Click it for the list, grouped by
-kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
+### Pokémon
+- Stats, types, catch rate, growth, evolutions, moves, TMs/HMs and the Pokédex entry.
+- **Art:** import front and back pictures and a menu icon, or borrow another Pokémon's.
+  - Pictures are turned into the 4 Game Boy shades unless you tick **Full color**.
+  - **Battle palette** sets the colors the game paints them in.
+  - A battle preview shows how they will sit on the battle screen.
+- **Cry:** import a sound file (WAV, OGG, MP3, FLAC) or borrow another Pokémon's cry.
+- **+ New** adds a Pokémon as a copy of an existing one.
 
+### Moves and items
+- Moves: power, accuracy, PP, type, priority and their effect. Items: price, what they do, and which
+  shops sell them.
+- **Effects from blocks:** effects can be built from blocks instead of code:
+  - for a move: lower a stat, poison, heal, hit 2–5 times, …;
+  - for an item: heal, cure, revive, raise a stat, act as a Poké Ball, …
 
-Records a mod adds (Pokémon, moves, items, trainer classes) can get a new
-**id** in their editor's Id field; when the display name suggests another id
-(STEELIX renamed to ICELIX), a button offers it. Every reference follows:
-evolutions, trainer teams, wild slots, shops, prizes, NPCs on maps, the
-Pokédex text key. Vanilla ids never change, and a mod's own id should only be
-renamed before players have saves with it.
+  Start from the game's own effect with **Customize this effect**.
+- Each move and item lists who uses it.
 
-- **Maps**: the map editor. The tabs at the bottom of the right panel switch
-  what the panel shows. **Base** has the block palette and the properties of
-  the map or the selected warp/NPC/sign. For NPCs and signs it also shows and
-  edits what they say. **Encounters** edits the map's wild Pokémon: grass and
-  water tables, rate, and the species and level of the ten slots. How likely
-  each slot is lives in **Global**.
-  - An NPC or sign without text gets a **Create text** button. It makes a new
-    text id, pointer and string; existing texts are never changed. An NPC that
-    shows an original game line can get **New text for this one**: its own
-    copy to edit, while the original stays as it is.
-  - **Revert map to base** (or **Delete map** for a new one) lists everything
-    that belongs to the map and differs from the game: layout, events, music,
-    wild Pokémon, NPC texts and roles, hidden events and landing spot, prize
-    counters. Untick what to keep; it's one undo step. A talk event whose
-    NPC is gone shows ⚠ in the Events list.
-  - **New map** starts empty or as a **copy of a map**: blocks, warps, NPCs,
-    signs with their texts and roles, PC tiles, music and wild Pokémon come
-    along (e.g. copy a Pokémon Center or Mart for a new town). Connections and
-    the game's hand-written scripts for the original are not copied.
-  - **Role: Trainer** (NPCs): trainer class and team, plus a line of sight
-    (0–5 cells in the direction a standing NPC looks), its encounter music
-    (the game's track for the class: male, female or villain; or another, or
-    none), and its texts: before the battle, inside the battle when it loses,
-    and after the battle. Mods can't write the game's trainer headers, so
-    the studio builds the trainer from events (gen1recomp wiki recipe R51): a
-    talk event and one step event per cell it sees ("!", it walks up, then the
-    battle), with a beaten flag. The game's own trainers keep their header.
-  - **Role** (NPCs and signs): normal, **shop clerk** (with its stock list,
-    the same one the Items workspace's "Sold at" edits), **nurse** (heals;
-    the town outside becomes the Teleport/Dig/blackout return point), **PC**,
-    or **prize counter** (signs too).
-  - Map properties, **Music**: the song the map plays (bike and surf songs
-    still take over while riding or surfing).
-  - Map properties, **Hidden events**: things the player can interact with
-    that aren't NPCs or signs, shown with an icon on the map: PC tiles, bench
-    guys (people drawn into the tiles, like the man on a Pokémon Center bench,
-    with their text), hidden items, hidden coins and gym statues. Add one with
-    "+ Add (pick on map)". For outdoor
-    towns, a **landing spot**: where Teleport, Dig, Escape Rope and blacking
-    out put the player after healing at a center in the town. Flying to new
-    towns isn't supported yet (it would also need the Town Map).
-  - The **Wild** overlay (W) shows which cells roll encounters.
-  - A green dot in the map list marks maps with wild Pokémon.
-- **Pokémon** (battle sprites): back sprites can be imported at 32×32 (Gen 1,
-  drawn doubled) or 48/56/64 px (full resolution, drawn 1:1, like Gen 2).
-  Each sprite has a **drawn at** size (the engine's `battleScaleFront` /
-  `battleScaleBack`), and a battle preview shows both sprites the way the game
-  places them (the player's Pokémon stands on the text box at any size).
-  Transparent pixels stay transparent so the game can ground the sprite.
-- **Pokémon** (cries): the **Cry** card imports a WAV, OGG, MP3 or FLAC
-  file, or borrows another Pokémon's cry; imported sounds can be played in
-  the studio. The game's own cries are synthesized by the game while it runs,
-  so they can't be previewed. For a new Gen 1 style cry, the card links to the
-  Gen 1 cry synthesizer (export a .wav there, import it here). New Pokémon
-  start with the cry of the one they were copied from.
-- **Pokémon**: base stats, types, catch rate, EXP, growth, evolutions,
-  starting and level-up moves, TM/HM compatibility and the Pokédex entry.
-- **New Pokémon and trainers**: **+ New** in the Pokémon or Trainers list
-  starts as a copy of an existing one.
-  - A new Pokémon gets the next dex number, borrows the original's cry and
-    menu icon, and gets its own copy of the Pokédex text. It keeps the
-    original's sprites through asset transforms (below).
-  - **Reusing game art:** a mod may not point at the game's own files
-    (modkit MK301). So the studio writes `studio_transforms.lua` (and the
-    manifest's `assets_transforms`) on save, and records point at
-    `save/mod-derived/<mod>/studio/...`. The game copies the art out of the
-    player's own imported data when it loads, and the mod ships no ROM
-    pixels.
-  - In a mod that already has its own `assets_transforms` file, new
-    Pokémon start with "?" placeholders, and only mod art can be reused.
-  - A new trainer borrows the original's portrait (`basePic`).
-  - New ones can be deleted again; the studio warns if something still uses
-    them.
-- **Art**: the Art card (Pokémon) and the portrait (trainers) can **Import…**
-  an image. A Pokémon can also borrow another new Pokémon's art from the same
-  mod, and a trainer can borrow any portrait (`basePic`, which is allowed).
-  Save warns about anything that would point at the game's own files.
-  - Imports are fitted to the game's sizes: front 40–56 px, back 32 px,
-    portrait 56 px, and a 16×16 menu icon with 2 frames.
-  - They are converted to the 4 Game Boy shades (coloured by the game's
-    palettes), or kept in full colour (`trueColor`, per Pokémon/trainer).
-  - On save, images go to `mods/<id>/assets/studio/`, and images nothing uses
-    any more are removed from there.
-- **Moves**: name, type, power, accuracy, PP, effect, priority, damage
-  category override and high critical-hit ratio.
-  - "Used by" lists the Pokémon that learn the move (level-up, start, TM/HM)
-    and trainers who give it as a custom move.
-  - **+ New** copies a move. Its battle animation is another move's, written
-    as `mod.content.battle_anims:get("…")`, so the mod carries no animation
-    data.
-  - **Effects:** every built-in effect has a short description. **Custom
-    effect** (or **Customize this effect** on a built-in one) opens a builder:
-    - status moves: a list of steps (stat change, status, confuse, heal),
-      can miss or not;
-    - damaging moves: hits (1–5 or 2–5), normal, fixed or level damage,
-      recoil %, drain %, never miss, and side effects with a chance
-      (stat change, status, confuse, flinch, heal).
-  - Custom effects are plain data in `mods/<id>/studio_effects.lua`. A fixed
-    helper in `studio_content.lua` registers them as `move_effects` and
-    follows the vanilla rules (Substitute, Mist, type immunity to secondary
-    statuses, 2–5 hit spread). Special effects (charge turns, trapping,
-    Transform, Metronome, …) stay built-in only.
-- **Items**: name, price, key item, TM/HM move, effect, catch numbers for
-  balls, and the shops that sell it.
-  - Gen 1 items have no categories. Their effects are built into the game
-    per item id, and every built-in effect has a short description.
-  - **Customize this effect** turns a built-in effect into blocks, and
-    **Custom effect** starts one from scratch. The blocks:
-    - on a party Pokémon: restore HP (amount, % or full), cure statuses,
-      revive, restore PP, stat EXP (vitamin), level up, evolve (stone);
-    - in battle or the field: raise a stat (X item), Dire Hit, Guard Spec,
-      X Accuracy, escape a wild battle, throw as a ball, Repel;
-    - plus where the item works (battle, field, both) and "never used up".
-  - Custom effects are plain data in `mods/<id>/studio_item_effects.lua`. A
-    fixed helper in `studio_content.lua` registers them as `item_effects`
-    with the vanilla refusals, texts and menus (HP bar, level-up screen,
-    evolution).
-  - Missing from custom effects, because a mod can't reach them: the heal
-    sound (the item jingle plays instead), Yellow's Pikachu reactions, and
-    Gen 1's par/burn stat quirk after an X item.
-  - Special items (Bicycle, rods, Town Map, Escape Rope, Poké Flute, PP Up,
-    TMs/HMs, …) keep their built-in behaviour.
-  - **+ New** copies an item. A built-in effect comes along as a custom one,
-    and a copied ball gets its own catch numbers. New items are saved by id
-    and need no ROM slot.
-  - **Sold at** adds or removes the item from any shop's stock.
-- **Trainers**: every trainer class with its portrait.
-  - **Teams**: species, level and order of each team, plus the maps where
-    each one is fought. Each Pokémon shows the moves the game gives it: its
-    last four level-up moves, plus the signature move some leaders put in
-    slot 3. **Custom moves** sets up to four of your own.
-  - **AI**: the three move-choice layers, and the item/switch behaviour
-    (item, uses, chance, HP limit, switching).
-  - Only the last team can be removed, because NPCs pick a team by number.
-  - Classes no NPC fights are marked "unused" (e.g. CHIEF and the first JUGGLER).
-  - On the map, a trainer NPC's properties show its class and team. **Open
-    team in Trainers** jumps to that team.
-  - Trainer Pokémon all use the same fixed DVs and no Stat Exp. The engine
-    has no per-Pokémon setting for either, so the studio doesn't offer one.
-- **Text**: every string of the game's text table, with a text-box preview
-  and the maps, NPCs and Pokédex entries that use it. Write one line per row,
-  with a blank line between pages. Buttons insert `{PLAYER}`, `{RIVAL}`,
-  `{DONE}`, `{PROMPT}` and the like, and "What the commands do" explains each.
-- **Events**: map events built from commands, like RPG Maker's event lists.
-  - An event runs when the player talks to an NPC or sign (Maps: select it,
-    Role: Event), steps on a cell (only once, if wanted) or enters a map
-    (both from the map's properties, or **+ New**).
-  - Cutscenes: **Walk along a path** (the player or an NPC; drawn by clicking
-    the map, or with arrow buttons; "at the same time as the next command"
-    lets two people walk together), **NPC walks to a cell** (finds its way),
-    **Place NPC**, **Turn an NPC / the player**, **Move the camera**, and the
-    **NPC leads, player follows** block. Paths start where that person stands
-    at that point of the event (the earlier moves are replayed). A step event
-    can start from the **Escort** template (like Prof. Oak stopping the player
-    at the grass).
-  - **▶ Preview** plays the event on its map: people walk their paths at the
-    game's step speed, texts show as captions (click or a key for the next),
-    "!" bubbles pop up, NPCs appear and disappear. It's a sketch, not the
-    game: Ifs take their first branch, Choices their first option, and
-    battles, warps and items only show a caption.
-  - Commands: text, yes/no questions, choices, flags, give/take items, money
-    and Pokémon, heal, trainer and wild battles, moving the player and NPCs,
-    showing/hiding NPCs, warps, waits, fades, music and sounds.
-  - **If** blocks check a flag, an item, money, caught Pokémon, a YES answer or
-    a won battle, with an optional **Else**; **Choice** gives a menu with one
-    branch per option. Flags are free names (name new ones after your mod).
-  - With a gen1recomp source checkout, the game's own events are listed too
-    (folded at the bottom). Command-list ones open read-only with **Edit a
-    copy**; ones that are code in the game can be replaced by a new event.
-  - Events are saved as the engine's own command rows in
-    `mods/<id>/studio_events.lua`; a fixed helper registers them.
-- **Graphics**: two views, switched at the top of the left panel.
-- **Graphics > Sprites**: the overworld sprites of NPCs, the player
-  (SPRITE_RED, _RED_BIKE, SEEL for surfing, BIRD for flying) and objects. A
-  preview walks the sprite in all four directions at NPC or player speed;
-  the frames are listed below it.
-  - **Import sheet…** takes 16×16 frames stacked or side by side (walkers:
-    stand ↓ ↑ ←, walk ↓ ↑ ←; turners 3 frames; objects 1) and replaces the
-    game's art (only the image is patched). **Replace frame…** works on
-    sheets the mod already owns. **+ New** adds a sprite NPCs can use.
-    **Use the art of…** gives a sprite another sprite's art and kind (the
-    game's art as a copy the asset-transforms recipe makes).
-  - **The player** card picks the sprite the player wears on foot, on the
-    bike, surfing and flying (`field.playerSprites`): any sprite, the game's
-    or the mod's. Player sprites carry a "player" tag in the list.
-  - Known issue: modkit's ROM-art check (MK302) compares tiny 8×8
-    fingerprints, so most person-shaped sprites are flagged as near-duplicates
-    of a game sprite and validation fails (the game's own walker sheets match
-    each other in 177 of 780 pairs). Reported to gen1recomp.
-- **Graphics > Images**: every other game image: the title screen, the
-  player's pictures (title, back in battle, trainer card, fishing), the intro,
-  battle screen, move animation sheets, Town Map, slot machine, fonts, effects,
-  credits. **Replace…** imports a picture of the same size (transparent where
-  the game's is); the mod ships it as `overrides/<path>`, which the game loads
-  instead of its own. **Back to the game's** removes it. **Use the art of…**
-  shows another game image of the same size there instead (copied from the
-  player's own files when the mod loads; the mod ships no ROM art).
-- **Graphics > Palettes**: the Game Boy palettes (4 colors each) maps,
-  Pokémon and screens use. Recolor one (the map view follows), or **+ New** to
-  add one a map can pick in its properties (Palette). RED++ uses its own colors.
-  The preview draws a map (map palettes), a Pokémon's front and back (Pokémon
-  palettes) or the game image a screen palette colors; its menu picks another.
-- **Graphics > Tilesets**: the tile sheet, the 32×32 blocks maps are painted with, and
-  which tiles you can walk on (footprints; ledges show their hop arrow). You
-  walk on a block in quarters, each decided by its bottom-left tile. **Edit**
-  in the map's block palette opens the map's tileset. Drag over several tiles
-  to place them into a block at once.
-  - Colors belong to maps, not tilesets (each map's Palette, in its
-    properties); the color menu only changes how the tileset is shown here.
-  - **RED++** (the game's Game Boy Color mode, from pokered-gbc; needs a
-    gen1recomp source checkout): the RED++ (palette) button in the map toolbar and
-    the tileset color menu show it. Each tile uses one of its tileset's 8
-    palettes: pick one for your added tiles in the tile panel. Your own
-    tilesets can get 8 palettes of their own (**Give it RED++ colors**). This
-    writes into the engine's color table when the mod loads (no mod API
-    exists for it), so the mod gets the `engine_internals` permission.
-  - Roofs take their town's colors (by map index), so a map the mod adds
-    shows the tileset's own green roofs: **RED++ roof** in the map's
-    properties copies a town's roof colors or sets custom ones.
-  - **+ Animated block** imports a strip of 32×32 frames: tiles that change
-    become animated tiles (every place they appear animates), the rest are
-    plain tiles. **Animate…** on a selected tile takes a strip of 8×8 frames.
-    The speed is set per tile. The spinner tilesets (GYM, FACILITY) can't get
-    animations of their own.
-  - **+ New** makes a tileset from a picture: it is cut into 8×8 tiles
-    (kept as laid out, or with **Optimize** repeats stored once and packed), in the 4 Game Boy shades or full color, and every
-    whole 32×32 square becomes a block. Door, warp, counter and tall-grass
-    tiles and the water animation are set per tile.
-  - The game's own tilesets can be **extended** instead of copied: **+ Import
-    tiles** and **+ New block** add tiles and blocks after the game's, so every
-    map keeps working. Select a block and **+ New block** for an editable copy;
-    the 4×4 composer places the selected tile (right click picks one).
-  - The mod ships only the added tiles. When the game loads the mod, its
-    asset-transforms recipe builds the combined sheet from the player's own
-    imported one. Added tiles use the 4 shades; with the RED++ color pack they
-    get its text palette. A mod with its own `assets_transforms` file can't
-    extend tilesets.
-  - Surfing: a tile can be **Water** or **Shore**; the player surfs on a cell
-    whose bottom-left tile is one of them, on tilesets with **Surfable water**
-    (the tileset's settings). Your own tiles can be made water on the game's
-    tilesets too.
-  - Cut: only OVERWORLD (tree, tall grass) and GYM (plant) have cuttable tiles;
-    that is fixed in the engine. Each cuttable block needs **When cut, becomes
-    block #** in the block panel (the swap list is shared by both tilesets).
-- **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
-  reads.
-  - New game: where a new game starts (map, cell, facing), the start money,
-    and the blackout point before the first Pokémon Center (`field.boot`);
-    plus the three player and rival names Oak offers and the label of the
-    type-your-own option.
-  - Fishing: the Old and Good Rod catch the same everywhere (Global > Wild
-    encounters); the Super Rod has a list per map (Maps, Encounters tab). Half
-    the casts bite, then each entry (up to 4) is equally likely.
-  - In-game trades: what each trade NPC wants, what the player gets, its
-    nickname and dialogue, and who offers it. **+ New trade** adds one; an
-    NPC offers it through the **Trade Pokémon** event command (once, by flag).
-  - Wild slot chances.
-  - Game Corner prizes: three prizes per counter (items or Pokémon with a
-    level, any coin price), for the vanilla counters and any NPC/sign made a
-    prize counter. They use the game's own prize window, so a mod with prize
-    counters gets the `engine_internals` permission (the mod manager shows
-    "PATCHES ENGINE CODE" for that; nothing in the engine is changed).
-  - The type chart: every matchup, and physical/special per type.
-  - Level cap and bag size.
-  - Walking and bike speed, the turn window, poison, blackout money and
-    Day-Care EXP.
-  - Which badge each HM needs outside battle.
-  - Custom types (Type chart → New type): an id, a display name of up to 8
-    letters, and physical/special. Set their matchups in the chart.
-    Pokémon and moves can use them right away.
+### Trainers
+- **Teams:** each trainer's teams (Pokémon, levels, order) and the maps where they are fought.
+- **Moves:** each team member shows the moves the game gives it; **Custom moves** sets your own.
+- **AI:** how clever their move choices are, and when they use items or switch.
+- **Portrait:** import a portrait or borrow another trainer's, and pick its palette.
 
-  Values set back to vanilla are dropped. Gen 1 has one set of slot chances
-  for every map: the engine supports per-table chances, but the mod schema
-  rejects them.
+### Text
+Every line of dialogue in the game, with a preview of the text box and a list of who says it.
+Buttons insert things like the player's name (`{PLAYER}`) or a page break.
 
-Gen 1 cutscenes are hand-written Lua inside the game. The studio edits the
-text they show, not their logic.
+### Events
+Small cutscenes, built from a list of commands instead of code: say something, ask yes/no, give
+items or Pokémon, start a battle, walk people around, warp, play music, and so on.
+- **When it runs:** when the player talks to someone, steps on a cell, or enters a map.
+- **Choices:** **If** and **Choice** blocks let the event react to flags, items or answers.
+- **▶ Preview** plays a sketch of the event on its map. It isn't the real game; use
+  **Play from here** for that.
 
-### Map rules
+### Graphics
+- **Tilesets:** the tiles and blocks maps are built from.
+  - Add your own tiles and blocks after the game's, and set which tiles you can walk on, surf on or
+    cut.
+  - Make animated tiles.
+  - Start a whole new tileset from a picture.
+- **Sprites:** the people and objects walking around the overworld.
+  - Replace their art, add new ones, and choose which sprites the player uses on foot, on the bike,
+    surfing and flying.
+  - In RED++ mode, pick their colors.
+- **Images:** any other picture: title screen, battle screen, Town Map, fonts, and so on. Replace
+  one with your own picture of the same size.
+- **Palettes:** the 4-color Game Boy palettes. Recolor one, or add one a map can use.
 
-The map's properties end with **Rules**: **Dark until Flash**, **Bike allowed**
-(maps whose tileset allows the bike everywhere show it checked and fixed) and
-**Badge gate**: pick a badge and the checkpoint cells; without the badge the
-player is turned back one cell down, with it the guard waves them through once.
-The gate's two texts are created for the map and open in Text. Route 23's
-guard rows are shown, not edited.
+The color menu at the top of these views (and of Pokémon and Trainers) only changes how things are
+shown in the studio, so you can preview any palette or the RED++ colors.
 
-## Map editing
+### Global
+Game-wide settings:
+- **Wild encounters:** how likely each wild slot is, and the Old and Good Rod.
+- **Type chart:** type matchups, plus your own new types.
+- **Pokémon & items:** level cap and bag size.
+- **Status conditions:** the catch bonus of each status.
+- **Overworld:** walking and bike speed, poison steps.
+- **Field moves:** which badge each HM needs.
+- **New game:**
+  - where a new game starts;
+  - the starting money;
+  - where the player wakes up after blacking out before the first Pokémon Center;
+  - the names Oak offers.
+- **In-game trades.**
+- **Music & sounds:** import your own songs and sound effects.
+- **Slot machines** and **Game Corner prizes.**
 
-| Key | |
+Only settings the game really uses are offered here.
+
+## Testing and sharing your mod
+
+- **Test:** **Play** (▷ next to Save) starts the game right where you click on the map, with your
+  mod, continuing your current save game. Unsaved changes are saved first.
+
+  Saving inside the game is switched off during these test runs, so your real save is never
+  touched.
+- **Check:** **Validate** (gear menu, or Ctrl+V) checks the mod the same way gen1recomp's mod
+  tools do.
+- **Details:** **Mod details…** (gear menu) sets the mod's name, description, version and
+  category.
+- **Mod page:** **Mod page…** (gear menu) is where you write the page people see on your mod's
+  GitHub repository (`README.md`). It starts from an outline: what the mod is, features, how to
+  install it, credits. A preview next to it shows roughly how it will look.
+- **Change list:** on every save the studio also writes `DIFFERENCES.md`, the list of everything
+  your mod adds or changes compared with the original game (for example
+  "BULBASAUR: base stats, learnset"). The mod page links to it.
+
+### Sharing
+Players install mods from a `.zip` file (in gen1recomp: **MODS > Import mod .zip**). There are two
+ways to give them one.
+
+**Export .zip…** (gear menu) saves that `.zip` on your computer. Send it to people directly, for
+example on Discord.
+
+**Publish on GitHub…** (gear menu) puts the mod online the way gen1recomp recommends. GitHub then
+builds the `.zip` for you on every update, and gen1recomp's launcher can update the mod for
+players.
+1. **Account:** you need a free [GitHub](https://github.com) account and
+   [Git for Windows](https://git-scm.com/download/win).
+2. **Repository, the first time:** click **Create it on GitHub…** in the dialog and create an
+   **empty** repository (don't add a README), named after your mod.
+3. **Enter it:** type it as `your-name/repository`.
+4. **Version:** raise the version when you want to release a new one (1.0.0 → 1.0.1).
+5. **Publish:** click **Publish**. The first time, a GitHub sign-in window opens.
+6. **Share:** after a minute or two the `.zip` appears under **Releases** on your repository's
+   page. Share that page.
+
+Next time, open the dialog again, write what changed and click **Publish**.
+
+**Pack…** (gear menu, or Ctrl+P) makes a `.modpkg`, an older package format that is rarely used
+now.
+
+Your mod lives in gen1recomp's `mods` folder; **Open mod folder** (gear menu) shows it in Explorer. The studio writes its changes into a file called
+`studio_content.lua`. Anything you write by hand in the mod's `main.lua` is left alone.
+
+## Good to know
+
+- **Game art:** a mod may not contain the game's own pictures. When you reuse game art (for example a
+  new Pokémon that looks like an old one), the studio sets things up so the game copies the art
+  from the player's own ROM when it loads the mod.
+- **Renaming:** the game's own Pokémon, moves, items and trainers keep their names inside the
+  game data (their "id"). Your own new ones can be renamed, as long as nobody plays with the mod
+  yet.
+- **Story scenes:** the game's story scenes are programmed inside gen1recomp. The studio can change
+  what people say in them, but not what happens.
+- **Not possible yet:**
+  - flying to new towns;
+  - a different chance per wild slot on each map;
+  - individual stats for trainer Pokémon.
+
+  gen1recomp itself doesn't offer these to mods yet.
+- **Sprites known issue:** gen1recomp's mod check sometimes mistakes a new person sprite for a
+  copy of a game sprite, so Validate can fail for mods with new sprites. This has been reported
+  to gen1recomp.
+
+## Keyboard shortcuts
+
+| Key | What it does |
 |---|---|
-| S / B / R / F | Select, Brush, Rectangle, Fill |
-| G / C / E / N / W | Toggle grid, collision, entities, neighbouring maps, wild cells |
-| Right-click / right-drag (or Alt+click) | Pick a block from any tool; dragging copies a region as a stamp |
-| Middle-drag, Space+drag | Pan |
-| Wheel, + / − | Zoom |
-| 0 / Shift+0 | Fit map / fit the whole connected world |
-| Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y | Undo / redo |
-| Ctrl+S | Save into the selected mod |
-| Ctrl+F | Jump to the search of the current workspace |
-| Ctrl+V / Ctrl+P | Validate / Pack the mod (outside text fields for Ctrl+V) |
-| 1 … 9 | Maps / Pokémon / Moves / Items / Trainers / Text / Events / Graphics / Global |
-| Arrows, Delete, Esc | Nudge, delete or deselect the selected warp/NPC/sign |
+| Ctrl+S | Save |
+| Ctrl+Z / Ctrl+Shift+Z (or Ctrl+Y) | Undo / redo |
+| Ctrl+F | Jump to the search box |
+| Ctrl+V / Ctrl+P | Validate / Pack the mod (Ctrl+V still pastes inside text fields) |
+| 1 … 9 | Maps, Pokémon, Moves, Items, Trainers, Text, Events, Graphics, Global |
+| S / B / R / F | Map tools: select, brush, rectangle, fill |
+| Right-click, right-drag (or Alt+click) | Pick up a block, or copy an area |
+| G / C / E / N / W / A | Show or hide: grid, walkable cells, warps & people, neighbouring maps, wild cells, animation |
+| Middle-drag or Space+drag | Move the map |
+| Mouse wheel, + / − | Zoom |
+| 0 / Shift+0 | Fit the map / fit the whole connected world |
+| Arrows, Delete, Esc | Move, delete or deselect the selected warp, person or sign |
 
-- The open map is drawn with every map connected to it, so the overworld
-  reads as one surface. Double-click a neighbouring map to open it.
-- Drag across the block palette, or right-drag on a map, to make a multi-block
-  stamp. The brush paints the stamp, and Rect tiles it across a rectangle.
-- In the Select tool, double-click a warp to jump to its destination.
-- Setting a connection also writes the return connection on the other map,
-  with the offset mirrored (`back.offset == -offset`, as in vanilla).
-- Collision is derived the way `src/world/Map.lua` derives it: from the tile
-  at each cell's feet, checked against the tileset's `walkable` list.
-- **Play from here** (the play button in the top bar): click a walkable cell and the game starts there
-  with your mod, continuing your active save (a new game when there is none).
-  Unsaved edits are saved first. Saving is off in a test run, so your save slot
-  never changes. A checkout needs LÖVE (love on PATH or installed to Program
-  Files); a release starts its gen1recomp executable. The studio keeps a small
-  helper mod for this in `mods/studio_playtest/`, only active when the studio
-  starts the game, and adds `force_enable_env` to your mod's manifest so test
-  runs include it even when it is switched off in the game.
+## For developers
 
-## How saving works
-
-Pick a mod in the top bar, or choose **+ New mod…**, which runs
-`tools/modkit.py scaffold`. A save writes exactly one file,
-`mods/<id>/studio_content.lua`:
-
-- A vanilla map you changed becomes `mod.content.maps:patch(...)` carrying
-  only the fields that changed. A removed key becomes `mod.DELETE`, so the
-  patch composes with other mods.
-- A new map becomes `mod.content.maps:register(...)` at index 1000 or above.
-- Pokémon, encounter tables and text pointers are patched the same way, field
-  by field. Lists such as learnsets and encounter slots are written whole
-  (lists replace when merged). Changed strings become `text:override(...)`;
-  new ones become `register(...)`.
-- Global settings in `constants` are written whole with
-  `constants:override(...)`, because that registry merges lists by appending.
-  Type chart rows are `type_chart:patch("FIRE>GRASS", ...)`, or `register` for
-  a new pair.
-- Hand-written code in `main.lua` is never rewritten. The studio runs
-  `main.lua` (without its own file) to build the base it diffs against, so
-  hand-written patches such as `bills_garden`'s are part of what you see.
-- If `main.lua` does not load the studio file yet, the studio offers to add
-  `require("mods.<id>.studio_content")(mod)` before its final `end`.
-
-**Mod details** (the gear next to the mod menu) edits the mod's
-`manifest.json`: name, description, version, category (or your own), the
-experimental flag; profile, priority, the engine version it needs and the
-games it is for; the mods it needs, works with, conflicts with or breaks with;
-the GitHub repository for updates and its permissions (`engine_internals` is
-managed by the studio).
-
-**Pack** (mod menu) saves, then runs `modkit pack <id>`, which validates strictly
-(warnings stop it too) and writes `<id>-<version>.modpkg` into the game folder:
-the file players install. Checkout only.
-
-**Validate** (mod menu) saves first, then runs `modkit validate <id> --strict` and
-`modkit lint <id>`.
-
-## Layout
-
-```
-src/host/      Host: the few things the studio needs from the machine (read/write/list
-               files, image URLs, run modkit). httpHost talks to the dev server.
-src/lua/       Lua VM (wasmoon, runs in the browser) and the Lua writer
-src/project/   load a version + mod, save studio_content.lua, scaffold/wire-up/validate
-src/games/     one adapter per generation: data files, entity layers and their
-               inspector fields, connections, collision, colors, new-map defaults
-src/core/      game-independent model: records, merge/diff (mirrors src/mods/Merge.lua),
-               store with undo, block geometry
-src/render/    block atlases, sprite frames, the map canvas
-src/ui/        workspaces: map list, block palette, inspector (BASE/ENCOUNTERS tabs),
-               Pokémon editor, text workspace; shared list, text box editor, splitters
-server/        Node host (paths, fs, modkit), the HTTP API for the dev server, selftest
-src-tauri/     the desktop shell: the same host as Tauri commands, plus a studio://
-               protocol for images
-```
-
-Everything except `server/` and `src-tauri/` runs in the web view. Each shell
-implements `src/host/types.ts` (`httpHost` for the dev server, `tauriHost` for
-the desktop app) and the front end picks one at startup. A new generation is a new adapter in
-`src/games/`; Gen 2 and Gen 3 show up in the game picker as "coming soon"
-until theirs exists.
-
-## Releases
-
-The repo has two GitHub Actions workflows (`.github/workflows/`):
-
-- **ci**: on every push to `main` and every pull request. Runs typecheck, the
-  web build and `cargo check` on Linux (a few minutes).
-- **release**: when a version tag (`v0.2.0`) is pushed. Builds the Windows
-  installers (`.msi` and `-setup.exe`) and attaches them to a **draft** GitHub
-  Release. Publish the draft on GitHub when it looks right.
-
-To release:
-
-```sh
-npm run release -- 0.2.0   # sets the version everywhere, runs typecheck + selftest, commits, tags v0.2.0
-git push && git push origin v0.2.0
-```
-
-The selftest needs an imported ROM dataset, so it only runs locally (the
-release script runs it). The installers are not code-signed yet, so Windows
-SmartScreen asks for confirmation on first launch.
+Building from source, how the studio works inside, and how releases are made:
+see [TECHNICAL.md](TECHNICAL.md).

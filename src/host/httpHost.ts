@@ -42,4 +42,16 @@ export const httpHost: Host = {
   play: async (version: string) => {
     await call("/api/host/play", { version });
   },
+  // the browser downloads it
+  saveExport: async (name: string, data: Uint8Array) => {
+    const url = URL.createObjectURL(new Blob([data as BlobPart], { type: "application/zip" }));
+    const a = Object.assign(document.createElement("a"), { href: url, download: name });
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    return `your downloads (${name})`;
+  },
+  git: (modId: string, args: string[]) => call<ProcessResult>("/api/host/git", { modId, args }),
+  openFolder: async (modId: string) => {
+    await call("/api/host/open-folder", { modId });
+  },
 };

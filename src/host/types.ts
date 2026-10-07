@@ -60,4 +60,12 @@ export interface Host {
   modkit(args: string[]): Promise<ProcessResult>;
   // starts the game (--game=<version>, PLAY_ENV=1) without waiting for it
   play(version: string): Promise<void>;
+  // offers a finished .zip to the user (save dialog or download); where it
+  // went, or null when cancelled
+  saveExport(name: string, data: Uint8Array): Promise<string | null>;
+  // shows mods/<modId> (or mods/ for "") in the system file manager
+  openFolder(modId: string): Promise<void>;
+  // git <args> in mods/<modId>/ (Publish on GitHub); code -1 with
+  // "git not found" when git isn't installed
+  git(modId: string, args: string[]): Promise<ProcessResult>;
 }

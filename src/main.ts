@@ -13,9 +13,11 @@ import type { HostInfo } from "./host/types.ts";
 import { configureLua } from "./lua/vm.ts";
 import { createMod, ensurePlayEnv, listMods, openProject as loadProject, saveProject, validateMod, wireUp } from "./project/project.ts";
 import { PLAYTEST_ID, playtestMain, playtestManifest } from "./lua/playRuntime.ts";
+import { exportZip, publishDialog, type ShareContext } from "./ui/share.ts";
+import { modPageDialog } from "./ui/modPage.ts";
 import { isTyping, MapView } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
-import { mountChangesMenu } from "./ui/changesMenu.ts";
+import { differencesMarkdown, mountChangesMenu } from "./ui/changesMenu.ts";
 import { DoorOpen, Footprints, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
 import { $, clear, dropdown, field, h, icon, numberInput, toast, errorText } from "./ui/dom.ts";
@@ -69,13 +71,36 @@ const menuRow = (label: string, run: () => void) =>
 // the mod's name, description, version, ... (manifest.json)
 const modDetailsBtn = menuRow("Mod details…", () => currentMod && void modDetailsDialog(host, currentMod, () => void refreshMods(), allMods.map((m) => m.id)));
 modDetailsBtn.title = "Name, description, version, category";
+const modPageBtn = menuRow("Mod page…", () => currentMod && void modPageDialog(host, currentMod));
+modPageBtn.title = "README.md: the page people see on the mod's GitHub repository";
 const validateBtn = menuRow("Validate", () => validate());
 validateBtn.append(h("span", { class: "menu-key" }, "Ctrl+V"));
+const exportBtn = menuRow("Export .zip…", () => currentMod && void exportZip(shareContext(currentMod)));
+exportBtn.title = "The .zip players install (gen1recomp: MODS > Import mod .zip)";
+const publishBtn = menuRow("Publish on GitHub…", () => currentMod && void publishDialog(shareContext(currentMod)));
+publishBtn.title = "Upload the mod to its own GitHub repository; GitHub builds the .zip release players install and update from";
 const packBtn = menuRow("Pack…", () => pack());
+// the mod's folder (or mods/ without one) in Explorer / Finder
+const folderBtn = menuRow("Open folder", () => void host.openFolder(currentMod ?? "").catch((err) => toast(errorText(err), "error")));
 packBtn.append(h("span", { class: "menu-key" }, "Ctrl+P"));
 // clickable in the desktop app
 const installBtn = menuRow("", () => switchInstall());
-modMenuPanel.append(modDetailsBtn, validateBtn, packBtn, h("div", { class: "menu-sep" }), installBtn);
+modMenuPanel.append(modDetailsBtn, modPageBtn, validateBtn, exportBtn, publishBtn, packBtn, folderBtn, h("div", { class: "menu-sep" }), installBtn);
+
+// what Export .zip and Publish on GitHub need from the top bar
+function shareContext(modId: string): ShareContext {
+  return {
+    host,
+    version: store.project.version,
+    modId,
+    checkout: !!hostInfo?.modkit,
+    save,
+    unsaved: () => store.unsaved,
+    busy: whileBusy,
+    dialog: openDialog,
+    closeDialog: () => dialog.close(),
+  };
+}
 const saveBtn = h("button", { class: "btn primary icon", onclick: () => save(), title: "Save into the mod (Ctrl+S)", "aria-label": "Save" }, icon(Save));
 const playBtn = h("button", {
   class: "btn icon",
@@ -209,6 +234,9 @@ function refreshTopbar(): void {
   undoBtn.title = store.canUndo ? `Undo ${store.undoLabel()} (Ctrl+Z)` : "Undo (Ctrl+Z)";
   validateBtn.disabled = !currentMod || !hostInfo?.modkit;
   modDetailsBtn.disabled = !currentMod;
+  exportBtn.disabled = publishBtn.disabled = modPageBtn.disabled = !currentMod;
+  folderBtn.textContent = currentMod ? "Open mod folder" : "Open mods folder";
+  folderBtn.title = hostInfo ? `${hostInfo.modsDir}${currentMod ? `\\${currentMod}` : ""}` : "";
   playBtn.disabled = !store.project;
   packBtn.disabled = validateBtn.disabled;
   packBtn.title = validateBtn.disabled && hostInfo && !hostInfo.modkit ? "Packing needs a gen1recomp source checkout (tools/modkit.py)" : "Make the .modpkg file players install (runs validate --strict first)";
@@ -803,6 +831,9 @@ async function save(): Promise<void> {
   saveBtn.disabled = true;
   try {
     const result = await saveProject(store.project, store.changed());
+    // DIFFERENCES.md: what the mod changes, for its GitHub page and .zip
+    const modName = allMods.find((m) => m.id === currentMod)?.name ?? currentMod;
+    await host.writeText(`mods/${currentMod}/DIFFERENCES.md`, differencesMarkdown(modName));
     // imported art the saved file uses goes next to it; studio images it no
     // longer uses are removed (assets/studio/ only)
     const saved = (await host.readText("game", result.file)) ?? "";

@@ -5,6 +5,7 @@
 
 import type { Host } from "../host/types.ts";
 import { field, h, toast } from "./dom.ts";
+import { normalizeGithub } from "../project/publish.ts";
 
 // what mods in the wild use; the manager groups by it and accepts any text
 const CATEGORIES = ["GAMEPLAY", "BALANCE", "QUEST", "GRAPHICS", "AUDIO", "UI", "MECHANIC", "TOOL", "TOTAL_CONVERSION", "OTHER"];
@@ -23,7 +24,6 @@ const PERMISSIONS: [string, string][] = [
   ["background", "Background: keep running while paused"],
 ];
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
-const GITHUB = /^(?:https?:\/\/github\.com\/)?[\w.-]+\/[\w.-]+?(?:\.git)?\/?$/;
 // "mod_id", "mod_id@^1.2.0", "mod_id#owner/repo"
 const MOD_REF = /^[A-Za-z0-9_-]+(?:@\S+|#[\w.-]+\/[\w.-]+)?$/;
 
@@ -121,14 +121,14 @@ export async function modDetailsDialog(host: Host, modId: string, saved: () => v
     if (!name.value.trim()) return toast("Give the mod a name", "error");
     if (!SEMVER.test(v)) return toast("The version looks like 1.0.0 (major.minor.patch)", "error");
     const gh = github.value.trim();
-    if (gh && !GITHUB.test(gh)) return toast("GitHub is owner/repo, or the repository's URL", "error");
+    if (gh && !normalizeGithub(gh)) return toast("GitHub is owner/repo, or the repository's URL", "error");
     const cat = category.value === "__own" ? ownCat.value.trim().toUpperCase().replace(/\s+/g, "_") : category.value;
     if (!cat) return toast("Name your category, or pick one", "error");
     const next: Record<string, unknown> = { ...manifest, name: name.value.trim(), version: v, category: cat, priority: Math.trunc(Number(priority.value) || 0), profile: profile.value };
     const d = description.value.trim();
     next.description = d || `TODO: one line about ${modId}`;
     next.experimental = experimental.checked;
-    if (gh) next.github = gh;
+    if (gh) next.github = normalizeGithub(gh)!;
     else delete next.github;
     const gv = gameVersion.value.trim();
     if (gv) next.game_version = gv;

@@ -284,6 +284,85 @@ fn play_game(app: AppHandle, state: State<Studio>, version: String) -> CmdResult
         .map_err(|e| format!("{}: {e}", display(&exe)))
 }
 
+// Shows mods/<mod> (or mods/ for an empty id) in the system file manager.
+#[tauri::command]
+fn open_folder(app: AppHandle, state: State<Studio>, mod_id: String) -> CmdResult<()> {
+    if !mod_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(format!("bad mod id {mod_id}"));
+    }
+    let mods = install(&app, &state)?.mods_parent.join("mods");
+    let dir = if mod_id.is_empty() { mods } else { mods.join(&mod_id) };
+    if !dir.is_dir() {
+        return Err(format!("{} not found", display(&dir)));
+    }
+    #[cfg(target_os = "windows")]
+    let result = Command::new("explorer").arg(&dir).spawn();
+    #[cfg(target_os = "macos")]
+    let result = Command::new("open").arg(&dir).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let result = Command::new("xdg-open").arg(&dir).spawn();
+    result.map(|_| ()).map_err(|e| e.to_string())
+}
+
+// Writes an exported .zip where the user chose in the save dialog (Export
+// .zip). Only .zip files: everything else stays confined to mods/.
+#[tauri::command]
+fn save_export(path: String, data: Vec<u8>) -> CmdResult<()> {
+    let full = PathBuf::from(&path);
+    if full.extension().map(|e| e.to_ascii_lowercase()) != Some("zip".into()) {
+        return Err("only .zip files can be exported".into());
+    }
+    fs::write(&full, data).map_err(|e| format!("{}: {e}", display(&full)))
+}
+
+// git, run in one mod's folder only (Publish on GitHub), and only the
+// subcommands publishing needs. It never waits on a terminal prompt; Git
+// Credential Manager's sign-in window still appears.
+const GIT_COMMANDS: [&str; 9] = ["--version", "init", "remote", "add", "commit", "push", "config", "rev-parse", "status"];
+
+#[tauri::command]
+async fn git(app: AppHandle, mod_id: String, args: Vec<String>) -> CmdResult<ProcessResult> {
+    if mod_id.is_empty() || !mod_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        return Err(format!("bad mod id {mod_id}"));
+    }
+    // the subcommand: the first argument after any `-c key=value` pairs
+    let mut i = 0;
+    while args.get(i).map(String::as_str) == Some("-c") {
+        i += 2;
+    }
+    if !args.get(i).is_some_and(|a| GIT_COMMANDS.contains(&a.as_str())) {
+        return Err(format!("git {} is not allowed", args.get(i).cloned().unwrap_or_default()));
+    }
+    let dir = {
+        let state = app.state::<Studio>();
+        install(&app, &state)?.mods_parent.join("mods").join(&mod_id)
+    };
+    if !dir.is_dir() {
+        return Err(format!("{} not found", display(&dir)));
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut cmd = Command::new("git");
+        cmd.args(&args).current_dir(&dir).env("GIT_TERMINAL_PROMPT", "0");
+        #[cfg(target_os = "windows")]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        match cmd.output() {
+            Ok(out) => {
+                let mut output = String::from_utf8_lossy(&out.stdout).into_owned();
+                output.push_str(&String::from_utf8_lossy(&out.stderr));
+                ProcessResult { code: out.status.code().unwrap_or(-1), output }
+            }
+            // -1 with this text: git isn't installed (the front end checks it)
+            Err(_) => ProcessResult { code: -1, output: "git not found".into() },
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
 // ------------------------------------------------------------------ images
 
 fn percent_decode(s: &str) -> String {
@@ -342,7 +421,7 @@ fn main() {
         .register_uri_scheme_protocol("studio", |ctx: UriSchemeContext<'_, tauri::Wry>, request| {
             image_response(ctx.app_handle(), &request)
         })
-        .invoke_handler(tauri::generate_handler![host_info, set_game_root, read_text, write_text, write_binary, delete_file, open_url, list_dir, modkit, play_game])
+        .invoke_handler(tauri::generate_handler![host_info, set_game_root, read_text, write_text, write_binary, delete_file, open_url, list_dir, modkit, play_game, save_export, git, open_folder])
         .run(tauri::generate_context!())
         .expect("error while running Gen1Recomp Studio");
 }

@@ -19,6 +19,15 @@ export const tauriHost: Host = {
   imageUrl: (version: string, rel: string) => convertFileSrc(`image/${version}/${rel}`, "studio"),
   modkit: (args: string[]) => invoke<ProcessResult>("modkit", { args }),
   play: (version: string) => invoke<void>("play_game", { version }),
+  saveExport: async (name: string, data: Uint8Array) => {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({ defaultPath: name, filters: [{ name: "Mod archive", extensions: ["zip"] }] });
+    if (!path) return null;
+    await invoke<void>("save_export", { path, data: Array.from(data) });
+    return path;
+  },
+  git: (modId: string, args: string[]) => invoke<ProcessResult>("git", { modId, args }),
+  openFolder: (modId: string) => invoke<void>("open_folder", { modId }),
 };
 
 // Lets the user point the app at their gen1recomp checkout; remembered by the shell.

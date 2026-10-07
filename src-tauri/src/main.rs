@@ -259,6 +259,31 @@ fn run_modkit(root: &Path, args: &[String]) -> ProcessResult {
     ProcessResult { code: -1, output: "Python not found on PATH (needed for tools/modkit.py).".into() }
 }
 
+// Starts the game for a play test (--game=<version>, GEN1RECOMP_STUDIO_PLAY=1,
+// see PLAY_ENV in src/host/types.ts) and returns without waiting for it.
+#[tauri::command]
+fn play_game(app: AppHandle, state: State<Studio>, version: String) -> CmdResult<()> {
+    if !paths::VERSIONS.contains(&version.as_str()) {
+        return Err(format!("unknown version {version}"));
+    }
+    let inst = install(&app, &state)?;
+    let Some((exe, args)) = inst.game_command() else {
+        return Err(if inst.kind == paths::Kind::Source {
+            "LÖVE was not found. Install LÖVE (love2d.org) or put love on PATH.".into()
+        } else {
+            format!("No gen1recomp executable found in {}.", display(&inst.root))
+        });
+    };
+    Command::new(&exe)
+        .args(args)
+        .arg(format!("--game={version}"))
+        .current_dir(&inst.root)
+        .env("GEN1RECOMP_STUDIO_PLAY", "1")
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("{}: {e}", display(&exe)))
+}
+
 // ------------------------------------------------------------------ images
 
 fn percent_decode(s: &str) -> String {
@@ -317,7 +342,7 @@ fn main() {
         .register_uri_scheme_protocol("studio", |ctx: UriSchemeContext<'_, tauri::Wry>, request| {
             image_response(ctx.app_handle(), &request)
         })
-        .invoke_handler(tauri::generate_handler![host_info, set_game_root, read_text, write_text, write_binary, delete_file, open_url, list_dir, modkit])
+        .invoke_handler(tauri::generate_handler![host_info, set_game_root, read_text, write_text, write_binary, delete_file, open_url, list_dir, modkit, play_game])
         .run(tauri::generate_context!())
         .expect("error while running Gen1Recomp Studio");
 }

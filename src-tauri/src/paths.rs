@@ -134,6 +134,40 @@ impl Install {
     }
 }
 
+// LÖVE for a checkout: love/lovec on PATH, then the usual install folders
+// (gen1recomp scripts/run.ps1 looks there too; it prefers lovec for its
+// console, the studio love so no console window opens)
+fn find_love() -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = env::var_os("PATH").map(|p| env::split_paths(&p).collect()).unwrap_or_default();
+    let names: &[&str] = if cfg!(target_os = "windows") { &["love.exe", "lovec.exe"] } else { &["love"] };
+    if cfg!(target_os = "windows") {
+        for v in ["ProgramFiles", "ProgramFiles(x86)"] {
+            if let Some(p) = env::var_os(v) {
+                dirs.push(PathBuf::from(p).join("LOVE"));
+            }
+        }
+        if let Some(p) = env::var_os("LOCALAPPDATA") {
+            dirs.push(PathBuf::from(p).join("Programs").join("LOVE"));
+        }
+    }
+    names.iter().flat_map(|n| dirs.iter().map(move |d| d.join(n))).find(|f| f.is_file())
+}
+
+impl Install {
+    /// How to start the game: a release's executable, or LÖVE with the
+    /// checkout. Same rules as gameCommand in server/paths.ts.
+    pub fn game_command(&self) -> Option<(PathBuf, Vec<String>)> {
+        if self.kind == Kind::Source {
+            return find_love().map(|love| (love, vec![self.root.to_string_lossy().into_owned()]));
+        }
+        // ponytail: no macOS .app bundles (`open` drops environment variables)
+        fs::read_dir(&self.root).ok()?.flatten().map(|e| e.path()).find(|p| {
+            let name = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+            name.starts_with("gen1recomp") && (name.ends_with(".exe") || name.ends_with(".appimage") || name == "gen1recomp")
+        }).map(|exe| (exe, vec![]))
+    }
+}
+
 /// `base` joined with a relative path that may not climb out of it.
 pub fn within(base: &Path, rel: &str) -> Result<PathBuf, String> {
     let rel_path = Path::new(rel);

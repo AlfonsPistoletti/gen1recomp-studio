@@ -10,7 +10,8 @@
 import { applyOps, clone, deepEqual, diffDeep, diffRecord, isPlainObject, OVERRIDE } from "../core/merge.ts";
 import { MOD_MAP_INDEX_BASE, type MapDef, type ModInfo, type RegistryOp, type SaveResult } from "../core/types.ts";
 import type { Dataset, GameAdapter } from "../games/types.ts";
-import type { Host, ProcessResult } from "../host/types.ts";
+import { PLAY_ENV, type Host, type ProcessResult } from "../host/types.ts";
+import { PLAYTEST_ID } from "../lua/playRuntime.ts";
 import { loadLuaData, runMod } from "../lua/vm.ts";
 import { aliasesInRecipe, COPY, listOverrides, OVERRIDES, STUDIO_TRANSFORMS } from "../core/assets.ts";
 import { dataFile, requireLine, studioContentFile, type ContentCall } from "../lua/writer.ts";
@@ -89,7 +90,8 @@ async function isWiredUp(host: Host, modId: string, manifest: Manifest | null): 
 }
 
 export async function listMods(host: Host): Promise<ModInfo[]> {
-  const entries = (await host.list("game", "mods")).filter((e) => e.dir && MOD_ID_RE.test(e.name));
+  // the play-test helper is the studio's own, never a mod to edit
+  const entries = (await host.list("game", "mods")).filter((e) => e.dir && MOD_ID_RE.test(e.name) && e.name !== PLAYTEST_ID);
   const mods = await Promise.all(
     entries.map(async ({ name }) => {
       const manifest = await readManifest(host, name);
@@ -412,6 +414,20 @@ async function syncPermissions(host: Host, modId: string, needed: boolean): Prom
   if (next.length) manifest.permissions = next;
   else delete manifest.permissions;
   await host.writeText(path, JSON.stringify(manifest, null, 2) + "\n");
+}
+
+// Play from here: the edited mod gets force_enable_env, so the game the
+// studio starts runs it even when the player switched it off in the game
+// (no effect in normal play). Returns whether the manifest changed.
+export async function ensurePlayEnv(host: Host, modId: string): Promise<boolean> {
+  const path = `mods/${checkId(modId)}/manifest.json`;
+  const text = await host.readText("game", path);
+  if (text === null) return false;
+  const manifest = JSON.parse(text) as Record<string, unknown>;
+  if (manifest.force_enable_env === PLAY_ENV) return false;
+  manifest.force_enable_env = PLAY_ENV;
+  await host.writeText(path, JSON.stringify(manifest, null, 2) + "\n");
+  return true;
 }
 
 // within a registry: registrations first (a patch may refer to them)

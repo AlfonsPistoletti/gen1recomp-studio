@@ -1,6 +1,6 @@
 import wasmUrl from "wasmoon/dist/glue.wasm?url";
 import { imageAliases, OVERRIDES, saveAssets, saveOverrides, syncTransforms } from "./core/assets.ts";
-import { sheetRecipes, tilesetIds } from "./core/tilesets.ts";
+import { liveTileset, sheetRecipes, tilesetIds } from "./core/tilesets.ts";
 import { gbcAvailable, loadGbc, setGbc } from "./core/gbc.ts";
 import { brokenWarps, romReferences } from "./core/checks.ts";
 import { store, type Overlays, type Tool } from "./core/store.ts";
@@ -11,13 +11,14 @@ import { httpHost } from "./host/httpHost.ts";
 import { chooseGameRoot, isTauri, tauriHost } from "./host/tauriHost.ts";
 import type { HostInfo } from "./host/types.ts";
 import { configureLua } from "./lua/vm.ts";
-import { createMod, listMods, openProject as loadProject, saveProject, validateMod, wireUp } from "./project/project.ts";
+import { createMod, ensurePlayEnv, listMods, openProject as loadProject, saveProject, validateMod, wireUp } from "./project/project.ts";
+import { PLAYTEST_ID, playtestMain, playtestManifest } from "./lua/playRuntime.ts";
 import { isTyping, MapView } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { mountChangesMenu } from "./ui/changesMenu.ts";
-import { Globe, Grid3x3, Maximize, MousePointer2, PaintBucket, Paintbrush, Pipette, Redo2, Settings, Square, Undo2, ZoomIn, ZoomOut, type IconNode } from "lucide";
+import { DoorOpen, Footprints, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Sprout, Square, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
-import { $, clear, field, h, icon, numberInput, toast, errorText } from "./ui/dom.ts";
+import { $, clear, dropdown, field, h, icon, numberInput, toast, errorText } from "./ui/dom.ts";
 import { addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
 import { mountMapList } from "./ui/mapList.ts";
 import { nav, WORKSPACES, type WorkspaceId } from "./ui/nav.ts";
@@ -58,20 +59,35 @@ const view = new MapView($("#viewport"));
 
 const versionSelect = h("select", { class: "version-select", title: "Which imported ROM to edit" });
 const modSelect = h("select", { class: "mod-select", title: "The mod your edits are saved into" });
+// the mod menu (gear next to the mod picker): details, validate, pack, and
+// which gen1recomp the studio works on
+const modMenuBtn = h("button", { class: "btn icon", "aria-label": "Mod menu" }, icon(Settings));
+const modMenuPanel = h("div", { class: "menu left" });
+const modMenu = dropdown(modMenuBtn, modMenuPanel);
+const menuRow = (label: string, run: () => void) =>
+  h("button", { class: "menu-row", onclick: () => (modMenu.close(), run()) }, label);
 // the mod's name, description, version, ... (manifest.json)
-const modDetailsBtn = h("button", {
+const modDetailsBtn = menuRow("Mod details…", () => currentMod && void modDetailsDialog(host, currentMod, () => void refreshMods(), allMods.map((m) => m.id)));
+modDetailsBtn.title = "Name, description, version, category";
+const validateBtn = menuRow("Validate", () => validate());
+validateBtn.append(h("span", { class: "menu-key" }, "Ctrl+V"));
+const packBtn = menuRow("Pack…", () => pack());
+packBtn.append(h("span", { class: "menu-key" }, "Ctrl+P"));
+// clickable in the desktop app
+const installBtn = menuRow("", () => switchInstall());
+modMenuPanel.append(modDetailsBtn, validateBtn, packBtn, h("div", { class: "menu-sep" }), installBtn);
+const saveBtn = h("button", { class: "btn primary icon", onclick: () => save(), title: "Save into the mod (Ctrl+S)", "aria-label": "Save" }, icon(Save));
+const playBtn = h("button", {
   class: "btn icon",
-  title: "Mod details: name, description, version, category",
-  "aria-label": "Mod details",
-  onclick: () => currentMod && void modDetailsDialog(host, currentMod, () => void refreshMods(), allMods.map((m) => m.id)),
-}, icon(Settings));
-const saveBtn = h("button", { class: "btn primary", onclick: () => save(), title: "Save into the mod (Ctrl+S)" }, "Save");
-const validateBtn = h("button", { class: "btn", onclick: () => validate(), title: "Run modkit validate --strict and lint" }, "Validate");
-const packBtn = h("button", { class: "btn", onclick: () => pack(), title: "Make the .modpkg file players install (runs validate --strict first)" }, "Pack");
+  "aria-label": "Play from here",
+  title: "Play from here: click a cell on the map, and the game starts there with this mod, from your active save. Saving is off in test runs.",
+  onclick: () => {
+    setWorkspace("maps");
+    playFromHere();
+  },
+}, icon(Play));
 const undoBtn = h("button", { class: "btn icon", onclick: () => store.undo(), title: "Undo (Ctrl+Z)", "aria-label": "Undo" }, icon(Undo2));
 const redoBtn = h("button", { class: "btn icon", onclick: () => store.redo(), title: "Redo (Ctrl+Shift+Z)", "aria-label": "Redo" }, icon(Redo2));
-// which gen1recomp the studio works on; clickable in the desktop app
-const installBtn = h("button", { class: "btn small ghost install-btn", onclick: () => switchInstall() });
 
 async function switchInstall(): Promise<void> {
   if (!isTauri()) {
@@ -92,22 +108,22 @@ function renderInstall(): void {
   const kind = hostInfo.kind === "source" ? "checkout" : hostInfo.portable ? "portable release" : "release";
   installBtn.textContent = `${name} · ${kind}`;
   installBtn.title = `${hostInfo.gameRoot}\nMods: ${hostInfo.modsDir}${isTauri() ? "\nClick to choose another gen1recomp folder" : ""}`;
+  modMenuBtn.title = `Mod details, Validate, Pack\ngen1recomp: ${hostInfo.gameRoot} (${kind})`;
 }
 
 // one tab per workspace; game, mod, undo and save stay global
 const workspaceTabs = WORKSPACES.map((w) =>
-  h("button", { class: "ws-tab", "data-ws": w.id, title: `${w.label} (Alt+${w.key})`, onclick: () => setWorkspace(w.id) }, w.label),
+  h("button", { class: "ws-tab", "data-ws": w.id, title: `${w.label} (${w.key})`, onclick: () => setWorkspace(w.id) }, w.label),
 );
 
 $("#topbar").append(
-  installBtn,
-  h("div", { class: "group" }, h("span", { class: "muted" }, "Game"), versionSelect),
-  h("div", { class: "group" }, h("span", { class: "muted" }, "Mod"), modSelect, modDetailsBtn),
+  h("div", { class: "group" }, versionSelect),
+  h("div", { class: "group" }, modSelect, modMenu.root),
   h("nav", { class: "ws-tabs" }, ...workspaceTabs),
   h("div", { class: "group" }, undoBtn, redoBtn),
   h("div", { class: "spacer" }),
   mountChangesMenu(),
-  h("div", { class: "group" }, validateBtn, packBtn, saveBtn),
+  h("div", { class: "group" }, playBtn, saveBtn),
 );
 
 modSelect.addEventListener("change", async () => {
@@ -193,6 +209,7 @@ function refreshTopbar(): void {
   undoBtn.title = store.canUndo ? `Undo ${store.undoLabel()} (Ctrl+Z)` : "Undo (Ctrl+Z)";
   validateBtn.disabled = !currentMod || !hostInfo?.modkit;
   modDetailsBtn.disabled = !currentMod;
+  playBtn.disabled = !store.project;
   packBtn.disabled = validateBtn.disabled;
   packBtn.title = validateBtn.disabled && hostInfo && !hostInfo.modkit ? "Packing needs a gen1recomp source checkout (tools/modkit.py)" : "Make the .modpkg file players install (runs validate --strict first)";
   validateBtn.title = hostInfo && !hostInfo.modkit
@@ -204,19 +221,18 @@ function refreshTopbar(): void {
 // ---------------------------------------------------------------- toolbar
 
 const TOOLS: { id: Tool; label: string; key: string; tip: string; icon: IconNode }[] = [
-  { id: "select", label: "Select", key: "V", tip: "Select, move and edit warps, NPCs and signs", icon: MousePointer2 },
+  { id: "select", label: "Select", key: "S", tip: "Select, move and edit warps, NPCs and signs", icon: MousePointer2 },
   { id: "brush", label: "Brush", key: "B", tip: "Paint the current stamp", icon: Paintbrush },
   { id: "rect", label: "Rect", key: "R", tip: "Fill a rectangle with the stamp pattern", icon: Square },
   { id: "fill", label: "Fill", key: "F", tip: "Flood-fill connected identical blocks", icon: PaintBucket },
-  { id: "pick", label: "Pick", key: "I", tip: "Copy a block or drag a region into the stamp (right-click/drag from any tool)", icon: Pipette },
 ];
-const OVERLAYS: { id: keyof Overlays; label: string; key: string; icon?: IconNode }[] = [
+const OVERLAYS: { id: keyof Overlays; label: string; key: string; icon: IconNode }[] = [
   { id: "grid", label: "Grid", key: "G", icon: Grid3x3 },
-  { id: "collision", label: "Collision", key: "C" },
-  { id: "entities", label: "Entities", key: "E" },
-  { id: "neighbors", label: "Neighbours", key: "N" },
-  { id: "wild", label: "Wild", key: "W" },
-  { id: "animate", label: "Animate", key: "A" },
+  { id: "collision", label: "Collision", key: "C", icon: Footprints },
+  { id: "entities", label: "Warps, NPCs and signs", key: "E", icon: MapPin },
+  { id: "neighbors", label: "Neighbouring maps", key: "N", icon: LayoutGrid },
+  { id: "wild", label: "Wild encounter cells", key: "W", icon: Sprout },
+  { id: "animate", label: "Animated tiles", key: "A", icon: Waves },
 ];
 
 const toolButtons = TOOLS.map((t) =>
@@ -225,39 +241,43 @@ const toolButtons = TOOLS.map((t) =>
 const overlayButtons = OVERLAYS.map((o) =>
   h(
     "button",
-    { class: `toggle${o.icon ? " icon-tool" : ""}`, title: `Toggle ${o.label.toLowerCase()} (${o.key})`, "aria-label": o.label, onclick: () => store.toggleOverlay(o.id), "data-overlay": o.id },
-    o.icon ? icon(o.icon) : o.label,
+    { class: "toggle icon-tool", title: `${o.label} (${o.key})`, "aria-label": o.label, onclick: () => store.toggleOverlay(o.id), "data-overlay": o.id },
+    icon(o.icon),
   ),
 );
 // RED++ colors (pokered-gbc), when the install has their data (a checkout)
 const COLORS_KEY = "studio.colorMode";
 const colorButton = h("button", {
-  class: "toggle",
+  class: "toggle icon-tool",
+  "aria-label": "RED++ colors",
   onclick: () => {
     store.setColorMode(store.colorMode === "redpp" ? "sgb" : "redpp");
     remember(COLORS_KEY, store.colorMode);
   },
-}, "RED++");
+}, icon(Palette));
 function updateColorButton(): void {
   const ok = gbcAvailable();
   colorButton.disabled = !ok;
   colorButton.classList.toggle("active", ok && store.colorMode === "redpp");
   colorButton.title = ok
-    ? "Show maps in RED++ colors (the game's COLORS=RED++ mode, from pokered-gbc). Off: the Game Boy palettes."
+    ? "RED++ colors: show maps in the game's COLORS=RED++ mode (from pokered-gbc). Off: the Game Boy palettes."
     : "RED++ colors need a gen1recomp source checkout (its data/palettes_gbc.lua)";
 }
 store.on((reason) => {
   if (reason === "project" || reason === "colors") updateColorButton();
 });
 
-// one "+" button per entity layer of the current game
+// one "+" button per entity layer of the current game (the map markers' icons)
+const ADD_ICONS: Partial<Record<string, IconNode>> = { warp: DoorOpen, npc: UserRound, sign: Signpost };
 const addGroup = h("div", { class: "seg" });
 function renderAddButtons(): void {
   clear(addGroup);
   for (const layer of store.adapter.layers) {
     const name = layer.kind === "npc" ? "NPC" : layer.singular;
+    const glyph = ADD_ICONS[layer.kind];
     addGroup.append(
-      h("button", { class: "btn small", title: `Add a ${name.toLowerCase()} at the cursor or view centre`, onclick: () => addAt(layer.key) }, `+ ${name}`),
+      h("button", { class: "btn small add-btn", title: `Add a ${name.toLowerCase()} at the cursor or view centre`, "aria-label": `Add ${name}`, onclick: () => addAt(layer.key) },
+        "+", glyph ? icon(glyph) : ` ${name}`),
     );
   }
 }
@@ -265,10 +285,43 @@ const zoomLabel = h("span", { class: "zoom-label" });
 
 $("#toolbar").append(
   h("div", { class: "seg" }, ...toolButtons),
-  h("div", { class: "seg" }, ...overlayButtons),
-  h("div", { class: "seg" }, colorButton),
+  h("div", { class: "seg" }, ...overlayButtons, colorButton),
   addGroup,
 );
+
+// Play from here: the studio's helper mod (src/lua/playRuntime.ts) puts the
+// player on the picked cell of the game it starts
+function playFromHere(): void {
+  const mapId = store.currentMap;
+  if (!mapId) return;
+  if (view.picking) return view.cancelPick();
+  toast("Click the cell to start on (Escape cancels)", "info");
+  view.pickCell((cx, cy) => void launchAt(mapId, cx, cy));
+}
+
+async function launchAt(mapId: string, cx: number, cy: number): Promise<void> {
+  const map = store.maps[mapId];
+  if (!map || !store.adapter.cell(map, liveTileset(map.tileset), cx, cy).walkable) {
+    toast(`${mapId} (${cx}, ${cy}) is not a walkable cell: pick one the player can stand on`, "error");
+    return;
+  }
+  // the game runs what is on disk
+  if (currentMod && store.unsaved) {
+    await save();
+    if (store.unsaved) return;
+  }
+  try {
+    await host.writeText(`mods/${PLAYTEST_ID}/manifest.json`, playtestManifest(store.adapter.manifestGame));
+    await host.writeText(`mods/${PLAYTEST_ID}/main.lua`, playtestMain({ map: mapId, x: cx, y: cy }));
+    if (currentMod && (await ensurePlayEnv(host, currentMod))) {
+      toast(`mods/${currentMod}/manifest.json now names force_enable_env, so test runs include the mod even when it is switched off in the game`, "info");
+    }
+    await host.play(store.project.version);
+    toast(`Starting ${store.project.version} at ${mapId} (${cx}, ${cy}): saving is off in this run`, "ok");
+  } catch (err) {
+    toast(`Can't start the game: ${errorText(err)}`, "error");
+  }
+}
 // view controls float over the map view's top-right corner
 $("#viewport").append(
   h(
@@ -900,13 +953,25 @@ window.addEventListener("keydown", (e) => {
   }
   if (mod && e.key.toLowerCase() === "p") {
     e.preventDefault();
+    if (!validateBtn.disabled) void pack();
+    return;
+  }
+  if (mod && e.key.toLowerCase() === "f") {
+    e.preventDefault();
     // workspaces without a list search (Global) ignore it
     const search = document.querySelector<HTMLInputElement>(nav.workspace === "maps" ? "#map-search" : `#${nav.workspace}-search`);
     search?.focus();
     search?.select();
     return;
   }
-  if (e.altKey && !mod) {
+  if (isTyping(e) || dialog.open) return;
+  // after the typing check: Ctrl+V pastes in text fields
+  if (mod && e.key.toLowerCase() === "v") {
+    e.preventDefault();
+    if (!validateBtn.disabled) void validate();
+    return;
+  }
+  if (!mod && !e.altKey) {
     const ws = WORKSPACES.find((w) => w.key === e.key);
     if (ws) {
       e.preventDefault();
@@ -914,7 +979,6 @@ window.addEventListener("keydown", (e) => {
       return;
     }
   }
-  if (isTyping(e) || dialog.open) return;
   if (mod && e.key.toLowerCase() === "z") {
     e.preventDefault();
     e.shiftKey ? store.redo() : store.undo();

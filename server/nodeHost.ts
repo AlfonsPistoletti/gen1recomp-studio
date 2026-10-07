@@ -5,8 +5,8 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import type { DirEntry, Host, HostInfo, ProcessResult, Root } from "../src/host/types.ts";
-import { cacheRoot, hasModkit, install, VERSIONS, within } from "./paths.ts";
+import { PLAY_ENV, type DirEntry, type Host, type HostInfo, type ProcessResult, type Root } from "../src/host/types.ts";
+import { cacheRoot, gameCommand, hasModkit, install, VERSIONS, within } from "./paths.ts";
 
 function rootDir(root: Root): string {
   if (root === "game") return install().modsParent;
@@ -68,6 +68,28 @@ export function runModkit(args: string[]): Promise<ProcessResult> {
   });
 }
 
+export async function playGame(version: string): Promise<void> {
+  if (!VERSIONS.includes(version)) throw new Error(`unknown version ${version}`);
+  const inst = install();
+  const cmd = gameCommand(inst);
+  if (!cmd) {
+    throw new Error(inst.kind === "source"
+      ? "LÖVE was not found. Install LÖVE (love2d.org) or put love on PATH."
+      : `No gen1recomp executable found in ${inst.root}.`);
+  }
+  const child = spawn(cmd.exe, [...cmd.args, `--game=${version}`], {
+    cwd: inst.root,
+    detached: true,
+    stdio: "ignore",
+    env: { ...process.env, [PLAY_ENV]: "1" },
+  });
+  await new Promise<void>((done, fail) => {
+    child.once("error", fail);
+    child.once("spawn", () => done());
+  });
+  child.unref();
+}
+
 export const nodeHost: Host = {
   async info(): Promise<HostInfo> {
     const inst = install();
@@ -110,4 +132,5 @@ export const nodeHost: Host = {
   // only the web front opens links (httpHost.openUrl); the server never does
   async openUrl() {},
   modkit: runModkit,
+  play: playGame,
 };

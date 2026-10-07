@@ -37,7 +37,7 @@ export function mountTextWorkspace(left: HTMLElement, center: HTMLElement, right
 
   const list = mountRecordList(left, {
     title: "Text",
-    placeholder: "Search keys and text…  (Ctrl+P)",
+    placeholder: "Search keys and text…  (Ctrl+F)",
     searchId: "text-search",
     head: [h("div", { class: "row nowrap" }, filter, newBtn)],
     items: () => {

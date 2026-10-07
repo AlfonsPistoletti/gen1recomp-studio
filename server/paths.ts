@@ -135,3 +135,34 @@ export function within(base: string, rel: string): string | null {
 }
 
 export const MOD_ID_RE = /^[\w-]+$/;
+
+// LÖVE for a checkout: love/lovec on PATH, then the usual install folders
+// (gen1recomp scripts/run.ps1 looks there too; it prefers lovec for its
+// console, the studio love so no console window opens)
+function findLove(): string | null {
+  const win = process.platform === "win32";
+  const dirs = (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
+  if (win) {
+    for (const v of ["ProgramFiles", "ProgramFiles(x86)"]) if (process.env[v]) dirs.push(path.join(process.env[v]!, "LOVE"));
+    if (process.env.LOCALAPPDATA) dirs.push(path.join(process.env.LOCALAPPDATA, "Programs", "LOVE"));
+  }
+  for (const name of win ? ["love.exe", "lovec.exe"] : ["love"]) {
+    for (const dir of dirs) if (fs.existsSync(path.join(dir, name))) return path.join(dir, name);
+  }
+  return null;
+}
+
+// How to start the game: a release's executable, or LÖVE with the checkout.
+// Same rules as game_command in src-tauri/src/paths.rs.
+export function gameCommand(inst: Install): { exe: string; args: string[] } | null {
+  if (inst.kind === "source") {
+    const love = findLove();
+    return love ? { exe: love, args: [inst.root] } : null;
+  }
+  // ponytail: no macOS .app bundles (`open` drops environment variables)
+  const name = fs.readdirSync(inst.root).find((n) => {
+    const lower = n.toLowerCase();
+    return lower.startsWith("gen1recomp") && (lower.endsWith(".exe") || lower.endsWith(".appimage") || lower === "gen1recomp");
+  });
+  return name ? { exe: path.join(inst.root, name), args: [] } : null;
+}

@@ -18,6 +18,7 @@ export const tauriHost: Host = {
   // served by the shell's studio:// protocol (http://studio.localhost/ on Windows)
   imageUrl: (version: string, rel: string) => convertFileSrc(`image/${version}/${rel}`, "studio"),
   modkit: (args: string[]) => invoke<ProcessResult>("modkit", { args }),
+  play: (version: string) => invoke<void>("play_game", { version }),
 };
 
 // Lets the user point the app at their gen1recomp checkout; remembered by the shell.

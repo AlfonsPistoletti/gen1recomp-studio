@@ -158,6 +158,32 @@ export function field(label: string, control: Node, hint?: string): HTMLElement 
   return h("label", { class: "field" }, h("span", { class: "field-label" }, label), control, hint ? h("span", { class: "hint" }, hint) : null);
 }
 
+// A button that opens `panel` (class "menu") below it. It closes on a click
+// outside, Escape, or `close()`; `onOpen` fills the panel first.
+export function dropdown(button: HTMLButtonElement, panel: HTMLElement, onOpen?: () => void): { root: HTMLElement; close: () => void } {
+  const root = h("div", { class: "dropdown" }, button, panel);
+  panel.hidden = true;
+  button.setAttribute("aria-haspopup", "true");
+  button.setAttribute("aria-expanded", "false");
+  const close = () => {
+    panel.hidden = true;
+    button.setAttribute("aria-expanded", "false");
+  };
+  button.addEventListener("click", () => {
+    if (!panel.hidden) return close();
+    onOpen?.();
+    panel.hidden = false;
+    button.setAttribute("aria-expanded", "true");
+  });
+  document.addEventListener("mousedown", (e) => {
+    if (!panel.hidden && !root.contains(e.target as Node)) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !panel.hidden) close();
+  });
+  return { root, close };
+}
+
 export function toast(message: string, kind: "info" | "error" | "ok" = "info"): void {
   const host = document.getElementById("toasts")!;
   const el = h("div", { class: `toast ${kind}` }, message);

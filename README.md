@@ -27,7 +27,7 @@ npm run dev            # opens http://localhost:5178
 The studio works with either a **source checkout** of gen1recomp or a
 **release build** (the folder with `gen1recomp.exe`, `gen1recomp.app` or the
 Linux binary/AppImage). The desktop app asks for the folder on first start
-and remembers it; the button at the left of the top bar switches folders. In
+and remembers it; the last entry of the mod menu (the gear) switches folders. In
 the browser, set `GEN1RECOMP_ROOT` or create `studio.config.json`:
 
 ```json
@@ -55,10 +55,12 @@ and text written to Lua and read back must come out identical.
 
 ## Workspaces
 
-The tabs in the top bar switch between workspaces (Alt+1 to Alt+9). Game, mod,
-undo/redo and Save are shared: one undo history and one save cover every tab.
+The tabs in the top bar switch between workspaces (keys 1 to 9). Game, mod,
+undo/redo, Play and Save are shared: one undo history and one save cover every
+tab. The gear next to the mod picker opens the mod menu: Mod details, Validate,
+Pack, and which gen1recomp folder the studio works on.
 
-The changes button next to Validate shows how many records differ from the
+The changes button next to Play shows how many records differ from the
 game, with a dot while something is unsaved. Click it for the list, grouped by
 kind (maps, wild tables, Pokémon, moves, …). Click an entry to open it.
 
@@ -280,7 +282,7 @@ renamed before players have saves with it.
   - Colors belong to maps, not tilesets (each map's Palette, in its
     properties); the color menu only changes how the tileset is shown here.
   - **RED++** (the game's Game Boy Color mode, from pokered-gbc; needs a
-    gen1recomp source checkout): the **RED++** button in the map toolbar and
+    gen1recomp source checkout): the RED++ (palette) button in the map toolbar and
     the tileset color menu show it. Each tile uses one of its tileset's 8
     palettes: pick one for your added tiles in the tile panel. Your own
     tilesets can get 8 palettes of their own (**Give it RED++ colors**). This
@@ -359,7 +361,7 @@ guard rows are shown, not edited.
 
 | Key | |
 |---|---|
-| V / B / R / F / I | Select, Brush, Rectangle, Fill, Pick |
+| S / B / R / F | Select, Brush, Rectangle, Fill |
 | G / C / E / N / W | Toggle grid, collision, entities, neighbouring maps, wild cells |
 | Right-click / right-drag (or Alt+click) | Pick a block from any tool; dragging copies a region as a stamp |
 | Middle-drag, Space+drag | Pan |
@@ -367,8 +369,9 @@ guard rows are shown, not edited.
 | 0 / Shift+0 | Fit map / fit the whole connected world |
 | Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y | Undo / redo |
 | Ctrl+S | Save into the selected mod |
-| Ctrl+P | Jump to the search of the current workspace |
-| Alt+1 … 6 | Maps / Pokémon / Moves / Trainers / Text / Global workspace |
+| Ctrl+F | Jump to the search of the current workspace |
+| Ctrl+V / Ctrl+P | Validate / Pack the mod (outside text fields for Ctrl+V) |
+| 1 … 9 | Maps / Pokémon / Moves / Items / Trainers / Text / Events / Graphics / Global |
 | Arrows, Delete, Esc | Nudge, delete or deselect the selected warp/NPC/sign |
 
 - The open map is drawn with every map connected to it, so the overworld
@@ -380,6 +383,14 @@ guard rows are shown, not edited.
   with the offset mirrored (`back.offset == -offset`, as in vanilla).
 - Collision is derived the way `src/world/Map.lua` derives it: from the tile
   at each cell's feet, checked against the tileset's `walkable` list.
+- **Play from here** (the play button in the top bar): click a walkable cell and the game starts there
+  with your mod, continuing your active save (a new game when there is none).
+  Unsaved edits are saved first. Saving is off in a test run, so your save slot
+  never changes. A checkout needs LÖVE (love on PATH or installed to Program
+  Files); a release starts its gen1recomp executable. The studio keeps a small
+  helper mod for this in `mods/studio_playtest/`, only active when the studio
+  starts the game, and adds `force_enable_env` to your mod's manifest so test
+  runs include it even when it is switched off in the game.
 
 ## How saving works
 
@@ -412,11 +423,11 @@ games it is for; the mods it needs, works with, conflicts with or breaks with;
 the GitHub repository for updates and its permissions (`engine_internals` is
 managed by the studio).
 
-**Pack** saves, then runs `modkit pack <id>`, which validates strictly
+**Pack** (mod menu) saves, then runs `modkit pack <id>`, which validates strictly
 (warnings stop it too) and writes `<id>-<version>.modpkg` into the game folder:
 the file players install. Checkout only.
 
-**Validate** saves first, then runs `modkit validate <id> --strict` and
+**Validate** (mod menu) saves first, then runs `modkit validate <id> --strict` and
 `modkit lint <id>`.
 
 ## Layout

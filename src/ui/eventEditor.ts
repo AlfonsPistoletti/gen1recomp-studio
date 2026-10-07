@@ -134,7 +134,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
   const list = mountRecordList(left, {
     title: "Events",
     head: [newBtn],
-    placeholder: "Search events…  (Ctrl+P)",
+    placeholder: "Search events…  (Ctrl+F)",
     searchId: "events-search",
     folded: { label: "The game's own events", hint: "Read from the game's scripts (source checkout). Open one to see it; Edit a copy to change it." },
     items: () => {

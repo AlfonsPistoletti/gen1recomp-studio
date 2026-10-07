@@ -31,6 +31,10 @@ export interface DirEntry {
   dir: boolean;
 }
 
+// set to "1" for a game the studio starts: it switches on the studio's
+// play-test helper mod (and the edited mod) through manifest force_enable_env
+export const PLAY_ENV = "GEN1RECOMP_STUDIO_PLAY";
+
 export interface ProcessResult {
   code: number;
   output: string;
@@ -54,4 +58,6 @@ export interface Host {
   imageUrl(version: string, rel: string): string;
   // python tools/modkit.py <args...>, run in the game root
   modkit(args: string[]): Promise<ProcessResult>;
+  // starts the game (--game=<version>, PLAY_ENV=1) without waiting for it
+  play(version: string): Promise<void>;
 }

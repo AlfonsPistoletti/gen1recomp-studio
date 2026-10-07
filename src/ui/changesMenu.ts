@@ -3,7 +3,7 @@
 
 import { FileDiff } from "lucide";
 import { store } from "../core/store.ts";
-import { h, clear, icon } from "./dom.ts";
+import { h, clear, dropdown, icon } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { eventTitle, splitEventId } from "./eventEditor.ts";
 import { globalLabelOf, globalSectionOf } from "./globalWorkspace.ts";
@@ -142,30 +142,13 @@ export function mountChangesMenu(): HTMLElement {
   const dot = h("span", { class: "unsaved-dot", title: "Unsaved" });
   const button = h(
     "button",
-    { class: "btn icon changes-btn", "aria-haspopup": "true", "aria-expanded": "false", onclick: () => toggle() },
+    { class: "btn icon changes-btn" },
     icon(FileDiff),
     badge,
     dot,
   );
-  const panel = h("div", { class: "changes-menu", hidden: true });
-  const root = h("div", { class: "changes" }, button, panel);
-
-  const close = () => {
-    panel.hidden = true;
-    button.setAttribute("aria-expanded", "false");
-  };
-  const toggle = () => {
-    if (!panel.hidden) return close();
-    render();
-    panel.hidden = false;
-    button.setAttribute("aria-expanded", "true");
-  };
-  document.addEventListener("mousedown", (e) => {
-    if (!panel.hidden && !root.contains(e.target as Node)) close();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !panel.hidden) close();
-  });
+  const panel = h("div", { class: "menu" });
+  const { root, close } = dropdown(button, panel, () => render());
 
   const render = () => {
     clear(panel);
@@ -177,7 +160,7 @@ export function mountChangesMenu(): HTMLElement {
     for (const [registry, records] of groups) {
       const ids = Object.keys(records).sort();
       const [heading] = NAMES[registry] ?? [registry];
-      panel.append(h("div", { class: "changes-head" }, h("span", {}, heading), h("span", { class: "muted" }, String(ids.length))));
+      panel.append(h("div", { class: "menu-head" }, h("span", {}, heading), h("span", { class: "muted" }, String(ids.length))));
       for (const id of ids) {
         const record = records[id];
         const removed = record === null;
@@ -189,7 +172,7 @@ export function mountChangesMenu(): HTMLElement {
           h(
             "button",
             {
-              class: "changes-row",
+              class: "menu-row",
               disabled: !open,
               title: open ? "Open" : "Nothing to open",
               onclick: () => {

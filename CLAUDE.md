@@ -161,6 +161,17 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   Game Boy colors a sprite always takes the map's palette, and images have no per-image palette.
   Roofs: `studio_roofs` (map id -> { index, colors }) -> `world.roofByMapIndex[index]` (mod maps have
   index >= 1000 and no town roof otherwise).
+- Top bar: game + mod pickers, the mod menu (gear: Mod details, Validate, Pack, install/switch folder),
+  tabs, undo/redo, changes, Play, Save (icon-only so it fits 1280 px, a 1920 laptop at 150%). Map
+  toolbar: tools | view toggles (icons, keys G C E N W A) + RED++ | add icons, one row. Menus use
+  `dropdown()` (`src/ui/dom.ts`, `.menu`/`.menu-row`/`.menu-sep`).
+- Play from here (`src/lua/playRuntime.ts`, `host.play`): the studio writes `mods/studio_playtest/`
+  (experimental + `force_enable_env` = PLAY_ENV, engine_internals) and starts the game with
+  `--game=<version>` and PLAY_ENV=1 (`gameCommand`/`game_command`: release exe, or love.exe + checkout,
+  found like scripts/run.ps1). The helper continues the active save moved to the cell (SaveData.load ->
+  game:restoreSave on the first `core.update`; new game via `field.boot` when there is none), lists itself
+  in the loaded meta.mods (no load report about it) and vetoes `save.write` (Game:writeSave). The
+  edited mod gets the same `force_enable_env` (`ensurePlayEnv`). listMods hides `studio_playtest`.
 - Outdoor maps: `map.outdoor` (engine Oct 2026+, Map.isOutdoor; unset = tileset OVERWORLD) decides
   indoor every-step encounters (index >= firstIndoorMap, not FOREST) and Fly/Teleport; the studio
   mirrors it in `isOutdoorMap`/`rollsEverywhere` and offers it in map Rules (`mapRules.ts`).

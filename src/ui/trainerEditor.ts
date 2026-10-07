@@ -87,7 +87,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
   const list = mountRecordList(left, {
     title: "Trainers",
     head: [newBtn],
-    placeholder: "Search trainers…  (Ctrl+P)",
+    placeholder: "Search trainers…  (Ctrl+F)",
     searchId: "trainers-search",
     items: () => {
       const s = spec();

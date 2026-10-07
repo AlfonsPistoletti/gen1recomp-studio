@@ -69,7 +69,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     title: "Items",
     folded: { label: "Used by the game", hint: "Not real items: elevator floor labels, Surf's hidden item and unused slots. Edit only if you know why." },
     head: [newBtn],
-    placeholder: "Search items…  (Ctrl+P)",
+    placeholder: "Search items…  (Ctrl+F)",
     searchId: "items-search",
     items: () => {
       const s = spec();

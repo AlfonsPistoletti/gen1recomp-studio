@@ -11,7 +11,7 @@ import type { Project } from "../project/project.ts";
 import { clone, deepEqual } from "./merge.ts";
 import type { EntityRecord, MapDef } from "./types.ts";
 
-export type Tool = "select" | "brush" | "rect" | "fill" | "pick";
+export type Tool = "select" | "brush" | "rect" | "fill";
 
 // `layer` is the adapter layer key (the map field holding the list)
 export type Selection = { layer: string; index: number } | null;

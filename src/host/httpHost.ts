@@ -39,4 +39,7 @@ export const httpHost: Host = {
   imageUrl: (version: string, rel: string) =>
     `/api/host/image?version=${encodeURIComponent(version)}&path=${encodeURIComponent(rel)}`,
   modkit: (args: string[]) => call<ProcessResult>("/api/host/modkit", { args }),
+  play: async (version: string) => {
+    await call("/api/host/play", { version });
+  },
 };

@@ -713,8 +713,6 @@ export class MapView {
       const s = store.tool === "brush" ? store.stamp : { ...store.stamp, w: 1, h: 1 };
       this.drawStamp(s, h.bx, h.by, 0.7);
       outline(ctx, h.bx * BLOCK, h.by * BLOCK, s.w * BLOCK, s.h * BLOCK, this.zoom, "#ffd34d");
-    } else if (store.tool === "pick") {
-      outline(ctx, h.bx * BLOCK, h.by * BLOCK, BLOCK, BLOCK, this.zoom, "#4dd2ff");
     } else if (store.tool === "select") {
       outline(ctx, h.cx * CELL, h.cy * CELL, CELL, CELL, this.zoom, "rgba(255,255,255,0.6)");
     }
@@ -820,7 +818,7 @@ export class MapView {
     c.addEventListener("contextmenu", (e) => e.preventDefault());
     c.addEventListener("pointerdown", (e) => this.pointerDown(e));
     c.addEventListener("pointermove", (e) => this.pointerMove(e));
-    c.addEventListener("pointerup", (e) => this.pointerUp(e));
+    c.addEventListener("pointerup", () => this.pointerUp());
     c.addEventListener("pointercancel", () => this.endDrag());
     c.addEventListener("pointerleave", () => {
       if (!this.drag) {
@@ -881,12 +879,13 @@ export class MapView {
       else if (multi) this.cellPick = pick;
       return;
     }
-    const tool = e.altKey || e.button === 2 ? "pick" : store.tool;
-    if (tool === "pick") {
+    // right-click / right-drag (or Alt+click) picks blocks from any tool
+    if (e.altKey || e.button === 2) {
       this.drag = { kind: "pick", mapId: h.mapId, bx: h.bx, by: h.by };
       this.invalidate();
       return;
     }
+    const tool = store.tool;
     if (!h.inside) {
       if (tool === "select") store.select(null);
       return;
@@ -955,7 +954,7 @@ export class MapView {
     this.invalidate();
   }
 
-  private pointerUp(e: PointerEvent): void {
+  private pointerUp(): void {
     const d = this.drag;
     if (d?.kind === "rect") {
       const h = this.hoverInfo();
@@ -979,7 +978,8 @@ export class MapView {
         const blocks: number[] = [];
         for (let y = 0; y < r.h; y++) for (let x = 0; x < r.w; x++) blocks.push(blockAt(m, r.x + x, r.y + y));
         store.setStamp({ w: r.w, h: r.h, blocks });
-        if (store.tool === "pick" && !e.altKey) store.setTool("brush");
+        // like a click in the block palette: the next click paints it
+        if (store.tool === "select") store.setTool("brush");
       }
     }
     this.endDrag();

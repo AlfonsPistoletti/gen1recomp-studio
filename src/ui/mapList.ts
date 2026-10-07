@@ -6,7 +6,7 @@ import { hasWild } from "./encounterPanel.ts";
 
 // Left sidebar: searchable list of maps, edited ones first.
 export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => void): void {
-  const search = h("input", { type: "search", placeholder: "Search maps…  (Ctrl+P)", spellcheck: false, id: "map-search" });
+  const search = h("input", { type: "search", placeholder: "Search maps…  (Ctrl+F)", spellcheck: false, id: "map-search" });
   const list = h("div", { class: "map-list", role: "listbox" });
   host.append(
     h("div", { class: "panel-head" }, h("span", {}, "Maps"), h("button", { class: "btn small", onclick: onNewMap, title: "Create a new map" }, "+ New")),

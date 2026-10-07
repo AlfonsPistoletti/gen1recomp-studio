@@ -61,7 +61,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
   const list = mountRecordList(left, {
     title: "Pokémon",
     head: [newBtn],
-    placeholder: "Search Pokémon…  (Ctrl+P)",
+    placeholder: "Search Pokémon…  (Ctrl+F)",
     searchId: "pokemon-search",
     items: () => {
       const spec = store.adapter.pokemon;

@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Root } from "../src/host/types.ts";
-import { nodeHost, resolveImage, runModkit } from "./nodeHost.ts";
+import { nodeHost, playGame, resolveImage, runModkit } from "./nodeHost.ts";
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
@@ -72,6 +72,11 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse, next:
         const args = body.args;
         if (!Array.isArray(args) || !args.every((a) => typeof a === "string")) throw new Error("bad args");
         return send(res, 200, await runModkit(args));
+      }
+      case "POST /api/host/play": {
+        const body = await readBody(req);
+        await playGame(stringParam(body.version, "version"));
+        return send(res, 200, { ok: true });
       }
       case "GET /api/host/image": {
         const version = url.searchParams.get("version") || "";

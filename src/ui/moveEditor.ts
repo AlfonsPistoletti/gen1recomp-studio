@@ -40,7 +40,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
   const list = mountRecordList(left, {
     title: "Moves",
     head: [newBtn],
-    placeholder: "Search moves…  (Ctrl+P)",
+    placeholder: "Search moves…  (Ctrl+F)",
     searchId: "moves-search",
     items: () => {
       const s = spec();

@@ -8,11 +8,11 @@ import { nav } from "./nav.ts";
 // The current map's tileset as a grid of blocks. Click picks one block,
 // drag picks a rectangle as a multi-block stamp.
 export function mountBlockPalette(host: HTMLElement, view: MapView): void {
-  const title = h("span", {}, "Blocks");
+  const title = h("span", { class: "ellipsis" }, "Blocks");
   const info = h("span", { class: "muted" }, "");
   const canvas = h("canvas", { class: "palette-canvas" });
   const wrap = h("div", { class: "palette-wrap" }, canvas);
-  const zoomLabel = h("span", { class: "zoom-label" }, "Fit");
+  const zoomLabel = h("span", { class: "zoom-label" }, "100%");
   const zoomControls = h(
     "div",
     { class: "row nowrap" },
@@ -22,7 +22,8 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
     h("button", { class: "btn small ghost", title: "Fit the panel width", onclick: () => setZoom("fit") }, "Fit"),
     h("button", { class: "btn small ghost", title: "Edit this tileset: add tiles and blocks", onclick: () => store.map && nav.openTileset(store.map.tileset) }, "Edit"),
   );
-  host.append(h("div", { class: "panel-head" }, h("div", { class: "row nowrap" }, title, info), zoomControls), wrap);
+  // the title gives way (ellipsis) before the controls wrap
+  host.append(h("div", { class: "panel-head" }, h("div", { class: "row nowrap shrink" }, title, info), zoomControls), wrap);
 
   // A free pan/zoom viewport like the map: the canvas is positioned inside
   // `wrap` at (offX, offY) and drawn `zoom` screen pixels per atlas pixel.
@@ -68,7 +69,7 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
     canvas.style.width = `${canvas.width * zoom}px`;
     canvas.style.height = `${canvas.height * zoom}px`;
     canvas.style.transform = `translate(${offX}px, ${offY}px)`;
-    zoomLabel.textContent = fit ? "Fit" : `${Math.round(zoom * 100)}%`;
+    zoomLabel.textContent = `${Math.round(zoom * 100)}%`;
   }
 
   let saveTimer = 0;
@@ -237,7 +238,7 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
         for (let x = 0; x < r.w; x++) blocks.push(Math.min(count - 1, (r.y + y) * ATLAS_COLUMNS + r.x + x));
       }
       store.setStamp({ w: r.w, h: r.h, blocks });
-      if (store.tool === "select" || store.tool === "pick") store.setTool("brush");
+      if (store.tool === "select") store.setTool("brush");
     }
     dragFrom = null;
     draw();

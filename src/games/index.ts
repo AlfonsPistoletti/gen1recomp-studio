@@ -14,6 +14,5 @@ const ADAPTERS: Partial<Record<GameId, GameAdapter>> = { gen1 };
 // The adapter for a version, or null while that generation is not supported.
 export function adapterFor(version: string): GameAdapter | null {
   const game = GAME_OF_VERSION[version];
-  const adapter = game ? ADAPTERS[game] : undefined;
-  return adapter?.ready ? adapter : null;
+  return (game && ADAPTERS[game]) || null;
 }

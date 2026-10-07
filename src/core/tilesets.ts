@@ -10,7 +10,7 @@
 import type { TilesetDef } from "./types.ts";
 import type { GbcColoring } from "./gbc.ts";
 import { store } from "./store.ts";
-import { assetUrl, type SheetRecipe } from "./assets.ts";
+import { assetUrl, CACHE, type SheetRecipe } from "./assets.ts";
 import { extendedSheetRel, frameRel, SPINNER_TILESETS } from "../lua/tilesetRuntime.ts";
 import { loadImage, TILE } from "../render/graphics.ts";
 
@@ -143,7 +143,6 @@ export function tilesetKey(id: string): string {
 
 // ------------------------------------------------------------------ sheets
 
-const CACHE = "assets/generated/";
 
 // What the assets_transforms recipe builds for the extensions with tiles:
 // the vanilla sheet the extension was made on, plus the added tiles. An

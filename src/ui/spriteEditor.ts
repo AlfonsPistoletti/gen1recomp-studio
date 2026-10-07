@@ -12,29 +12,20 @@ import {
   SPRITES, spriteIds, spriteUrl, spriteUsers, type SpriteKind,
 } from "../core/sprites.ts";
 import { loadImage, spriteFrameAt } from "../render/graphics.ts";
-import type { Rgb } from "../render/color.ts";
-import { importArt } from "./artImport.ts";
-import { spriteGbcColors } from "../core/gbc.ts";
+import { MONO, type Rgb } from "../render/color.ts";
+import { importArt, pngBytes } from "./artImport.ts";
+import { GRAYS, REDPP, spriteColorSets, spriteGbcColors, spriteGroup } from "../core/gbc.ts";
 import { canDerive, NO_RECIPE, reusable } from "../core/reuse.ts";
 import { clear, field, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
 import { nav } from "./nav.ts";
+import { paletteChoices } from "./picColors.ts";
 
 const ZOOM = 4;
-const GRAYS = "__grays";
-const REDPP = "__redpp";
-const GRAY_COLORS: Rgb[] = [[0, 0, 0], [85, 85, 85], [170, 170, 170], [255, 255, 255]];
 const KIND_LABELS: Record<SpriteKind, string> = { walker: "Walks (6 frames)", turner: "Turns, never walks (3 frames)", object: "Still (1 frame)" };
 const DIRS = ["down", "up", "left", "right"] as const;
 const STAND: Record<string, number> = { down: 0, up: 1, left: 2, right: 2 };
 const WALK: Record<string, number> = { down: 3, up: 4, left: 5, right: 5 };
-
-function bytesOf(canvas: HTMLCanvasElement): Uint8Array {
-  const bin = atob(canvas.toDataURL("image/png").split(",")[1] ?? "");
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
 
 function imageOf(data: Uint8Array): Promise<HTMLImageElement | null> {
   return loadImage(URL.createObjectURL(new Blob([data as BlobPart], { type: "image/png" })));
@@ -104,7 +95,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
   const chosen = () => viewPalette ?? (store.colorMode === "redpp" && gbcOf() ? REDPP : "");
   const useGbc = () => chosen() === REDPP;
   const colorKey = () => (useGbc() ? (gbcOf()?.key ?? GRAYS) : chosen() && chosen() !== REDPP ? chosen() : store.palettes[store.currentMap] || "ROUTE");
-  const colors = (): Rgb[] => (useGbc() ? (gbcOf()?.colors ?? GRAY_COLORS) : colorKey() === GRAYS ? GRAY_COLORS : store.adapter.spriteColors(store.ctx, colorKey()));
+  const colors = (): Rgb[] => (useGbc() ? (gbcOf()?.colors ?? MONO) : colorKey() === GRAYS ? MONO : store.adapter.spriteColors(store.ctx, colorKey()));
 
   const frameImg = (id: string, frame: number, flip: boolean) =>
     spriteFrameAt(liveSprite(id), spriteUrl(id), colors(), colorKey(), frame, flip, schedule);
@@ -126,8 +117,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     const kind = kindOf(s);
     const frames = s.frames || 1;
 
-    const names = store.adapter.mapFields.find((f) => f.kind === "select" && f.key === "palette");
-    const paletteNames = names && names.kind === "select" ? names.options(store.ctx) : [];
+    const paletteNames = paletteChoices();
     const view = h("select", { title: "How the sprite is shown here; in the game it takes the colors of the map it stands on" },
       h("option", { value: "", selected: chosen() === "" }, `Colors: this map's (${store.palettes[store.currentMap] || "ROUTE"})`),
       ...paletteNames.map((n) => h("option", { value: n, selected: chosen() === n }, `Colors: ${n}`)),
@@ -261,10 +251,12 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
           onclick: () => void replaceFrame(id),
         }, `Replace ${s.frames && s.frames > 1 ? (FRAME_LABELS[selFrame] ?? "frame").toLowerCase() : "frame"}…`),
       ),
-      isBaseSprite(id) && store.isRecordEdited(SPRITES, id)
+      isBaseSprite(id) && (store.baseTable(SPRITES)[id] as SpriteDef | undefined)?.image !== s.image
         ? h("button", { class: "btn small danger", onclick: () => store.revertRecord(SPRITES, id, `Revert ${id}`) }, "Back to the game's art")
         : null,
     ));
+    const colors = colorsCard(id, s);
+    if (colors) out.push(colors);
     // who uses it
     const users = spriteUsers(id);
     const roles = rolesOf(id);
@@ -290,6 +282,43 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     ));
     out.push(playerCard(id));
     return out;
+  };
+
+  // RED++ colors: the color set its picture number picks, or another
+  // picture's (paletteSource); in the Game Boy colors it takes the map's palette
+  const colorsCard = (id: string, s: SpriteDef): HTMLElement | null => {
+    const sets = spriteColorSets();
+    if (!sets.length || s.trueColor) return null;
+    const yellow = /yellow/i.test(store.project.version);
+    const current = spriteGroup(s, yellow);
+    // the set its own picture number picks: choosing it drops paletteSource
+    const own = spriteGroup({ ...s, paletteSource: undefined }, yellow);
+    const setSource = (source: string | undefined) => {
+      store.editRecord<SpriteDef>(SPRITES, id, "RED++ colors", (d) => {
+        if (source) d.paletteSource = source;
+        else delete d.paletteSource;
+      });
+      store.seal();
+    };
+    const swatches = sets.map((o) =>
+      h("button", {
+        class: `gbc-swatch${o.group === current ? " active" : ""}`,
+        title: o.group === "random" ? "Varies per NPC: one of the first four sets" : `Color set ${o.group}`,
+        onclick: () => {
+          viewPalette = REDPP; // show what was picked
+          setSource(o.group === own ? undefined : o.source);
+        },
+      }, ...(o.colors ? o.colors.map((c) => h("span", { style: `background: rgb(${c[0]}, ${c[1]}, ${c[2]})` })) : [h("span", { class: "hint" }, "varies")])),
+    );
+    const changed = typeof s.paletteSource === "string";
+    return h("div", { class: "card" },
+      h("h4", {}, "RED++ colors"),
+      h("div", { class: "gbc-swatches" }, ...swatches),
+      changed ? h("button", { class: "btn small danger", onclick: () => setSource(undefined) }, typeof s.source === "string" ? "Back to its own" : "No RED++ colors") : null,
+      h("p", { class: "hint" }, current === undefined
+        ? "In RED++ mode this sprite keeps plain gray shades; pick colors for it."
+        : "The colors it wears in RED++ mode. With the Game Boy colors a sprite takes the palette of the map it stands on."),
+    );
   };
 
   // another sprite's art (and its kind): the mod's own as is, the game's as a
@@ -396,7 +425,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
     ctx.drawImage(sheet, 0, 0);
     ctx.clearRect(0, selFrame * FRAME, FRAME, FRAME);
     ctx.drawImage(frame, 0, selFrame * FRAME);
-    setArt(id, "Replace frame", addAsset(store.project.mod, id.toLowerCase(), bytesOf(c)), kindOf(s), !!s.trueColor);
+    setArt(id, "Replace frame", addAsset(store.project.mod, id.toLowerCase(), pngBytes(c)), kindOf(s), !!s.trueColor);
   };
 
   const newSprite = async () => {

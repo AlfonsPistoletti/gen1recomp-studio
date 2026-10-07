@@ -9,7 +9,7 @@
 // The settings live on the talk event (`trainer`), so the events can be
 // rebuilt whenever the trainer moves, turns or changes team.
 
-import { compile, type Block } from "../core/eventBlocks.ts";
+import { compile, STEP, type Block } from "../core/eventBlocks.ts";
 import { store } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EventRow } from "../games/types.ts";
@@ -37,14 +37,13 @@ export interface TrainerEvent extends StudioEvent {
   trainer?: TrainerSetup;
 }
 
-const DIRS: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
 // where a standing NPC looks (Gen 1 keeps it in `range` for STAY NPCs);
 // null for one that walks around
 export function facingOf(e: EntityRecord): string | null {
   if (e.movement !== "STAY") return null;
   const r = String(e.range ?? "DOWN").toLowerCase();
-  return r in DIRS ? r : "down";
+  return r in STEP ? r : "down";
 }
 
 const reg = () => store.adapter.events!.registry;
@@ -57,7 +56,7 @@ const stepPrefix = (map: MapDef, index: number) => `${map.id}:step:trainer${inde
 
 // the cells it sees, nearest first, inside the map
 export function sightCells(map: MapDef, x: number, y: number, facing: string, range: number): { x: number; y: number; k: number }[] {
-  const [dx, dy] = DIRS[facing] ?? DIRS.down;
+  const [dx, dy] = STEP[facing] ?? STEP.down;
   const out: { x: number; y: number; k: number }[] = [];
   for (let k = 1; k <= range; k++) {
     const cx = x + dx * k;

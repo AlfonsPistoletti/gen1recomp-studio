@@ -6,7 +6,7 @@
 import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import { liveTileset, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
-import { atlasRect, blockAtlas, loadImage, BLOCK } from "../render/graphics.ts";
+import { atlasRect, blockAtlas, loadImage, tintPixels, BLOCK } from "../render/graphics.ts";
 import { cacheImages } from "./imageEditor.ts";
 import { spriteUrl as pokemonArtUrl } from "./pokemonEditor.ts";
 import type { Rgb } from "../render/color.ts";
@@ -46,15 +46,7 @@ async function recolor(url: string, pal: Rgb[], zoom: number): Promise<HTMLCanva
   const ctx = c.getContext("2d", { willReadFrequently: true })!;
   ctx.drawImage(img, 0, 0);
   const data = ctx.getImageData(0, 0, c.width, c.height);
-  const px = data.data;
-  for (let i = 0; i < px.length; i += 4) {
-    if (px[i + 3] === 0) continue;
-    const g = px[i];
-    const col = pal[g > 212 ? 0 : g > 127 ? 1 : g > 42 ? 2 : 3];
-    px[i] = col[0];
-    px[i + 1] = col[1];
-    px[i + 2] = col[2];
-  }
+  tintPixels(data.data, pal);
   ctx.putImageData(data, 0, 0);
   const out = document.createElement("canvas");
   out.width = c.width * zoom;

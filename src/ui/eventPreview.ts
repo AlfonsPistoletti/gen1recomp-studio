@@ -5,7 +5,7 @@
 // battles, warps, items and flags only show a caption.
 
 import type { Block } from "../core/eventBlocks.ts";
-import { followerPath } from "../core/eventBlocks.ts";
+import { followerPath, STEP } from "../core/eventBlocks.ts";
 import { store } from "../core/store.ts";
 import type { EventRow } from "../games/types.ts";
 import type { EventPreviewState } from "../render/mapView.ts";
@@ -19,7 +19,6 @@ export interface Stage {
 }
 
 type Actor = { x: number; y: number; facing: string; hidden?: boolean };
-const STEP: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const FRAME_MS = 1000 / 60;
 // a walking step: the player 16 frames, an NPC 32 (src/world/NPC.lua)
 const PLAYER_FRAMES = 16;

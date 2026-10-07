@@ -4,14 +4,13 @@
 // The studio imports files and borrows cries; it does not synthesize. For a
 // new Gen 1 style cry there is a link to an outside synthesizer.
 
-import { addAsset, assetUrl, ASSET_TYPES } from "../core/assets.ts";
+import { addAsset, assetUrl, AUDIO_EXTS as AUDIO } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import { errorText, h, selectInput, toast } from "./dom.ts";
 
 const REG = "cries";
 const SYNTH = "https://ardean.github.io/pokemon-gen1-cry-synthesizer/";
-const AUDIO = Object.keys(ASSET_TYPES).filter((e) => ASSET_TYPES[e].startsWith("audio/"));
 // a cry is a second or two; anything much bigger is likely the wrong file
 const MAX_BYTES = 2 * 1024 * 1024;
 

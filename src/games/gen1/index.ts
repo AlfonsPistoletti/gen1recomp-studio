@@ -6,9 +6,15 @@
 //   color:    one SGB palette per map (vanilla cascade, see palette.ts)
 
 import { GEN1_IMAGES } from "./images.ts";
+import { blockAt } from "../../core/geometry.ts";
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
+import { EFFECT_RUNTIME, effectRegistration } from "../../lua/effectRuntime.ts";
+import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../../lua/itemEffectRuntime.ts";
+import { PRIZE_RUNTIME, prizeRegistration } from "../../lua/prizeRuntime.ts";
+import { EVENT_RUNTIME, eventRegistration } from "../../lua/eventRuntime.ts";
+import { ROOF_RUNTIME, roofRegistration, TILESET_RUNTIME, tilesetRegistration } from "../../lua/tilesetRuntime.ts";
 import { vanillaPrizes } from "./prizes.ts";
 import { GEN1_EVENTS } from "./events.ts";
 import { internalItem, isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
@@ -99,7 +105,10 @@ const content: ContentSpec[] = [
   { registry: "battle_anims", editable: true, replace: true, build: () => ({}) },
   // custom move effects built in the studio: plain data in the mod's
   // studio_effects.lua, registered as move_effects by the generated helper
-  { registry: "studio_effects", editable: true, build: () => ({}), studioFile: "studio_effects.lua", generates: "move_effects" },
+  {
+    registry: "studio_effects", editable: true, build: () => ({}), studioFile: "studio_effects.lua",
+    generator: { what: "custom move effects", order: ["kind", "canMiss", "neverMiss", "hits", "damage", "recoil", "drain", "steps"], runtime: EFFECT_RUNTIME, registration: effectRegistration, writes: ["move_effects"] },
+  },
   {
     registry: "items",
     file: "items.lua",
@@ -108,14 +117,25 @@ const content: ContentSpec[] = [
   },
   // custom item effects built in the studio: plain data in the mod's
   // studio_item_effects.lua, registered as item_effects by the generated helper
-  { registry: "studio_item_effects", editable: true, build: () => ({}), studioFile: "studio_item_effects.lua", generates: "item_effects" },
+  {
+    registry: "studio_item_effects", editable: true, build: () => ({}), studioFile: "studio_item_effects.lua",
+    generator: {
+      what: "custom item effects",
+      order: ["target", "where", "keep", "steps", "act", "amount", "percent", "full", "statuses", "all", "stat", "delta", "cap"],
+      runtime: ITEM_EFFECT_RUNTIME, registration: itemEffectRegistration, writes: ["item_effects"],
+    },
+  },
   // the overworld config table; the studio edits Pokémon Center PC tiles
   // (hiddenExtras.pcTiles) and landing spots (flyWarps). Merged "deep".
   { registry: "field", file: "field.lua", editable: true, deep: true },
   // Game Corner prize counters: plain data in the mod's studio_prizes.lua,
   // turned into map_scripts talk handlers by the generated helper. The base
   // is the vanilla three counters of the open version.
-  { registry: "prize_counters", editable: true, build: (_f, version) => vanillaPrizes(version), studioFile: "studio_prizes.lua", generates: "map_scripts" },
+  // (the prize window is engine code: engine_internals)
+  {
+    registry: "prize_counters", editable: true, build: (_f, version) => vanillaPrizes(version), studioFile: "studio_prizes.lua",
+    generator: { what: "Game Corner prize counters", order: ["prizes", "item", "species", "level", "cost"], runtime: PRIZE_RUNTIME, registration: prizeRegistration, writes: ["map_scripts"], internals: true },
+  },
   // each map's song (audio.lua mapSongs), and the songs to pick from; a
   // song id is a record of the engine's `music` registry
   { registry: "map_songs", file: "audio.lua", editable: true, build: (f) => ((f as { mapSongs?: Record<string, unknown> }).mapSongs ?? {}) },
@@ -129,7 +149,10 @@ const content: ContentSpec[] = [
   { registry: "music", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { songs?: Record<string, unknown> }).songs ?? {}), fieldOrder: ["file", "loopFile"] },
   // map events made in the studio: plain data in studio_events.lua, turned
   // into map_scripts (talk rows, onStep/onEnter) by the generated helper
-  { registry: "studio_events", editable: true, build: () => ({}), studioFile: "studio_events.lua", generates: "map_scripts" },
+  {
+    registry: "studio_events", editable: true, build: () => ({}), studioFile: "studio_events.lua",
+    generator: { what: "map events", order: ["x", "y", "once", "rows"], runtime: EVENT_RUNTIME, registration: eventRegistration, writes: ["map_scripts", "commands"] },
+  },
   // catch numbers per ball id; the vanilla records live in the engine
   // (src/battle/Catching.lua), so they are restated (written with override)
   { registry: "balls", editable: true, replace: true, build: () => structuredClone(VANILLA_BALLS), fieldOrder: ["randMax", "hpFactor", "wobbleFactor", "autoCatch", "flicker", "tossAnim"] },
@@ -142,7 +165,17 @@ const content: ContentSpec[] = [
   { registry: "tilesets", editable: true, build: () => ({}), fieldOrder: ["id", "image", "imageWidth", "imageHeight", "tilesPerRow", "trueColor", "animation", "grassTile", "walkable", "doorTiles", "warpTiles", "counterTiles", "blocks"] },
   // tiles and blocks added to vanilla tilesets: plain data in
   // studio_tilesets.lua, patched in by the generated helper
-  { registry: "studio_tilesets", editable: true, build: () => ({}), studioFile: "studio_tilesets.lua", generates: "tilesets" },
+  // (the sheet itself is built by the assets_transforms recipe, see
+  // src/core/assets.ts; RED++ colors go into the engine's own color table)
+  {
+    registry: "studio_tilesets", editable: true, build: () => ({}), studioFile: "studio_tilesets.lua",
+    generator: {
+      what: "tileset extensions",
+      order: ["first", "walkable", "tiles", "blocks", "animated", "gbc"],
+      runtime: TILESET_RUNTIME, registration: tilesetRegistration, writes: ["tilesets"],
+      internals: (records) => Object.values(records).some((r) => !!(r as { gbc?: unknown }).gbc),
+    },
+  },
   // overworld sprites (filled from Dataset.sprites in load): vanilla ones get
   // their art replaced (patched), the mod's own are registered whole
   // the Game Boy palettes (name -> 4 colors, lightest first) maps, Pokémon
@@ -152,7 +185,10 @@ const content: ContentSpec[] = [
   // game images the mod replaces: files in mods/<id>/overrides/ (src/core/assets.ts)
   { registry: "image_overrides", editable: true, build: () => ({}), files: true },
   // RED++ roof colors of maps (map id -> { index, colors }), see src/core/gbc.ts
-  { registry: "studio_roofs", editable: true, build: () => ({}), studioFile: "studio_roofs.lua" },
+  {
+    registry: "studio_roofs", editable: true, build: () => ({}), studioFile: "studio_roofs.lua",
+    generator: { what: "RED++ roof colors", order: ["index", "colors"], runtime: ROOF_RUNTIME, registration: roofRegistration, writes: [], internals: true },
+  },
 ];
 
 interface Field {
@@ -675,7 +711,6 @@ export const gen1: GameAdapter = {
   id: "gen1",
   name: "Gen 1",
   manifestGame: "gen1",
-  ready: true,
 
   async load(read, version): Promise<Dataset> {
     const [maps, tilesets, sprites, pal, fieldData, icons, ...tables] = await Promise.all([
@@ -836,11 +871,6 @@ export const gen1: GameAdapter = {
   renames,
   events: GEN1_EVENTS,
 };
-
-function blockAt(map: MapDef, bx: number, by: number): number {
-  if (bx < 0 || by < 0 || bx >= map.width || by >= map.height) return map.borderBlock ?? 0;
-  return map.blocks[by * map.width + bx] ?? 0;
-}
 
 function tileAt(map: MapDef, tileset: TilesetDef | undefined, tx: number, ty: number): number | undefined {
   const block = tileset?.blocks?.[blockAt(map, Math.floor(tx / 4), Math.floor(ty / 4))];

@@ -69,14 +69,14 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
 - Custom move effects: specs (EffectSpec in `src/games/types.ts`) live in the mod's
   `studio_effects.lua` (a `ContentSpec` with `studioFile`, written whole by `dataFile`);
   `src/lua/effectRuntime.ts` is the fixed Lua helper written into studio_content.lua that turns
-  them into `move_effects` records. Its `move_effects` ops are never kept on save (`generates`).
+  them into `move_effects` records. Its `move_effects` ops are never kept on save (`generator.writes`).
   The engine iterates `run()`'s result with ipairs: it must always return a list. Vanilla effect
   descriptions/block templates: `src/games/gen1/effects.ts`.
 - Custom item effects follow the same design: `studio_item_effects` registry ->
   `studio_item_effects.lua`, `src/lua/itemEffectRuntime.ts` -> `item_effects` (Gen 1's
   ItemEffects.use runs `data.item_effects[item.effect]` before its id-based code). Vanilla
-  descriptions/templates: `src/games/gen1/items.ts`. `project.ts` GENERATORS maps each
-  `generates` registry to its helper. The helper may only `require` `src.pokemon.Stats`
+  descriptions/templates: `src/games/gen1/items.ts`. Each studio-file `ContentSpec`
+  carries its helper as `generator` (`writes`: registries its ops are regenerated in). The helper may only `require` `src.pokemon.Stats`
   (modkit MK006). `balls` is a `replace` registry restated from the engine. Shop stock is
   `text_pointers[<map label>][TEXT_*].mart`.
 - "deep" registries (`ContentSpec.deep`: text_pointers, field): the engine APPENDS patched
@@ -115,7 +115,7 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   Choice; numeric jumps become `step<N>` labels; unstructured jumps stay Go to/Label blocks).
   `src/lua/eventRuntime.ts` registers talk rows, builds onStep/onEnter, and the
   `studio:check_choice` command. The game's own events come from `data/scripts` via
-  `loadGameScripts` (checkout only, stubbed GameVersion/MapScripts). GENERATORS are keyed by
+  `loadGameScripts` (checkout only, stubbed GameVersion/MapScripts). Generators belong to the
   studio registry (prize counters and events both write map_scripts).
 - Tilesets (`src/core/tilesets.ts`, `src/ui/tilesetEditor.ts`): `tilesets` is an editable registry
   (dataset tilesets as base records; the mod's own are registered whole, image in assets/studio).
@@ -152,7 +152,13 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   spriteAssignment, "random" hashed from `<MAP>_obj_<index>` like PaletteFX.spriteObp). A mod's choices live in
   `studio_tilesets[id].gbc` ({groups: [tile, group][], palettes?: 8x4 for its own tilesets}; a mod
   tileset's record holds only `gbc`, so `extensionOf` ignores non-base ids); the helper writes them
-  into `require("data.palettes_gbc").world` at load (no API), GENERATORS `internals` predicate.
+  into `require("data.palettes_gbc").world` at load (no API), `generator.internals` predicate.
+  Battle pics/images (`src/ui/picColors.ts`): Pokémon/Trainers/Images preview in a palette, the pic's
+  own (PaletteFX.monPalName / BattleState.trainerPalette) or RED++'s (`gbcPalette`, `gbcMonPalette`:
+  palettes_gbc.lua, Yellow palettes_yellow.lua cgbBase); tinted by `showTinted` (render/graphics.ts).
+  A mod sets them per record: pokemon/trainers `palette` (a palettes id, both color modes); sprites
+  `paletteSource` (RED++ only: a ROM picture label whose color set it wears, `spriteColorSets`). In the
+  Game Boy colors a sprite always takes the map's palette, and images have no per-image palette.
   Roofs: `studio_roofs` (map id -> { index, colors }) -> `world.roofByMapIndex[index]` (mod maps have
   index >= 1000 and no town roof otherwise).
 - Outdoor maps: `map.outdoor` (engine Oct 2026+, Map.isOutdoor; unset = tileset OVERWORLD) decides

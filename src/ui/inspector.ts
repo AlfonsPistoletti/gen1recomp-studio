@@ -13,6 +13,7 @@ import { npcTextSection } from "./mapText.ts";
 import { roleSection, townSection } from "./mapTown.ts";
 import { changedParts, resetMapDialog } from "./mapReset.ts";
 import { nav } from "./nav.ts";
+import { songLabel } from "./soundEditor.ts";
 import { warpProblem } from "../core/checks.ts";
 import { tilesetIds } from "../core/tilesets.ts";
 import { mapRulesSection } from "./mapRules.ts";
@@ -299,10 +300,6 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
 }
 
 // Music_PalletTown -> Pallet Town
-function songLabel(id: string): string {
-  return id.replace(/^Music_/, "").replace(/([a-z])([A-Z0-9])/g, "$1 $2").replace(/_/g, " ");
-}
-
 // the map's song (the map_songs registry, keyed by map id)
 function musicField(map: MapDef): HTMLElement | null {
   if (!store.adapter.content.some((c) => c.registry === "map_songs")) return null;

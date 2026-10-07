@@ -28,7 +28,14 @@ interface GbcWorld {
   // overworld sprites: ROM picture number -> palette (or "random"), palettes
   spriteAssignment: Table<number | string>;
   spritePalettes: Table<Rgb[]>;
+  // battle pics and screens: palettes by name (lightest first) and each
+  // species' palette name (PaletteFX.pack: palettes_gbc, Yellow: palettes_yellow)
+  named: Record<string, Rgb[]>;
+  monPalettes: Record<string, string>;
 }
+
+// pokered-gbc is Red's: Blue's versions of these come from the ROM (PaletteFX BLUE_VERSIONED)
+const BLUE_VERSIONED = ["LOGO1", "SLOTS2", "SLOTS3", "SLOTS4"];
 
 // what a mod adds (a studio_tilesets record's `gbc`): groups as [tile, group]
 // pairs; palettes = 8 groups x 4 colors, lightest first (a tileset of its own)
@@ -65,7 +72,8 @@ export function loadGbc(host: Host, version: string): Promise<GbcWorld | null> {
     p = (async () => {
       const text = await host.readText("game", "data/palettes_gbc.lua").catch(() => null);
       if (!text) return null;
-      const pack = await loadLuaData<{ world?: GbcWorld }>(text, "palettes_gbc.lua");
+      type Pack = { world?: GbcWorld; palettes?: Record<string, Rgb[]>; pokemon?: Record<string, string>; cgbBase?: Record<string, Rgb[]> };
+      const pack = await loadLuaData<Pack>(text, "palettes_gbc.lua");
       const w = pack?.world;
       if (!w?.tileGroups || !w.groupColors) return null;
       const world: GbcWorld = {
@@ -75,7 +83,10 @@ export function loadGbc(host: Host, version: string): Promise<GbcWorld | null> {
         roofByMapIndex: w.roofByMapIndex ?? {},
         spriteAssignment: w.spriteAssignment ?? {},
         spritePalettes: { ...(w.spritePalettes ?? {}) },
+        named: { ...(pack.palettes ?? {}) },
+        monPalettes: pack.pokemon ?? {},
       };
+      if (/blue/i.test(version)) for (const n of BLUE_VERSIONED) delete world.named[n];
       // Yellow replaces some tilesets' tables (PaletteFX.worldPack)
       if (/yellow/i.test(version)) {
         const y = await host.readText("game", "data/palettes_gbc_yellow.lua").catch(() => null);
@@ -84,6 +95,12 @@ export function loadGbc(host: Host, version: string): Promise<GbcWorld | null> {
         Object.assign(world.groupColors, yw?.groupColors ?? {});
         if (yw?.spriteAssignment) world.spriteAssignment = yw.spriteAssignment;
         Object.assign(world.spritePalettes, yw?.spritePalettes ?? {});
+        // battle pics: Yellow's own table, colored with CGBBasePalettes
+        // (PaletteFX.monPal / yellowCgbNamedPal)
+        const yp = await host.readText("game", "data/palettes_yellow.lua").catch(() => null);
+        const ypack = yp ? await loadLuaData<Pack>(yp, "palettes_yellow.lua") : null;
+        world.named = { ...(ypack?.palettes ?? {}), ...(ypack?.cgbBase ?? {}) };
+        world.monPalettes = ypack?.pokemon ?? {};
       }
       return world;
     })().catch(() => null);
@@ -96,8 +113,24 @@ let world: GbcWorld | null = null;
 export function setGbc(w: GbcWorld | null): void {
   world = w;
 }
+// the Graphics views' color choices besides a palette name
+export const GRAYS = "__grays";
+export const REDPP = "__redpp";
+
 export function gbcAvailable(): boolean {
   return world !== null;
+}
+
+// RED++ colors of a named palette (lightest first), or null when RED++ has no
+// such palette (the engine then uses the game's own, a mod's palettes too)
+export function gbcPalette(name: string): Rgb[] | null {
+  const p = world?.named[name];
+  return p?.length === 4 ? p : null;
+}
+
+// the palette RED++ gives a species' battle pics (PaletteFX.monPalName)
+export function gbcMonPalette(species: string): string | undefined {
+  return world?.monPalettes[species];
 }
 
 function coloringOf(tilesetId: string): GbcColoring | undefined {
@@ -212,18 +245,41 @@ function seedGroup(seed: string): number {
   return h % 4;
 }
 
-// RED++ colors of a sprite (darkest first, as spriteFrame wants them) and a
-// cache key, or null when the sprite has none
-export function spriteGbcColors(def: (SpriteSource & Record<string, unknown>) | undefined, seed: string, yellow = false): { colors: Rgb[]; key: string } | null {
-  if (!world) return null;
+// the color set a sprite's picture number picks (a number, or "random":
+// one of the first four per NPC), or undefined
+export function spriteGroup(def: (SpriteSource & Record<string, unknown>) | undefined, yellow = false): number | "random" | undefined {
+  if (!world) return undefined;
   const src = typeof def?.paletteSource === "string" ? def.paletteSource : typeof def?.source === "string" ? def.source : "";
-  if (!src) return null;
+  if (!src) return undefined;
   const m = /\[(\d+)\]/.exec(src);
   let idx = m ? Number(m[1]) : null;
   if (idx === null && src.includes("RedBikeSprite")) idx = 0;
   if (idx === null && src.includes("SurfingPikachuSprite")) idx = yellow ? 60 : 0;
-  if (idx === null) return null;
-  let group = at(world.spriteAssignment, idx + 1 - (Array.isArray(world.spriteAssignment) ? 0 : 1));
+  if (idx === null) return undefined;
+  const group = at(world.spriteAssignment, idx + 1 - (Array.isArray(world.spriteAssignment) ? 0 : 1));
+  return typeof group === "number" || group === "random" ? group : undefined;
+}
+
+// The color sets a sprite can wear: each with the first ROM picture number
+// that has it (what `paletteSource` names) and its colors (lightest first;
+// none for "random").
+export function spriteColorSets(): { group: number | "random"; source: string; colors: Rgb[] | null }[] {
+  if (!world) return [];
+  const out: { group: number | "random"; source: string; colors: Rgb[] | null }[] = [];
+  for (let idx = 0; idx < 256; idx++) {
+    const group = spriteGroup({ source: `[${idx}]` });
+    if (group === undefined || out.some((o) => o.group === group)) continue;
+    const pal = group === "random" ? null : at(world.spritePalettes, group + (Array.isArray(world.spritePalettes) ? 1 : 0));
+    out.push({ group, source: `ROM:SpriteSheetPointerTable[${idx}]`, colors: pal && pal.length >= 4 ? pal : null });
+  }
+  return out.sort((a, b) => (a.group === "random" ? 99 : a.group) - (b.group === "random" ? 99 : b.group));
+}
+
+// RED++ colors of a sprite (darkest first, as spriteFrame wants them) and a
+// cache key, or null when the sprite has none
+export function spriteGbcColors(def: (SpriteSource & Record<string, unknown>) | undefined, seed: string, yellow = false): { colors: Rgb[]; key: string } | null {
+  if (!world) return null;
+  let group = spriteGroup(def, yellow);
   if (group === undefined) return null;
   if (group === "random") group = seedGroup(seed);
   const pal = at(world.spritePalettes, Number(group) + (Array.isArray(world.spritePalettes) ? 1 : 0));

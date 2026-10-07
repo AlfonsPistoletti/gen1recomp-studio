@@ -13,11 +13,6 @@ import type { Dataset, GameAdapter } from "../games/types.ts";
 import type { Host, ProcessResult } from "../host/types.ts";
 import { loadLuaData, runMod } from "../lua/vm.ts";
 import { aliasesInRecipe, COPY, listOverrides, OVERRIDES, STUDIO_TRANSFORMS } from "../core/assets.ts";
-import { EFFECT_RUNTIME, effectRegistration } from "../lua/effectRuntime.ts";
-import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../lua/itemEffectRuntime.ts";
-import { PRIZE_RUNTIME, prizeRegistration } from "../lua/prizeRuntime.ts";
-import { EVENT_RUNTIME, eventRegistration } from "../lua/eventRuntime.ts";
-import { ROOF_RUNTIME, roofRegistration, TILESET_RUNTIME, tilesetRegistration } from "../lua/tilesetRuntime.ts";
 import { dataFile, requireLine, studioContentFile, type ContentCall } from "../lua/writer.ts";
 
 export const MOD_ID_RE = /^[\w-]+$/;
@@ -367,7 +362,7 @@ export async function saveProject(project: Project, edited: Record<string, Recor
     }
     const path = `mods/${modId}/${c.studioFile}`;
     if (Object.keys(records).length) {
-      const gen = GENERATORS[c.registry];
+      const gen = c.generator;
       await host.writeText(path, dataFile(modId, gen?.what ?? c.registry, records, gen?.order ?? []));
       if (gen) before += gen.runtime + "\n" + gen.registration(modId, c.studioFile) + "\n";
       if (gen?.internals === true || (typeof gen?.internals === "function" && gen.internals(records))) internals = true;
@@ -387,70 +382,11 @@ export async function saveProject(project: Project, edited: Record<string, Recor
 // those values hold functions, which can't be written back as data.
 export function keptOps(adapter: GameAdapter, ops: RegistryOp[]): ContentCall[] {
   const editable = new Set(editableRegistries(adapter));
-  const generated = new Set(adapter.content.map((c) => c.generates).filter((g): g is string => !!g));
-  for (const g of Object.values(GENERATORS)) for (const r of g.writes) generated.add(r);
+  const generated = new Set(adapter.content.flatMap((c) => c.generator?.writes ?? []));
   return ops
     .filter((op) => !editable.has(op.registry) && !generated.has(op.registry))
     .map((op) => ({ registry: op.registry, op: op.op, id: op.id, value: op.value }));
 }
-
-// the fixed helpers that turn a data file's specs into engine records, by
-// the studio registry that holds the specs; `writes`: every registry the
-// helper's code registers into
-// `internals`: the helper reaches into the engine (always, or for these records)
-export const GENERATORS: Record<string, { what: string; order: string[]; runtime: string; registration: (modId: string, file: string) => string; writes: string[]; internals?: boolean | ((records: Record<string, unknown>) => boolean) }> = {
-  // map events: talk rows, step/enter triggers (plain Lua)
-  studio_events: {
-    what: "map events",
-    order: ["x", "y", "once", "rows"],
-    runtime: EVENT_RUNTIME,
-    registration: eventRegistration,
-    writes: ["map_scripts", "commands"],
-  },
-  // prize counters use the engine's prize window: engine_internals
-  prize_counters: {
-    what: "Game Corner prize counters",
-    order: ["prizes", "item", "species", "level", "cost"],
-    runtime: PRIZE_RUNTIME,
-    registration: prizeRegistration,
-    writes: ["map_scripts"],
-    internals: true,
-  },
-  // tiles and blocks added to vanilla tilesets (the sheet itself is built
-  // by the assets_transforms recipe, see src/core/assets.ts)
-  studio_tilesets: {
-    what: "tileset extensions",
-    order: ["first", "walkable", "tiles", "blocks", "animated", "gbc"],
-    runtime: TILESET_RUNTIME,
-    registration: tilesetRegistration,
-    writes: ["tilesets"],
-    // RED++ colors are written into the engine's own color table
-    internals: (records) => Object.values(records).some((r) => !!(r as { gbc?: unknown }).gbc),
-  },
-  // RED++ roof colors per map, written into the engine's color table
-  studio_roofs: {
-    what: "RED++ roof colors",
-    order: ["index", "colors"],
-    runtime: ROOF_RUNTIME,
-    registration: roofRegistration,
-    writes: [],
-    internals: true,
-  },
-  studio_effects: {
-    what: "custom move effects",
-    order: ["kind", "canMiss", "neverMiss", "hits", "damage", "recoil", "drain", "steps"],
-    runtime: EFFECT_RUNTIME,
-    registration: effectRegistration,
-    writes: ["move_effects"],
-  },
-  studio_item_effects: {
-    what: "custom item effects",
-    order: ["target", "where", "keep", "steps", "act", "amount", "percent", "full", "statuses", "all", "stat", "delta", "cap"],
-    runtime: ITEM_EFFECT_RUNTIME,
-    registration: itemEffectRegistration,
-    writes: ["item_effects"],
-  },
-};
 
 // The engine_internals permission (the engine's mod manager labels it "PATCHES
 // ENGINE CODE") follows what the studio's helpers need. It is only taken away

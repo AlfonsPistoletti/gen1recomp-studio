@@ -20,7 +20,7 @@ import { clear, comboInput, errorText, field, h, numberInput, onFocusLeave, rere
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
 import { arrows } from "../games/gen1/events.ts";
-import { followerPath } from "../core/eventBlocks.ts";
+import { followerPath, STEP } from "../core/eventBlocks.ts";
 import { mountRecordList } from "./recordList.ts";
 
 export interface StudioEvent {
@@ -1006,7 +1006,6 @@ let currentRoot: Block[] = [];
 let currentMap = "";
 
 type Pos = { x: number; y: number };
-const STEP: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 
 // Where the player and the NPCs stand when `target` runs: replays the
 // movement commands before it, in order (an If's or Choice's branches as

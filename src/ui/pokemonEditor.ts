@@ -2,12 +2,16 @@
 // TM/HM and Pokédex entry (right). Edits go to the "pokemon" registry (and
 // the dex text to "text"); a save writes only the changed fields.
 
-import { addAsset, assetUrl, derivedPath, isCachePath, STUDIO_TRANSFORMS } from "../core/assets.ts";
+import { addAsset, assetUrl, derivedPath, isCachePath } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
+import { canDerive } from "../core/reuse.ts";
 import { store } from "../core/store.ts";
 import type { PokemonSpec } from "../games/types.ts";
 import { importArt, placeholderArt } from "./artImport.ts";
 import { clear, comboInput, field, h, numberInput, rerender, selectInput, onFocusLeave, toast } from "./dom.ts";
+import { colorSelect, defaultView, monPaletteName, paletteField, picColors } from "./picColors.ts";
+import { loadImage, showTinted, tintPixels } from "../render/graphics.ts";
+import type { Rgb } from "../render/color.ts";
 import { promptNewRecord } from "./newRecord.ts";
 import { nav } from "./nav.ts";
 import { idRow } from "./renameId.ts";
@@ -25,6 +29,20 @@ const REG = "pokemon";
 // game folder, freshly imported art from memory until saved
 export function spriteUrl(path: string | undefined): string {
   return assetUrl(store.project.host, store.project.version, path);
+}
+
+// the Colors choice at the top (null: RED++ while the map view shows RED++,
+// else each Pokémon's own palette)
+let view: string | null = null;
+
+// the colors a species' battle pics are shown in (lightest first; null: as drawn)
+function monColors(id: string, r: Rec): Rgb[] | null {
+  return picColors(view ?? defaultView(), (redpp) => monPaletteName(id, r, redpp), r.trueColor === true);
+}
+
+// a battle pic in the chosen colors
+function pic(path: string | undefined, pal: Rgb[] | null, attrs: Record<string, unknown>): HTMLImageElement {
+  return showTinted(h("img", { alt: "", ...attrs }), spriteUrl(path), pal);
 }
 
 function species(): Record<string, Rec> {
@@ -77,7 +95,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
       else store.revertRecord(REG, current, `Revert ${current}`);
     },
   }, "Revert to base");
-  center.append(h("div", { class: "panel-head" }, title, revert), main);
+  const colors = h("span", {});
+  center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, colors, revert)), main);
   right.append(h("div", { class: "panel-head" }, h("span", {}, "Moves & Pokédex")), side);
 
   const open = (id: string) => {
@@ -109,6 +128,10 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     rerender(main, () => mainForm(id, rec, spec));
     rerender(side, () => sideForm(id, rec, spec));
     title.textContent = `#${String(rec.dex ?? "?").padStart(3, "0")} ${String(rec.name ?? current)}`;
+    colors.replaceChildren(colorSelect(view ?? defaultView(), monPaletteName(id, rec, false), rec.trueColor === true, (v) => {
+      view = v;
+      renderNow();
+    }));
     const isNew = store.baseTable(REG)[current] === undefined;
     revert.textContent = isNew ? "Delete Pokémon" : "Revert to base";
     revert.hidden = !isNew && !store.isRecordEdited(REG, current);
@@ -247,8 +270,8 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
     h(
       "div",
       { class: "mon-sprites" },
-      spec.frontSprite(r) ? h("img", { class: "mon-sprite", src: spriteUrl(spec.frontSprite(r)), alt: "front" }) : null,
-      spec.backSprite(r) ? h("img", { class: "mon-sprite back", src: spriteUrl(spec.backSprite(r)), alt: "back" }) : null,
+      spec.frontSprite(r) ? pic(spec.frontSprite(r), monColors(id, r), { class: "mon-sprite", alt: "front" }) : null,
+      spec.backSprite(r) ? pic(spec.backSprite(r), monColors(id, r), { class: "mon-sprite back", alt: "back" }) : null,
     ),
     h(
       "div",
@@ -303,13 +326,6 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
 // reference in a mod)
 export function isModArt(path: unknown): path is string {
   return typeof path === "string" && (path.startsWith("mods/") || path.startsWith("save/mod-derived/"));
-}
-
-// whether vanilla art can be reused through the studio's transforms recipe:
-// a mod that ships its own assets_transforms file cannot get a second one
-function canDerive(): boolean {
-  const t = store.project.transforms;
-  return !!store.project.mod && (!t || t === STUDIO_TRANSFORMS);
 }
 
 // a path this mod may use for `path`: its own art as is, vanilla art as a
@@ -402,10 +418,17 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
 
   const front = spec.frontSprite(r);
   const back = spec.backSprite(r);
+  const pal = monColors(id, r);
   const icon = spec.icon.resolve(store.ctx, r);
   const iconPath = icon.image ?? (icon.name ? spec.icon.path(store.ctx, icon.name) : undefined);
   const iconSel = selectInput(icon.name ?? "", spec.icon.names(store.ctx), (v) => edit(id, "Menu icon", (d) => (d.icon = v)), icon.image ? "(own image)" : undefined);
   iconSel.title = "One of the game's menu icon shapes";
+  // the dataset names shapes whose art this version lacks (PIKACHU outside
+  // Yellow): only offer the ones that load
+  for (const o of [...iconSel.options]) {
+    const path = o.value ? spec.icon.path(store.ctx, o.value) : undefined;
+    if (path) void loadImage(spriteUrl(path)).then((img) => !img && !o.selected && o.remove());
+  }
 
   // the front preview shows the size the game uses: a 40 px Pokémon sits
   // smaller in the 56 px box, bottom-centered like in battle
@@ -457,13 +480,13 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       slot(
         "Front",
         [h("button", { class: "btn small", onclick: () => importTo("front") }, "Import…"), borrow("front"), scaleSelect("battleScaleFront", frontScale, scales.front)],
-        front ? h("img", { src: spriteUrl(front), alt: "", class: "front-art", style: `width:${frontPx}px;height:${frontPx}px` }) : null,
+        front ? pic(front, pal, { class: "front-art", style: `width:${frontPx}px;height:${frontPx}px` }) : null,
         `${frontSize * 8}×${frontSize * 8}`,
       ),
       slot(
         "Back",
         [h("button", { class: "btn small", onclick: () => importTo("back") }, "Import…"), borrow("back"), scaleSelect("battleScaleBack", backScale, scales.back)],
-        back ? h("img", { src: spriteUrl(back), alt: "" }) : null,
+        back ? pic(back, pal, {}) : null,
         backScale === scales.back ? `${spec.backSize}×${spec.backSize}, drawn doubled like the game` : "Full resolution",
       ),
       slot(
@@ -473,10 +496,15 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
         icon.image ? "Own image, 2 frames" : "Game icon shape",
       ),
     ),
+    field(
+      "Battle palette",
+      paletteField(r.palette, monPaletteName(id, undefined, false), (v) => edit(id, "Battle palette", (d) => (v ? (d.palette = v) : delete d.palette))),
+      "The colors of its battle pictures. In RED++ mode the game uses RED++'s colors for the same palette name.",
+    ),
     h(
       "div",
       { class: "battle-preview-wrap" },
-      battlePreview(front ? spriteUrl(front) : undefined, back ? spriteUrl(back) : undefined, frontScale, backScale, mattedArt(front), mattedArt(back)),
+      battlePreview(front ? spriteUrl(front) : undefined, back ? spriteUrl(back) : undefined, frontScale, backScale, mattedArt(front), mattedArt(back), pal),
       h("p", { class: "hint" }, "In battle: the foe's front sprite top right, yours from behind, feet on the text box. Bigger art grows up and out from there."),
     ),
     h("label", { class: "ai-layer" }, colorBox, h("span", {}, h("strong", {}, "Full color"), h("span", { class: "hint" }, "Shows this Pokémon's battle sprites exactly as drawn instead of colouring 4 gray shades with the game's palette."))),
@@ -492,7 +520,7 @@ const mattedArt = (path: string | undefined): boolean => !!path && (path.startsW
 // edge and centre pinned as it scales (frontPlacement); the player's back pic
 // at x 8 with its feet on the text box top, y 96 (backPlacement), both after
 // trimming the transparent rows/columns the engine trims.
-function battlePreview(front: string | undefined, back: string | undefined, fs: number, bs: number, frontMatted: boolean, backMatted: boolean): HTMLElement {
+function battlePreview(front: string | undefined, back: string | undefined, fs: number, bs: number, frontMatted: boolean, backMatted: boolean, pal: Rgb[] | null = null): HTMLElement {
   const W = 160;
   const H = 144;
   const canvas = h("canvas", { width: W, height: H, class: "battle-preview" });
@@ -521,6 +549,8 @@ function battlePreview(front: string | undefined, back: string | undefined, fs: 
     }
     const px = data.data;
     if (matted) for (let i = 0; i < px.length; i += 4) if (px[i] > 212 && px[i + 1] > 212 && px[i + 2] > 212) px[i + 3] = 0;
+    // the palette goes on after the matting, as in the game
+    if (pal) tintPixels(px, pal);
     g.putImageData(data, 0, 0);
     const opaque = (x: number, y: number) => px[(y * c.width + x) * 4 + 3] > 0;
     let bottom = c.height - 1;

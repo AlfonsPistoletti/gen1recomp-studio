@@ -24,6 +24,8 @@ export type Block =
   | { t: "label"; name: string };
 
 const JUMPS = new Set(["jump", "jump_if_true", "jump_if_false"]);
+// one step in a direction, in cells
+export const STEP: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const OPPOSITE: Record<string, string> = { up: "down", down: "up", left: "right", right: "left" };
 
 // the player's steps when following: into the NPC's starting cell, then

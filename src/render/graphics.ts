@@ -36,6 +36,43 @@ export function loadImage(url: string): Promise<HTMLImageElement | null> {
   return p;
 }
 
+// Gray pixels in a palette's 4 colors (lightest first); clear stays clear.
+export function tintPixels(px: Uint8ClampedArray, pal: Rgb[]): void {
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] === 0) continue;
+    const g = px[i];
+    const col = pal[g > 212 ? 0 : g > 127 ? 1 : g > 42 ? 2 : 3];
+    px[i] = col[0];
+    px[i + 1] = col[1];
+    px[i + 2] = col[2];
+  }
+}
+
+// gray picture + colors -> data URL of the tinted picture
+const tinted = new Map<string, string>();
+
+// Shows `url` in `img`, tinted with `pal` (lightest first; null: as drawn).
+// The gray picture shows until a first tint of it is ready.
+export function showTinted(img: HTMLImageElement, url: string, pal: Rgb[] | null): HTMLImageElement {
+  const key = pal ? `${url}|${pal.flat().join(",")}` : "";
+  img.src = (pal && tinted.get(key)) || url;
+  if (!pal || !url || tinted.has(key)) return img;
+  void loadImage(url).then((src) => {
+    if (!src) return;
+    const c = document.createElement("canvas");
+    c.width = src.width;
+    c.height = src.height;
+    const ctx = c.getContext("2d", { willReadFrequently: true })!;
+    ctx.drawImage(src, 0, 0);
+    const data = ctx.getImageData(0, 0, c.width, c.height);
+    tintPixels(data.data, pal);
+    ctx.putImageData(data, 0, 0);
+    tinted.set(key, c.toDataURL("image/png"));
+    if (img.src === url || img.getAttribute("src") === url) img.src = tinted.get(key)!;
+  });
+  return img;
+}
+
 function shadeIndex(gray: number): number {
   let best = 0;
   for (let i = 1; i < 4; i++) if (Math.abs(GRAY_RAMP[i] - gray) < Math.abs(GRAY_RAMP[best] - gray)) best = i;

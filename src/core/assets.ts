@@ -28,6 +28,7 @@ export const ASSET_TYPES: Record<string, string> = {
   mp3: "audio/mpeg",
   flac: "audio/flac",
 };
+export const AUDIO_EXTS = Object.keys(ASSET_TYPES).filter((e) => ASSET_TYPES[e].startsWith("audio/"));
 
 // Registers an imported file for `mod` and returns the path records use.
 export function addAsset(mod: string, name: string, data: Uint8Array, ext = "png"): string {
@@ -55,7 +56,7 @@ export function assetUrl(host: Host, version: string, path: string | undefined):
 // recipe from the paths its saved file uses.
 
 export const STUDIO_TRANSFORMS = "studio_transforms.lua";
-const CACHE = "assets/generated/";
+export const CACHE = "assets/generated/";
 const DERIVED = /^save\/mod-derived\/[^/]+\/studio\/(.+)$/;
 
 export function isCachePath(path: unknown): path is string {

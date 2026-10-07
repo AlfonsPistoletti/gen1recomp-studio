@@ -17,11 +17,13 @@ import {
 } from "../core/tilesets.ts";
 import { blockAtlas, loadImage, markerIcon, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Footprints, Scissors, Waves } from "lucide";
-import type { Rgb } from "../render/color.ts";
+import { MONO, type Rgb } from "../render/color.ts";
+import { loadFile, pngBytes } from "./artImport.ts";
 import { clear, field, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
-import { gbcAvailable, gbcColorsFor, gbcKey, GROUP_NAMES, groupColors, groupOf, type GbcColoring } from "../core/gbc.ts";
+import { gbcAvailable, gbcColorsFor, gbcKey, GRAYS, GROUP_NAMES, REDPP, groupColors, groupOf, type GbcColoring } from "../core/gbc.ts";
 import { nav } from "./nav.ts";
+import { paletteChoices } from "./picColors.ts";
 
 const SHEET_ZOOM = 4;
 const BLOCK_ZOOM = 2;
@@ -51,9 +53,6 @@ function drawMark(ctx: CanvasRenderingContext2D, kind: string, cx: number, cy: n
 }
 const ANIMATIONS = ["TILEANIM_NONE", "TILEANIM_WATER", "TILEANIM_WATER_FLOWER"];
 // the view option without map colors; colors darkest first
-const GRAYS = "__grays";
-const REDPP = "__redpp";
-const GRAY_COLORS: Rgb[] = [[0, 0, 0], [85, 85, 85], [170, 170, 170], [255, 255, 255]];
 // animation speeds: 60ths of a second per frame (20 = the game's water)
 const SPEEDS: [number, string][] = [[8, "Fast"], [20, "Normal (like water)"], [40, "Slow"]];
 
@@ -195,13 +194,6 @@ function tileKey(rgba: Uint8ClampedArray, stride: number, x0: number, y0: number
     }
   }
   return s;
-}
-
-function bytesOf(canvas: HTMLCanvasElement): Uint8Array {
-  const bin = atob(canvas.toDataURL("image/png").split(",")[1] ?? "");
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
 }
 
 // An imported picture cut into tiles: quantized to the 4 shades unless full
@@ -348,15 +340,6 @@ function pickFile(): Promise<File | null> {
   });
 }
 
-function fileImage(file: File): Promise<HTMLImageElement> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error(`${file.name} is not an image the browser can read`));
-    img.src = URL.createObjectURL(file);
-  });
-}
-
 // ------------------------------------------------------------------ workspace
 
 export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
@@ -454,7 +437,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const chosen = viewPalette ?? (store.colorMode === "redpp" && redpp ? REDPP : "");
     // RED++ only when picked: "a map's" is always the map's own Game Boy palette
     const palette = chosen === REDPP ? redpp! : chosen || auto;
-    const colorsFor = palette === GRAYS ? () => GRAY_COLORS : palette === redpp ? gbcColorsFor(id, palette) : store.adapter.tileColors(store.ctx, ts, palette);
+    const colorsFor = palette === GRAYS ? () => MONO : palette === redpp ? gbcColorsFor(id, palette) : store.adapter.tileColors(store.ctx, ts, palette);
     const url = await tilesetUrl(id);
     const sheet = await readSheet(url);
     const atlas = await blockAtlas(ts, url, palette, colorsFor, tilesetKey(id));
@@ -478,8 +461,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
 
     // the colors to view it in (Gen 1 colors a map, not a tileset: each map
     // has its palette, set in the map's properties)
-    const names = store.adapter.mapFields.find((f) => f.kind === "select" && f.key === "palette");
-    const paletteNames = names && names.kind === "select" ? names.options(store.ctx) : [];
+    const paletteNames = paletteChoices();
     const view = h("select", { title: "Gen 1 colors maps, not tilesets: each map has a palette (map properties). This only changes how the tileset is shown here." },
       h("option", { value: "", selected: chosen === "" }, `Colors: a map's (${auto})`),
       ...(redpp ? [h("option", { value: REDPP, selected: chosen === REDPP }, "Colors: RED++ (Game Boy Color)")] : []),
@@ -1202,13 +1184,13 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       tile: a.tile,
       kind: "frames",
       period: 20,
-      images: a.frames.map((f, k) => addAsset(mod, `${id.toLowerCase()}_${a.tile}_${k + 1}`, bytesOf(tileCanvas(f.px)))),
+      images: a.frames.map((f, k) => addAsset(mod, `${id.toLowerCase()}_${a.tile}_${k + 1}`, pngBytes(tileCanvas(f.px)))),
       sequence: a.frames.map((_f, k) => k + 1),
     });
     if (ed.own) {
       const all = [...(plan.sheet ? sheetTileList(plan.sheet, plan.per, plan.have) : []), ...plan.fresh.map((f) => f.px)];
       const canvas = sheetCanvas(all, plan.per);
-      const path = plan.fresh.length ? addAsset(mod, id.toLowerCase(), bytesOf(canvas)) : null;
+      const path = plan.fresh.length ? addAsset(mod, id.toLowerCase(), pngBytes(canvas)) : null;
       const added = plan.anims.map(keepFrames);
       // with RED++ palettes of its own, new tiles start on the first one (an
       // unassigned tile gets the engine's Text palette: black and white)
@@ -1286,7 +1268,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const file = await pickFile();
     if (!file) return;
     try {
-      const img = await fileImage(file);
+      const img = await loadFile(file);
       framesOf(img, TILE);
       const st = await sheetState(id);
       const cut = cutPicture(img, st.trueColor);
@@ -1297,7 +1279,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         const all = sheetTileList(st.sheet!, st.per, st.have);
         all[tile] = frames[0].px;
         const canvas = sheetCanvas(all, st.per);
-        const path = addAsset(store.project.mod, id.toLowerCase(), bytesOf(canvas));
+        const path = addAsset(store.project.mod, id.toLowerCase(), pngBytes(canvas));
         store.group("Animate tile", () => {
           editTileset(id, "Animate tile", (d) => {
             d.rec!.image = path;
@@ -1328,7 +1310,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const file = await pickFile();
     if (!file) return;
     try {
-      const img = await fileImage(file);
+      const img = await loadFile(file);
       const { n, across } = framesOf(img, BLOCK);
       const st = await sheetState(id);
       const cut = cutPicture(img, st.trueColor);
@@ -1378,7 +1360,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const res = await promptPicture("Import tiles", "Added below the sheet's tiles. Every whole 32×32 square also becomes a block.");
     if (!res) return;
     try {
-      const img = await fileImage(res.file);
+      const img = await loadFile(res.file);
       if (img.width < TILE || img.height < TILE) throw new Error("The picture is smaller than one 8×8 tile.");
       const st = await sheetState(id);
       // keep the layout: the picture's rows start on a fresh sheet row, the
@@ -1426,14 +1408,14 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const res = await promptNewTileset(tilesetIds());
     if (!res) return;
     try {
-      const img = await fileImage(res.file);
+      const img = await loadFile(res.file);
       if (img.width < TILE || img.height < TILE) throw new Error("The picture is smaller than one 8×8 tile.");
       // as laid out: the picture is the sheet (its own width); optimized:
       // repeats stored once, 16 tiles a row
       const cut = cutPicture(img, res.trueColor, res.optimize);
       const per = res.optimize ? 16 : Math.max(1, cut.cols);
       const canvas = sheetCanvas(cut.tiles.map((t) => t.px), per);
-      const path = addAsset(store.project.mod!, res.id.toLowerCase(), bytesOf(canvas));
+      const path = addAsset(store.project.mod!, res.id.toLowerCase(), pngBytes(canvas));
       let blocks = blocksOf(cut, (i) => i);
       if (!blocks.length) blocks = [new Array<number>(16).fill(0)];
       const record: TilesetDef = {

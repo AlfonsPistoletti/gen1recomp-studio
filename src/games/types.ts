@@ -45,15 +45,29 @@ export interface ContentSpec {
   // (type_chart.lua holds a matchups list; the registry keys "A>B")
   build?: (file: Record<string, unknown>, version?: string) => Record<string, unknown>;
   // records kept as a plain data file in the mod (mods/<id>/<studioFile>)
-  // instead of registry calls; `generates` names the registry the studio
-  // file registers from it (its ops there are regenerated, never kept)
+  // instead of registry calls
   studioFile?: string;
-  generates?: string;
+  // the fixed helper written into studio_content.lua that turns the data
+  // file's records into engine records
+  generator?: Generator;
   // the engine merges this registry "deep": patched lists append
   deep?: boolean;
   // records are files the studio writes itself (image overrides), never
   // registry calls
   files?: boolean;
+}
+
+// The helper code of a studio data file (src/lua/*Runtime.ts).
+export interface Generator {
+  what: string; // the data file's header comment
+  order: string[]; // key order in the data file
+  runtime: string;
+  registration: (modId: string, file: string) => string;
+  // every registry the helper registers into: its ops there are regenerated
+  // on save, never kept
+  writes: string[];
+  // the helper reaches into the engine (always, or for these records)
+  internals?: boolean | ((records: Record<string, unknown>) => boolean);
 }
 
 // ------------------------------------------------------------------ moves
@@ -490,8 +504,6 @@ export interface GameAdapter {
   name: string;
   // the manifest "games" value mods for this generation declare
   manifestGame: string;
-  // whether this adapter can edit yet
-  ready: boolean;
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;

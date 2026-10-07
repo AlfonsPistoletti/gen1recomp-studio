@@ -7,13 +7,12 @@
 // can't be patched onto chip data. New songs show up in a map's Music menu
 // and in the event commands Play music / Play sound.
 
-import { addAsset, assetUrl, ASSET_TYPES } from "../core/assets.ts";
+import { addAsset, assetUrl, AUDIO_EXTS as AUDIO } from "../core/assets.ts";
 import { store } from "../core/store.ts";
 import { errorText, field, h, toast } from "./dom.ts";
 
 export const MUSIC = "music";
 export const SFX = "sfx";
-const AUDIO = Object.keys(ASSET_TYPES).filter((e) => ASSET_TYPES[e].startsWith("audio/"));
 const MAX_SONG = 30 * 1024 * 1024;
 const MAX_SOUND = 2 * 1024 * 1024;
 

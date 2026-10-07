@@ -7,7 +7,9 @@ import { store } from "../core/store.ts";
 import { addOverride, COPY, OVERRIDES, overrideUrl } from "../core/assets.ts";
 import { canDerive, NO_RECIPE } from "../core/reuse.ts";
 import type { ImageSpec } from "../games/types.ts";
-import { loadImage } from "../render/graphics.ts";
+import { loadImage, showTinted } from "../render/graphics.ts";
+import { gbcAvailable, GRAYS } from "../core/gbc.ts";
+import { namedColors, paletteChoices } from "./picColors.ts";
 import { importArt } from "./artImport.ts";
 import { clear, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
@@ -91,7 +93,29 @@ export function mountImageWorkspace(left: HTMLElement, center: HTMLElement, righ
   const title = h("span", { class: "head-title" }, "Images");
   const main = h("div", { class: "ws-scroll" });
   const side = h("div", { class: "ws-scroll" });
-  center.append(h("div", { class: "panel-head" }, title), main);
+  // the colors to preview in: grays (as stored) or a palette, optionally in
+  // its RED++ colors (the game picks each screen's palette in its code)
+  let palette = GRAYS;
+  let redpp: boolean | null = null;
+  const redppNow = () => redpp ?? store.colorMode === "redpp";
+  const colors = h("span", { class: "row nowrap" });
+  const renderColors = () => {
+    const sel = h("select", { title: "Preview the image in a palette; the game picks each screen's palette itself" },
+      h("option", { value: GRAYS, selected: palette === GRAYS }, "Colors: Game Boy grays"),
+      ...paletteChoices().map((n) => h("option", { value: n, selected: palette === n }, `Colors: ${n}`)),
+    );
+    sel.addEventListener("change", () => {
+      palette = sel.value;
+      void render();
+    });
+    const box = h("input", { type: "checkbox", checked: redppNow(), disabled: palette === GRAYS });
+    box.addEventListener("change", () => {
+      redpp = box.checked;
+      void render();
+    });
+    colors.replaceChildren(sel, ...(gbcAvailable() ? [h("label", { class: "row nowrap hint", title: "The palette in RED++ (Game Boy Color) colors" }, box, "RED++")] : []));
+  };
+  center.append(h("div", { class: "panel-head" }, title, colors), main);
   right.append(h("div", { class: "panel-head" }, h("span", {}, "Replace")), side);
 
   const open = (rel: string) => {
@@ -115,7 +139,8 @@ export function mountImageWorkspace(left: HTMLElement, center: HTMLElement, righ
   // one image, zoomed to fit `box` px (whole steps keep pixels square)
   const picture = (url: string, w: number, hgt: number, box: number): HTMLElement => {
     const zoom = Math.max(1, Math.min(6, Math.floor(box / Math.max(w, hgt))));
-    const img = h("img", { src: url, alt: "", class: "image-pic", style: `width:${w * zoom}px;height:${hgt * zoom}px` });
+    const pal = palette === GRAYS ? null : namedColors(palette, redppNow());
+    const img = showTinted(h("img", { alt: "", class: "image-pic", style: `width:${w * zoom}px;height:${hgt * zoom}px` }), url, pal);
     return h("div", { class: "image-frame" }, img);
   };
 
@@ -126,6 +151,7 @@ export function mountImageWorkspace(left: HTMLElement, center: HTMLElement, righ
     clear(side);
     const s = spec();
     const rel = current;
+    renderColors();
     if (!rel || !s || !store.project) {
       title.textContent = "Images";
       main.append(h("p", { class: "hint empty" }, s ? "Pick an image on the left." : "This game has no replaceable images."));
@@ -160,7 +186,7 @@ export function mountImageWorkspace(left: HTMLElement, center: HTMLElement, righ
         h("div", { class: "card" }, h("h4", {}, `The game's · ${w}×${hgt}`), game ? picture(gameUrl(rel), w, hgt, 420) : h("p", { class: "hint warn" }, "Not in this version's imported files.")),
         h("div", { class: "card" }, h("h4", {}, copyOf ? `Your mod's · the game's ${copyOf}` : "Your mod's"), mine ? picture(mine, w, hgt, 420) : h("p", { class: "hint" }, "Not replaced: the game's image is used.")),
       ),
-      h("p", { class: "hint" }, "Shown as stored: the game colors these images with the palette of the screen they appear on."),
+      h("p", { class: "hint" }, "The game colors these images with the palette of the screen they appear on: pick one at the top to preview."),
     );
     side.append(
       h("div", { class: "card" },

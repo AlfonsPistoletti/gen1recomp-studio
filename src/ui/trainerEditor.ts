@@ -14,6 +14,8 @@ import { nav } from "./nav.ts";
 import { idRow } from "./renameId.ts";
 import { spriteUrl } from "./pokemonEditor.ts";
 import { mountRecordList } from "./recordList.ts";
+import { colorSelect, defaultView, monPaletteName, paletteField, picColors } from "./picColors.ts";
+import { showTinted } from "../render/graphics.ts";
 
 type Rec = Record<string, unknown>;
 type Party = TrainerSlot[];
@@ -24,6 +26,22 @@ function spec(): TrainerSpec | undefined {
 
 function trainers(): Record<string, Rec> {
   return store.table(spec()?.registry ?? "trainers") as Record<string, Rec>;
+}
+
+// the Colors choice at the top (null: RED++ while the map view shows RED++,
+// else the pics' own palettes)
+let view: string | null = null;
+const viewNow = () => view ?? defaultView();
+
+// a portrait's palette: the trainer's own, else MEWMON (BattleState.trainerPalette)
+const trainerPalette = (r: Rec) => (typeof r.palette === "string" && store.table("palettes")[r.palette] ? r.palette : "MEWMON");
+
+// full color: the trainer's own setting, else the one of the portrait it
+// reuses (BattleState.trainerTrueColor)
+function trainerTrueColor(r: Rec): boolean {
+  if (typeof r.trueColor === "boolean") return r.trueColor;
+  const base = typeof r.basePic === "string" ? trainers()[r.basePic] : undefined;
+  return base?.trueColor === true;
 }
 
 function parties(r: Rec | undefined): Party[] {
@@ -116,7 +134,8 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
       });
     },
   }, "Revert to base");
-  center.append(h("div", { class: "panel-head" }, title, revert), main);
+  const colors = h("span", {});
+  center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, colors, revert)), main);
   right.append(h("div", { class: "panel-head" }, h("span", {}, "AI")), side);
 
   const open = (id: string) => {
@@ -201,6 +220,10 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
     const id = current;
     title.textContent = String(r.name ?? id);
+    colors.replaceChildren(colorSelect(viewNow(), trainerPalette(r), false, (v) => {
+      view = v;
+      render(true);
+    }));
     const isNew = store.baseTable(s.registry)[id] === undefined;
     revert.textContent = isNew ? "Delete trainer" : "Revert to base";
     revert.hidden = !isNew && !(store.isRecordEdited(s.registry, id) || (s.aiClasses && store.isRecordEdited(s.aiClasses.registry, aiId(id))));
@@ -330,7 +353,9 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
     return h(
       "div",
       { class: "team-slot" },
-      front ? h("img", { class: "slot-icon big", src: front, alt: "" }) : h("span", { class: "slot-icon big" }),
+      front
+        ? showTinted(h("img", { class: "slot-icon big", alt: "" }), front, picColors(viewNow(), (redpp) => monPaletteName(slot.species, mons[slot.species], redpp), mons[slot.species]?.trueColor === true))
+        : h("span", { class: "slot-icon big" }),
       h(
         "div",
         { class: "slot-main" },
@@ -423,10 +448,11 @@ function portrait(s: TrainerSpec, id: string, r: Rec, pic: string | undefined): 
   return h(
     "div",
     { class: "art-slot portrait" },
-    h("div", { class: "art-thumb" }, pic ? h("img", { src: spriteUrl(pic), alt: "" }) : h("span", { class: "hint" }, "no portrait")),
+    h("div", { class: "art-thumb" }, pic ? showTinted(h("img", { alt: "" }), spriteUrl(pic), picColors(viewNow(), () => trainerPalette(r), trainerTrueColor(r))) : h("span", { class: "hint" }, "no portrait")),
     h("button", { class: "btn small", onclick: importPic }, "Import…"),
     borrow,
     h("label", { class: "row nowrap hint" }, color, "Full color"),
+    field("Palette", paletteField(r.palette, "MEWMON", (v) => edit(id, "Portrait palette", (d) => (v ? (d.palette = v) : delete d.palette))), "The portrait's colors in battle."),
   );
 }
 

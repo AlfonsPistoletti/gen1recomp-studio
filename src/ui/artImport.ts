@@ -31,7 +31,7 @@ export interface ArtResult {
 // the four shades the engine's sprite code expects (sheet grays)
 const SHADES = [0, 85, 170, 255];
 
-function loadFile(file: File): Promise<HTMLImageElement> {
+export function loadFile(file: File): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -96,7 +96,7 @@ function render(img: HTMLImageElement, t: ArtTarget, shades: boolean, brightness
 
 // Synchronous on purpose: toBlob's callback was seen to never arrive after a
 // click in the dialog, which left the import hanging.
-function pngBytes(canvas: HTMLCanvasElement): Uint8Array {
+export function pngBytes(canvas: HTMLCanvasElement): Uint8Array {
   const b64 = canvas.toDataURL("image/png").split(",")[1] ?? "";
   const bin = atob(b64);
   const out = new Uint8Array(bin.length);

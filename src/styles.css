@@ -912,4 +912,3 @@ dialog.modal { min-width: 420px; }
 .sound-row:last-child { border-bottom: 0; }
 .sound-name { min-width: 160px; font-weight: 600; }
 .sound-row > .hint { flex: 1; min-width: 120px; }
-.sound-list { max-height: 420px; overflow: auto; }

@@ -38,7 +38,8 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
   // view is in RED++, else this map's palette)
   let viewPalette: string | null = null;
   // NPCs take 32 frames a step, the player 16 (src/world/NPC.lua, Player.lua)
-  let stepFrames = 32;
+  // frames per step of the walk preview (an NPC's pace)
+  const stepFrames = 32;
   let raf = 0;
 
   const newBtn = h("button", { class: "btn small", title: "A new sprite from a picture", onclick: () => void newSprite() }, "+ New");
@@ -129,12 +130,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       viewPalette = view.value;
       render();
     });
-    const speed = h("select", { title: "How fast the preview walks" },
-      h("option", { value: "32", selected: stepFrames === 32 }, "NPC speed"),
-      h("option", { value: "16", selected: stepFrames === 16 }, "Player speed"),
-    );
-    speed.addEventListener("change", () => (stepFrames = Number(speed.value)));
-    headTools.append(view, speed);
+    headTools.append(view);
 
     // the walking preview: one actor per direction
     const preview = h("canvas", { class: "sprite-preview" });

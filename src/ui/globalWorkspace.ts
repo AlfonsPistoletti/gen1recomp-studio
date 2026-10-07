@@ -7,7 +7,8 @@
 import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { GlobalNumber, GlobalsSpec } from "../games/types.ts";
-import { clear, field, h, numberInput, onFocusLeave, rerender, toast } from "./dom.ts";
+import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
+import { liveTileset } from "../core/tilesets.ts";
 import { chancesCard } from "./encounterPanel.ts";
 import { nav } from "./nav.ts";
 import { counterLabel, counters, prizeCounterEditor, showCounter } from "./prizeEditor.ts";
@@ -75,7 +76,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (registry === store.adapter.towns?.prizeRegistry) return "prizes";
   if (registry === TRADES_REGISTRY && id === TRADES_ID && s.sections.some((x) => x.id === "trades")) return "trades";
   if (registry === "field" && id === "fishing") return "wild";
-  if (registry === "field" && id === "presetNames") return "names";
+  if (registry === "field" && (id === "presetNames" || id === "boot")) return "names";
   if (registry === "field" && id === SLOTS_ID) return "slots";
   if ((registry === MUSIC || registry === SFX) && s.sections.some((x) => x.id === "sounds")) return "sounds";
   const odds = store.adapter.encounters?.sharedOdds;
@@ -94,6 +95,7 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (section === "trades") return "In-game trades";
   if (registry === "field" && id === "fishing") return "Old Rod and Good Rod";
   if (registry === "field" && id === "presetNames") return "Preset names";
+  if (registry === "field" && id === "boot") return "New game start";
   if (registry === "field" && id === SLOTS_ID) return "Slot machine wheels";
   if (registry === MUSIC) return `Song: ${songLabel(id)}`;
   if (registry === SFX) return `Sound: ${id}`;
@@ -114,7 +116,7 @@ function sectionChanged(id: string): boolean {
   if (id === "wild" && odds) regs.push([odds.registry, odds.id]);
   if (regs.some(([r, i]) => store.isRecordEdited(r, i))) return true;
   if (id === "trades" && tradesEdited()) return true;
-  if (id === "names" && store.isRecordEdited("field", "presetNames")) return true;
+  if (id === "names" && (store.isRecordEdited("field", "presetNames") || store.isRecordEdited("field", "boot"))) return true;
   if (id === "slots" && slotsEdited()) return true;
   if (id === "sounds" && soundsEdited()) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
@@ -230,12 +232,86 @@ function namesCard(): HTMLElement {
   const column = (who: "player" | "rival", label: string) =>
     field(label, h("div", { class: "row nowrap" }, ...cur[who].map((n, i) => nameInput(n, (v) => set(`${label} name ${i + 1}`, (d) => (d[who] = d[who].map((x, j) => (j === i ? v : x))))))));
   return h("section", { class: "card names-card" },
+    h("h4", {}, "Names"),
     column("player", "The player"),
     column("rival", "The rival"),
-    field("Own name option", nameInput(cur.customOption ?? "NEW NAME", (v) => set("Own name option", (d) => (d.customOption = v)), 10), "The menu entry that lets the player type a name."),
+    field("Own name option", Object.assign(nameInput(cur.customOption ?? "NEW NAME", (v) => set("Own name option", (d) => (d.customOption = v)), 10), { style: "width: 120px" }), "The menu entry that lets the player type a name."),
     h("p", { class: "hint" }, `Names fit ${NAME_MAX} letters.`),
     store.isRecordEdited("field", "presetNames")
       ? h("button", { class: "btn small danger", onclick: () => { store.revertRecord("field", "presetNames", "Names: the game's"); } }, "Back to the game's names")
+      : null,
+  );
+}
+
+// field.boot: where a new game starts (SaveData.newGame), the start money,
+// and the blackout point before the first Pokémon Center (lastHeal; unset,
+// the engine derives it: SaveData.defaultHeal)
+interface Boot {
+  startMap?: string;
+  startX?: number;
+  startY?: number;
+  startFacing?: string;
+  startMoney?: number;
+  lastHeal?: { map: string; x: number; y: number };
+  [k: string]: unknown;
+}
+const MAX_MONEY = 999999;
+
+function editBoot(label: string, mutate: (b: Boot) => void): void {
+  store.editRecord<Boot>("field", "boot", label, mutate);
+  store.seal();
+}
+
+// the blackout point the engine derives when lastHeal is unset
+function derivedHeal(b: Boot): { map: string; x: number; y: number } {
+  const map = b.startMap ?? "REDS_HOUSE_2F";
+  if (map === "REDS_HOUSE_2F") return { map: "PALLET_TOWN", x: 5, y: 6 };
+  return { map, x: b.startX ?? 3, y: b.startY ?? 6 };
+}
+
+// a map + cell, with "Pick on map" (walkable cells only)
+function cellRow(at: { map: string; x: number; y: number }, what: string, onSet: (map: string, x: number, y: number) => void): HTMLElement {
+  const maps = Object.keys(store.maps).sort();
+  const pick = () =>
+    nav.pickCell(at.map, (x, y) => {
+      const m = store.maps[at.map];
+      if (!m || !store.adapter.cell(m, liveTileset(m.tileset), x, y).walkable) return toast(`${at.map} (${x}, ${y}) is not a walkable cell`, "error");
+      onSet(at.map, x, y);
+    });
+  return h("div", { class: "row" },
+    Object.assign(comboInput(at.map, "dl-maps", maps, (v) => onSet(v, at.x, at.y)), { style: "max-width: 260px" }),
+    h("span", { class: "muted" }, "x"), numberInput(at.x, (v) => onSet(at.map, v, at.y), 0, 255),
+    h("span", { class: "muted" }, "y"), numberInput(at.y, (v) => onSet(at.map, at.x, v), 0, 255),
+    h("button", { class: "btn small", title: `Click the cell for ${what} on the map`, onclick: pick }, "Pick on map"),
+    h("button", { class: "btn small ghost", onclick: () => nav.openMap(at.map) }, "Show map"),
+  );
+}
+
+function newGameCard(): HTMLElement {
+  const b = (store.table("field").boot ?? {}) as Boot;
+  const start = { map: b.startMap ?? "REDS_HOUSE_2F", x: b.startX ?? 3, y: b.startY ?? 6 };
+  const custom = !!b.lastHeal;
+  const heal = b.lastHeal ?? derivedHeal(b);
+  const healSel = selectInput(custom ? "custom" : "", ["custom"], (v) =>
+    editBoot("Blackout point", (d) => {
+      if (v) d.lastHeal = { ...derivedHeal(d) };
+      else delete d.lastHeal;
+    }), `The game's (${derivedHeal(b).map} ${derivedHeal(b).x}, ${derivedHeal(b).y})`);
+  for (const o of healSel.options) if (o.value === "custom") o.textContent = "A cell of my own";
+  return h("section", { class: "card" },
+    h("h4", {}, "Start"),
+    field("Where the player starts", cellRow(start, "the start", (map, x, y) => editBoot("New game start", (d) => {
+      d.startMap = map;
+      d.startX = x;
+      d.startY = y;
+    })), "The game starts the player in the bedroom upstairs (REDS_HOUSE_2F 3, 6)."),
+    field("Facing", selectInput(b.startFacing ?? "down", ["down", "up", "left", "right"], (v) => editBoot("Start facing", (d) => (d.startFacing = v)))),
+    field("Money", numberInput(b.startMoney ?? 3000, (v) => editBoot("Start money", (d) => (d.startMoney = Math.max(0, Math.min(MAX_MONEY, v)))), 0, MAX_MONEY), `What the player has at the start (the game: 3000, at most ${MAX_MONEY}).`),
+    h("h4", {}, "Blackout point"),
+    field("Before the first Pokémon Center", healSel, "Where the player wakes up after blacking out until they visit a Pokémon Center. The game uses Pallet Town outside the house, or the start cell when the game starts somewhere else."),
+    custom ? cellRow(heal, "the blackout point", (map, x, y) => editBoot("Blackout point", (d) => (d.lastHeal = { map, x, y }))) : null,
+    store.isRecordEdited("field", "boot")
+      ? h("button", { class: "btn small danger", onclick: () => store.revertRecord("field", "boot", "New game: the game's") }, "Back to the game's start")
       : null,
   );
 }
@@ -250,7 +326,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "types" && s.typeChart) out.push(...typeChartCards(s.typeChart));
   if (id === "fieldmoves" && s.hmBadges) out.push(hmBadgesCard(s.hmBadges));
   if (id === "trades") out.push(...tradeCards());
-  if (id === "names") out.push(namesCard());
+  if (id === "names") out.push(newGameCard(), namesCard());
   if (id === "slots") out.push(...slotCards());
   if (id === "sounds") out.push(...soundCards());
   const towns = store.adapter.towns;
@@ -466,6 +542,8 @@ function changedList(s: GlobalsSpec, open: (section: string) => void): HTMLEleme
   }
   if (s.hmBadges && store.isRecordEdited(s.hmBadges.registry, s.hmBadges.id)) add("fieldmoves", "HM badges", s.hmBadges.registry, s.hmBadges.id);
   if (slotsEdited()) add("slots", "Slot machine wheels", "field", SLOTS_ID);
+  if (store.isRecordEdited("field", "boot")) add("names", "New game start", "field", "boot");
+  if (store.isRecordEdited("field", "presetNames")) add("names", "Preset names", "field", "presetNames");
   for (const id of editedIds(MUSIC)) add("sounds", `Song: ${songLabel(id)}`, MUSIC, id);
   for (const id of editedIds(SFX)) add("sounds", `Sound: ${id}`, SFX, id);
   if (s.typeChart) {

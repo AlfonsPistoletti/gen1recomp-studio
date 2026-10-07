@@ -136,7 +136,7 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   sprites as base records). Vanilla art is replaced by patching `image` only; a game sheet is never
   composed into a mod asset (Replace frame needs the mod's own sheet). Read sprites through
   `liveSprite`/`spriteUrl`, never `data.sprites`. Walk preview restates movement.asm (walk frame on
-  ticks 4..11 of 16, up/down mirrored every other step; NPC 32 frames a step, player 16).
+  ticks 4..11 of 16, up/down mirrored every other step; shown at NPC pace, 32 frames a step).
 - Replaced game images (`src/ui/imageEditor.ts`, `adapter.images`): gen1recomp `Assets.resolve` loads
   `mods/<id>/overrides/<rel>` instead of `assets/generated/<rel>`. `image_overrides` records (rel ->
   content hash, "disk" for files found on load) are files, not registry calls (`ContentSpec.files`);
@@ -165,6 +165,9 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   tabs, undo/redo, changes, Play, Save (icon-only so it fits 1280 px, a 1920 laptop at 150%). Map
   toolbar: tools | view toggles (icons, keys G C E N W A) + RED++ | add icons, one row. Menus use
   `dropdown()` (`src/ui/dom.ts`, `.menu`/`.menu-row`/`.menu-sep`).
+- New game (Global > New game, `newGameCard`): `field.boot` start map/cell/facing, startMoney, lastHeal (unset = the
+  engine derives it, SaveData.defaultHeal). boot is not in field.lua (Data.lua seeds it), so the gen1 adapter
+  restates BOOT_DEFAULTS as the base record (field `build`) and a change is a patch of the changed keys.
 - Play from here (`src/lua/playRuntime.ts`, `host.play`): the studio writes `mods/studio_playtest/`
   (experimental + `force_enable_env` = PLAY_ENV, engine_internals) and starts the game with
   `--game=<version>` and PLAY_ENV=1 (`gameCommand`/`game_command`: release exe, or love.exe + checkout,

@@ -127,7 +127,10 @@ const content: ContentSpec[] = [
   },
   // the overworld config table; the studio edits Pokémon Center PC tiles
   // (hiddenExtras.pcTiles) and landing spots (flyWarps). Merged "deep".
-  { registry: "field", file: "field.lua", editable: true, deep: true },
+  // (field.boot, the new-game start, is not in field.lua: the engine fills
+  // it in at load, so its defaults are restated as the base record and a
+  // change is written as a patch of the changed keys)
+  { registry: "field", file: "field.lua", editable: true, deep: true, build: (f) => ({ boot: structuredClone(BOOT_DEFAULTS), ...f }) },
   // Game Corner prize counters: plain data in the mod's studio_prizes.lua,
   // turned into map_scripts talk handlers by the generated helper. The base
   // is the vanilla three counters of the open version.
@@ -196,6 +199,10 @@ interface Field {
   ledges?: { tileset?: string; facing: string; ledgeTile: number }[];
   indoorEncounters?: { firstIndoorMap: number; excludedTileset: string };
 }
+
+// gen1recomp src/core/Data.lua BOOT_DEFAULTS (special_warps.asm NewGameWarp:
+// the bedroom upstairs), the keys the studio edits
+const BOOT_DEFAULTS = { startMap: "REDS_HOUSE_2F", startX: 3, startY: 6, startFacing: "down", startMoney: 3000 };
 
 // src/battle/TypeChart.lua TYPES: the type records the engine registers
 // (Gen 1 splits physical/special by type). Kept in the game's type order.
@@ -656,7 +663,7 @@ const globals: GlobalsSpec = {
     { id: "status", label: "Status conditions", hint: "How much each status helps catching, and the stat Burn and Paralysis cut. What the statuses do in battle (damage, skipped turns) is the engine's code and stays as it is." },
     { id: "overworld", label: "Overworld", hint: "Walking and biking speed, poison, blacking out, Day-Care." },
     { id: "fieldmoves", label: "Field moves", hint: "Which badge each HM needs outside of battle." },
-    { id: "names", label: "Names", hint: "The names Oak offers for the player and the rival in the intro; NEW NAME lets the player type one." },
+    { id: "names", label: "New game", hint: "Where a new game starts, the money the player starts with, where they wake up after blacking out before visiting a Pokémon Center, and the names Oak offers in the intro." },
     { id: "trades", label: "In-game trades", hint: "The Pokémon trades NPCs offer: what they want, what the player gets and its nickname. A trade happens once (its done flag). New trades are offered through the Trade event command." },
     { id: "sounds", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
     { id: "slots", label: "Slot machines", hint: "The symbols on the Game Corner's three slot wheels. Coin sellers at another price: an event with Has money, Take money and Give coins (Events workspace)." },

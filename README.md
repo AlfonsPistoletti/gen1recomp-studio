@@ -318,7 +318,9 @@ renamed before players have saves with it.
     block #** in the block panel (the swap list is shared by both tilesets).
 - **Global**: game-wide settings, limited to the ones the Gen 1 engine actually
   reads.
-  - Names: the three player and rival names Oak offers, and the label of the
+  - New game: where a new game starts (map, cell, facing), the start money,
+    and the blackout point before the first Pokémon Center (`field.boot`);
+    plus the three player and rival names Oak offers and the label of the
     type-your-own option.
   - Fishing: the Old and Good Rod catch the same everywhere (Global > Wild
     encounters); the Super Rod has a list per map (Maps, Encounters tab). Half

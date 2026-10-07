@@ -16,7 +16,7 @@ import { PLAYTEST_ID, playtestMain, playtestManifest } from "./lua/playRuntime.t
 import { isTyping, MapView } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { mountChangesMenu } from "./ui/changesMenu.ts";
-import { DoorOpen, Footprints, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Sprout, Square, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
+import { DoorOpen, Footprints, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
 import { $, clear, dropdown, field, h, icon, numberInput, toast, errorText } from "./ui/dom.ts";
 import { addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
@@ -231,7 +231,7 @@ const OVERLAYS: { id: keyof Overlays; label: string; key: string; icon: IconNode
   { id: "collision", label: "Collision", key: "C", icon: Footprints },
   { id: "entities", label: "Warps, NPCs and signs", key: "E", icon: MapPin },
   { id: "neighbors", label: "Neighbouring maps", key: "N", icon: LayoutGrid },
-  { id: "wild", label: "Wild encounter cells", key: "W", icon: Sprout },
+  { id: "wild", label: "Wild encounter cells", key: "W", icon: Swords },
   { id: "animate", label: "Animated tiles", key: "A", icon: Waves },
 ];
 

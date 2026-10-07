@@ -23,6 +23,8 @@ const NAMES: Record<string, [string, string]> = {
   balls: ["Ball catch numbers", "ball"],
   studio_events: ["Events", "event"],
   map_songs: ["Map music", "map's music"],
+  music: ["Songs", "song"],
+  sfx: ["Sound effects", "sound effect"],
   tilesets: ["Tilesets", "tileset"],
   sprites: ["Sprites", "sprite"],
   image_overrides: ["Replaced images", "replaced image"],

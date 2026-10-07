@@ -123,8 +123,10 @@ const content: ContentSpec[] = [
   // another species' ({ base }), or a sound file ({ file }); written with
   // override since switching between those shapes can't be a patch
   { registry: "cries", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { cries?: Record<string, unknown> }).cries ?? {}) },
-  { registry: "sfx", file: "audio.lua", editable: false, build: (f) => ((f as { sfx?: Record<string, unknown> }).sfx ?? {}) },
-  { registry: "music", file: "audio.lua", editable: false, build: (f) => ((f as { songs?: Record<string, unknown> }).songs ?? {}) },
+  // songs and sound effects: the game's are sound-chip data; a mod adds or
+  // replaces them with files ({ file, loopFile? }), written with override
+  { registry: "sfx", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { sfx?: Record<string, unknown> }).sfx ?? {}), fieldOrder: ["file"] },
+  { registry: "music", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { songs?: Record<string, unknown> }).songs ?? {}), fieldOrder: ["file", "loopFile"] },
   // map events made in the studio: plain data in studio_events.lua, turned
   // into map_scripts (talk rows, onStep/onEnter) by the generated helper
   { registry: "studio_events", editable: true, build: () => ({}), studioFile: "studio_events.lua", generates: "map_scripts" },
@@ -620,6 +622,7 @@ const globals: GlobalsSpec = {
     { id: "fieldmoves", label: "Field moves", hint: "Which badge each HM needs outside of battle." },
     { id: "names", label: "Names", hint: "The names Oak offers for the player and the rival in the intro; NEW NAME lets the player type one." },
     { id: "trades", label: "In-game trades", hint: "The Pokémon trades NPCs offer: what they want, what the player gets and its nickname. A trade happens once (its done flag). New trades are offered through the Trade event command." },
+    { id: "sounds", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
     { id: "slots", label: "Slot machines", hint: "The symbols on the Game Corner's three slot wheels. Coin sellers at another price: an event with Has money, Take money and Give coins (Events workspace)." },
     { id: "prizes", label: "Game Corner prizes", hint: "What each prize counter trades for coins: three prizes per counter, items or Pokémon. Any NPC or sign can be made a counter (Maps, select it, Role)." },
   ],

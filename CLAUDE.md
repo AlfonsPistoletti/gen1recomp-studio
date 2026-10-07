@@ -105,6 +105,10 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   Gen 1), so new species get a `cries` record (`{ base }` or a copied `{ file }`). `cries` is a
   `replace` registry (chip data / base / file shapes). Imported sounds use the art asset pipeline
   (`addAsset(..., ext)`, `ASSET_TYPES`); `host.openUrl` opens https links (Tauri `open_url`).
+- Music & sounds (Global, `src/ui/soundEditor.ts`): `music` / `sfx` are `replace` registries; the
+  game's records are chip data, a mod's are `{ file, loopFile? }` (Music.lua: intro once, loop part
+  repeats; `loopSeconds` is accepted but never read, so no loop point inside one file). New songs
+  appear in map Music menus and Play music/sound events; deleting a used one is refused.
 - Events (`src/ui/eventEditor.ts`, `adapter.events` catalog in `src/games/gen1/events.ts`):
   `studio_events` records `<MAP>:talk|step|enter:<key>` -> `{ x?, y?, once?, rows }`, rows in the
   engine's script format. `src/core/eventBlocks.ts` compile/parse rows <-> blocks (If/Else,

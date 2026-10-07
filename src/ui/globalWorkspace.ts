@@ -14,6 +14,7 @@ import { counterLabel, counters, prizeCounterEditor, showCounter } from "./prize
 import { recall, remember } from "./storage.ts";
 import { rodsCard } from "./fishingPanel.ts";
 import { slotCards, slotsEdited, SLOTS_ID } from "./slotEditor.ts";
+import { editedIds, MUSIC, SFX, songLabel, soundCards, soundsEdited } from "./soundEditor.ts";
 import { tradeCards, tradesEdited, TRADES_ID, TRADES_REGISTRY } from "./tradeEditor.ts";
 
 const SECTION_KEY = "studio.globalSection";
@@ -76,6 +77,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (registry === "field" && id === "fishing") return "wild";
   if (registry === "field" && id === "presetNames") return "names";
   if (registry === "field" && id === SLOTS_ID) return "slots";
+  if ((registry === MUSIC || registry === SFX) && s.sections.some((x) => x.id === "sounds")) return "sounds";
   const odds = store.adapter.encounters?.sharedOdds;
   if (odds && registry === odds.registry && id === odds.id) return "wild";
   if (s.hmBadges && registry === s.hmBadges.registry && id === s.hmBadges.id) return "fieldmoves";
@@ -93,6 +95,8 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (registry === "field" && id === "fishing") return "Old Rod and Good Rod";
   if (registry === "field" && id === "presetNames") return "Preset names";
   if (registry === "field" && id === SLOTS_ID) return "Slot machine wheels";
+  if (registry === MUSIC) return `Song: ${songLabel(id)}`;
+  if (registry === SFX) return `Sound: ${id}`;
   if (section === "wild") return "Wild slot chances";
   if (section === "fieldmoves") return "HM badges";
   const labels = s.numbers.filter((n) => n.registry === registry && n.id === id).map((n) => n.label);
@@ -112,6 +116,7 @@ function sectionChanged(id: string): boolean {
   if (id === "trades" && tradesEdited()) return true;
   if (id === "names" && store.isRecordEdited("field", "presetNames")) return true;
   if (id === "slots" && slotsEdited()) return true;
+  if (id === "sounds" && soundsEdited()) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
@@ -189,7 +194,7 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
-    if (reason === "content" && s && (registry === "field" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon")) schedule();
+    if (reason === "content" && s && (registry === "field" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs")) schedule();
     if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || registry === "constants" || registry === s.typeChart?.registry || registry === prizes)) nav.setWorkspace("global");
   });
 }
@@ -247,6 +252,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "trades") out.push(...tradeCards());
   if (id === "names") out.push(namesCard());
   if (id === "slots") out.push(...slotCards());
+  if (id === "sounds") out.push(...soundCards());
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
     for (const cid of Object.keys(counters(towns)).sort()) {
@@ -460,6 +466,8 @@ function changedList(s: GlobalsSpec, open: (section: string) => void): HTMLEleme
   }
   if (s.hmBadges && store.isRecordEdited(s.hmBadges.registry, s.hmBadges.id)) add("fieldmoves", "HM badges", s.hmBadges.registry, s.hmBadges.id);
   if (slotsEdited()) add("slots", "Slot machine wheels", "field", SLOTS_ID);
+  for (const id of editedIds(MUSIC)) add("sounds", `Song: ${songLabel(id)}`, MUSIC, id);
+  for (const id of editedIds(SFX)) add("sounds", `Sound: ${id}`, SFX, id);
   if (s.typeChart) {
     const reg = s.typeChart.registry;
     const ids = new Set([...Object.keys(store.table(reg)), ...Object.keys(store.baseTable(reg))]);

@@ -734,7 +734,7 @@ textarea.gb-text { font-size: 13px; line-height: 1.5; }
 .ai-row .hint { padding-bottom: 6px; }
 
 /* a team the map jumped to */
-.card.flash { animation: card-flash 1.6s ease-out; }
+.card.flash, .sound-row.flash { animation: card-flash 1.6s ease-out; }
 @keyframes card-flash {
   0% { box-shadow: 0 0 0 3px var(--accent); }
   100% { box-shadow: 0 0 0 0 transparent; }

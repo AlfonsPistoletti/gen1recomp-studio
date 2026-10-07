@@ -508,6 +508,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     main.append(
       tilesCard(ts, ed, sheet, sheetImg, per, tileCount, anims),
       blocksCard(ts, ed, atlas),
+      ...(ed.own ? [] : [gameTilesetCard(id, ed)]),
     );
     clear(side);
     side.append(...sidePanel(id, ts, ed, sheetImg, per, tileCount, anims));
@@ -516,6 +517,29 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   // the frame an animated tile shows now
   const frameNow = (a: { period: number; frames: HTMLCanvasElement[] }) =>
     a.frames[Math.floor(performance.now() / (a.period * (1000 / 60))) % a.frames.length];
+
+  // what a game tileset's additions are (below the blocks, middle panel)
+  const gameTilesetCard = (id: string, ed: Editable): HTMLElement => {
+    const ext = extensionOf(id);
+    return h("div", { class: "card" },
+      h("h4", {}, "The game's tileset"),
+      h("p", { class: "hint" }, "Your tiles and blocks are added after the game's, so every map keeps working. The game builds the combined sheet from the player's own imported one when the mod loads; the mod ships only your tiles."),
+      h("p", { class: "hint" }, "Your tiles use the 4 Game Boy shades and take the map's colors. In the RED++ color mode each tile uses one of the tileset's 8 palettes: pick it in the tile's panel (otherwise it gets the text palette). Setting one gives the mod the engine_internals permission, since the mod writes into the engine's color table."),
+      ext
+        ? h("button", {
+            class: "btn small danger",
+            onclick: () => {
+              const high = highestBlockUsed(id);
+              if (high >= ed.firstBlock && !confirm(`Maps still use your blocks (up to #${high}). Remove all your tiles and blocks anyway? Those maps will show broken blocks.`)) return;
+              store.setRecord(EXTENSIONS, id, "Remove additions", undefined);
+              store.seal();
+              selTile = null;
+              selBlock = null;
+            },
+          }, `Remove your ${ext.tiles.length} tiles and ${ext.blocks.length} blocks`)
+        : null,
+    );
+  };
 
   // ------------------------------------------------------------- tiles
   const tilesCard = (ts: TilesetDef, ed: Editable, sheet: Sheet | null, sheetImg: HTMLCanvasElement | null, per: number, tileCount: number, anims: Map<number, unknown>): HTMLElement => {
@@ -959,27 +983,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         : h("p", { class: "hint" }, "No map uses it yet: pick it as a map's Tileset in the map properties."),
     );
     if (!ed.own) {
-      const ext = extensionOf(id);
       return [
         surfCard,
-        h("div", { class: "card" },
-          h("h4", {}, "The game's tileset"),
-          h("p", { class: "hint" }, "Your tiles and blocks are added after the game's, so every map keeps working. The game builds the combined sheet from the player's own imported one when the mod loads; the mod ships only your tiles."),
-          h("p", { class: "hint" }, "Your tiles use the 4 Game Boy shades and take the map's colors. In the RED++ color mode each tile uses one of the tileset's 8 palettes: pick it in the tile's panel (otherwise it gets the text palette). Setting one gives the mod the engine_internals permission, since the mod writes into the engine's color table."),
-          ext
-            ? h("button", {
-                class: "btn small danger",
-                onclick: () => {
-                  const high = highestBlockUsed(id);
-                  if (high >= ed.firstBlock && !confirm(`Maps still use your blocks (up to #${high}). Remove all your tiles and blocks anyway? Those maps will show broken blocks.`)) return;
-                  store.setRecord(EXTENSIONS, id, "Remove additions", undefined);
-                  store.seal();
-                  selTile = null;
-                  selBlock = null;
-                },
-              }, `Remove your ${ext.tiles.length} tiles and ${ext.blocks.length} blocks`)
-            : null,
-        ),
         usedBy,
       ];
     }

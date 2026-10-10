@@ -49,7 +49,9 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   (DVs are one global set, no Stat Exp). Default moves = Pokemon.movesAtLevel plus the
   engine's signature-move tables (restated in the gen1 adapter). Item/switch AI is the
   `ai_classes` registry; its vanilla records live in gen1recomp `data/scripts`, so
-  the adapter restates them (`ContentSpec` without `file`, built by `build`).
+  the adapter restates them (`ContentSpec` without `file`, built by `build`). "Unused" counts map NPCs plus
+  battles scripts start: the game's (`scriptBattles`, rival_battle/start_battle rows in data/scripts, checkout
+  only) and the mod's events.
 - Imported art (`src/core/assets.ts`, `src/ui/artImport.ts`): kept in memory until Save, records
   point at `mods/<mod>/assets/studio/<name>_<hash>.png` immediately; Save writes the ones
   the studio file references and deletes unreferenced files in assets/studio/ only.
@@ -127,7 +129,9 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   `save/mod-derived/<mod>/studio/tilesets/<id>.png`; the editor composes the same in memory
   (`tilesetUrl`). Read tilesets through `liveTileset`/`tilesetUrl`, never `data.tilesets`.
   Added tile ids start at the sheet's tile count; only the last block can be deleted (ids
-  must not shift). RED++ colors tiles past the vanilla count with palette group 7.
+  must not shift). An added tile is shade digits or a reference "<TILESET>:<tile>" to an original tile
+  of a cache tileset (`parseTileRef`, `canCopyFrom`; "+ Blocks from another tileset…"): `sheetRecipes`
+  turns it into `{ from, x, y }` and the recipe blits it from the player's sheet; `compose` draws it the same. RED++ colors tiles past the vanilla count with palette group 7.
   Animated tiles: the engine's `animatedTiles` ("frames": one 8x8 image per frame) replaces the
   built-ins of `animation`, so they are restated (water hshift; flower frames = recipe copies of
   the cache's). Extensions keep frames as digits (`animated`, recipe writes them); mod tilesets keep

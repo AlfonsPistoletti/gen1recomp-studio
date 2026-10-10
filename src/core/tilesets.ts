@@ -17,7 +17,9 @@ import { loadImage, TILE } from "../render/graphics.ts";
 export interface TilesetExtension {
   // the first added tile's id: the vanilla sheet's tile count
   first: number;
-  // 64 digits per tile, row by row: the importer's shades, 0 white .. 3 black
+  // 64 digits per tile, row by row: the importer's shades, 0 white .. 3 black;
+  // or "<TILESET>:<tile>", a tile of another game tileset the recipe copies
+  // from the player's own sheet (no ROM pixels in the mod)
   tiles: string[];
   blocks: number[][];
   walkable?: number[];
@@ -72,6 +74,25 @@ export interface EngineAnimation {
 }
 
 export const EXTENSIONS = "studio_tilesets";
+
+// an added tile copied from another game tileset: "CAVERN:37"
+export function parseTileRef(t: string): { tileset: string; tile: number } | null {
+  const m = /^([A-Z0-9_]+):(\d+)$/.exec(t);
+  return m ? { tileset: m[1], tile: Number(m[2]) } : null;
+}
+
+// game tilesets whose original tiles can be copied: drawn from the player's
+// own imported sheet
+export function canCopyFrom(id: string): boolean {
+  const ts = store.baseTable("tilesets")[id] as TilesetDef | undefined;
+  return !!ts && typeof ts.image === "string" && ts.image.startsWith(CACHE);
+}
+
+// where tile `tile` sits on its sheet, in pixels
+function tileOrigin(ts: TilesetDef, tile: number): { x: number; y: number } {
+  const per = perRow(ts);
+  return { x: (tile % per) * TILE, y: Math.floor(tile / per) * TILE };
+}
 export const SHADE_GRAY = [255, 170, 85, 0];
 
 // what the mod adds to a game tileset (a mod tileset's studio_tilesets
@@ -160,7 +181,11 @@ export function sheetRecipes(): SheetRecipe[] {
       source: base.image.slice(CACHE.length),
       out: extendedSheetRel(id),
       per: perRow(base),
-      tiles: ext.tiles ?? [],
+      tiles: (ext.tiles ?? []).map((t) => {
+        const ref = parseTileRef(t);
+        const src = ref && (store.baseTable("tilesets")[ref.tileset] as TilesetDef | undefined);
+        return ref && src ? { from: src.image.slice(CACHE.length), ...tileOrigin(src, ref.tile) } : t;
+      }),
       frames: animated.flatMap((a) => a.frames.map((tile, k) => ({ out: frameRel(id, a.tile, k + 1), tile }))),
       // restating the flower animation needs the player's flower frames
       copies: animated.length && base.animation === "TILEANIM_WATER_FLOWER" && !Array.isArray(base.animatedTiles) ? FLOWERS : [],
@@ -270,10 +295,21 @@ async function compose(url: string, per: number, tiles: string[]): Promise<strin
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (img) ctx.drawImage(img, 0, 0);
   const out = ctx.createImageData(TILE, TILE);
-  tiles.forEach((t, i) => {
+  for (const [i, t] of tiles.entries()) {
+    const x = (i % per) * TILE;
+    const y = top + Math.floor(i / per) * TILE;
+    const ref = parseTileRef(t);
+    const src = ref && (store.baseTable("tilesets")[ref.tileset] as TilesetDef | undefined);
+    if (ref && src) {
+      // a copied tile: drawn from the other tileset's sheet, like the recipe
+      const sheet = await loadImage(baseSheetUrl(src));
+      const o = tileOrigin(src, ref.tile);
+      if (sheet) ctx.drawImage(sheet, o.x, o.y, TILE, TILE, x, y, TILE, TILE);
+      continue;
+    }
     paintTile(out.data, t);
-    ctx.putImageData(out, (i % per) * TILE, top + Math.floor(i / per) * TILE);
-  });
+    ctx.putImageData(out, x, y);
+  }
   return canvas.toDataURL("image/png");
 }
 

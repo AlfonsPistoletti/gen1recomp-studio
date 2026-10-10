@@ -323,8 +323,30 @@ function playFromHere(): void {
   const mapId = store.currentMap;
   if (!mapId) return;
   if (view.picking) return view.cancelPick();
-  toast("Click the cell to start on (Escape cancels)", "info");
-  view.pickCell((cx, cy) => void launchAt(mapId, cx, cy));
+  pickOnMap("Play from here: click the cell where the game should start", (cx, cy) => void launchAt(mapId, cx, cy));
+}
+
+// One cell to pick on the open map (Play from here, Pick on map): a banner
+// over the map says what to do, and the Select tool is on (and locked) until
+// the pick ends; the tool from before comes back after.
+function pickOnMap(message: string, onPick: (cx: number, cy: number) => void): void {
+  if (view.picking) view.cancelPick();
+  const before = store.tool;
+  store.setTool("select");
+  store.toolLocked = true;
+  const bar = h("div", { class: "preview-bar pick-bar" },
+    h("span", { class: "on-air", "aria-hidden": "true" }),
+    h("strong", {}, message),
+    h("span", { class: "muted" }, "Esc cancels"),
+    h("button", { class: "btn small", onclick: () => view.cancelPick() }, "Cancel"));
+  $("#viewport").append(bar);
+  refreshToolbar();
+  view.pickCell(onPick, () => {
+    bar.remove();
+    store.toolLocked = false;
+    store.setTool(before);
+    refreshToolbar();
+  });
 }
 
 async function launchAt(mapId: string, cx: number, cy: number): Promise<void> {
@@ -370,7 +392,10 @@ function addAt(layer: string): void {
 }
 
 function refreshToolbar(): void {
-  for (const b of toolButtons) b.classList.toggle("active", b.dataset.tool === store.tool);
+  for (const b of toolButtons) {
+    b.classList.toggle("active", b.dataset.tool === store.tool);
+    b.disabled = store.toolLocked;
+  }
   for (const b of overlayButtons) b.classList.toggle("active", store.overlays[b.dataset.overlay as keyof Overlays]);
   zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`;
   $("#viewport").dataset.tool = store.tool;
@@ -458,9 +483,12 @@ function setWorkspace(id: WorkspaceId): void {
   if (id === "graphics") ({ tilesets: nav.onTilesetsShown, sprites: nav.onSpritesShown, images: nav.onImagesShown, palettes: nav.onPalettesShown })[nav.graphicsView]();
 }
 nav.setWorkspace = setWorkspace;
+// a jump from elsewhere (changes list, links): the view moves to the map too
+// (view.openMap alone keeps the camera still for a neighbour you double-click)
 nav.openMap = (mapId) => {
   setWorkspace("maps");
   view.openMap(mapId);
+  view.fitMap();
 };
 // draws an event's walking path: each click walks from the path's end to
 // the clicked cell (along x, then y); Escape returns to the Events workspace
@@ -528,8 +556,8 @@ nav.pickCell = (mapId, picked) => {
   const back = nav.workspace;
   setWorkspace("maps");
   view.openMap(mapId);
-  toast("Click a cell on the map (Escape cancels)", "info");
-  view.pickCell((cx, cy) => {
+  view.fitMap();
+  pickOnMap("Click a cell on the map", (cx, cy) => {
     setWorkspace(back);
     picked(cx, cy);
   });

@@ -16,6 +16,7 @@ import { spriteUrl } from "./pokemonEditor.ts";
 import { mountRecordList } from "./recordList.ts";
 import { colorSelect, defaultView, monPaletteName, paletteField, picColors } from "./picColors.ts";
 import { showTinted } from "../render/graphics.ts";
+import { scriptBattles, type ScriptBattle } from "../project/gameEvents.ts";
 
 type Rec = Record<string, unknown>;
 type Party = TrainerSlot[];
@@ -48,7 +49,28 @@ function parties(r: Rec | undefined): Party[] {
   return Array.isArray(r?.parties) ? (r!.parties as Party[]) : [];
 }
 
-// how many map objects fight as each trainer class
+// battles the game's scripts start (rivals, ...), loaded with the project;
+// empty on a release build
+let scripted: ScriptBattle[] = [];
+
+// battles the mod's own events start (studio trainers are map NPCs already)
+function eventBattles(): ScriptBattle[] {
+  const reg = store.adapter.events?.registry;
+  if (!reg) return [];
+  const out: ScriptBattle[] = [];
+  for (const [id, ev] of Object.entries(store.table(reg) as Record<string, { rows?: unknown[][]; trainer?: unknown }>)) {
+    if (ev?.trainer) continue;
+    for (const row of ev?.rows ?? []) {
+      const args = row[0] === "rival_battle" ? row.slice(1) : row[0] === "start_battle" && row[1] === "trainer" ? row.slice(2) : null;
+      if (args && typeof args[0] === "string") out.push({ cls: args[0], party: Number(args[1] ?? 1), where: `event:${id}` });
+    }
+  }
+  return out;
+}
+
+const scriptUses = (id: string): ScriptBattle[] => [...scripted, ...eventBattles()].filter((b) => b.cls === id);
+
+// how many map objects and scripts fight as each trainer class
 function fightCounts(): Map<string, number> {
   const s = spec()!;
   const out = new Map<string, number>();
@@ -60,6 +82,7 @@ function fightCounts(): Map<string, number> {
       if (typeof c === "string") out.set(c, (out.get(c) ?? 0) + 1);
     }
   }
+  for (const b of [...scripted, ...eventBattles()]) out.set(b.cls, (out.get(b.cls) ?? 0) + 1);
   return out;
 }
 
@@ -250,6 +273,12 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (reason === "project") {
       if (!current || !trainers()[current]) current = Object.keys(trainers()).sort()[0] ?? null;
       render(true);
+      // the game's scripted battles (checkout only), then the list again
+      void scriptBattles(store.project.host).then((b) => {
+        scripted = b;
+        list.render();
+        render(true);
+      });
     } else if (reason === "content" && s && (registry === s.registry || registry === s.aiClasses?.registry || registry === "pokemon")) {
       schedule();
     } else if (reason === "edit") {
@@ -292,11 +321,11 @@ function mainForm(s: TrainerSpec, id: string, r: Rec): HTMLElement[] {
       field("Name", name, `Up to ${s.nameMax} characters, shown as "${String(r.name ?? id)} wants to fight!"`),
       field("Prize money", money, "The game pays this × the level of the team's last Pokémon."),
       ...s.notes(id, store.ctx).map((n) => h("p", { class: "hint" }, n)),
-      fightCounts().get(id) ? null : h("p", { class: "hint warn" }, "Unused: no NPC on any map fights this trainer class."),
+      fightCounts().get(id) ? null : h("p", { class: "hint warn" }, "Unused: no NPC on any map, no event and no game script fights this trainer class."),
     ),
   );
   const all = parties(r);
-  const teams = all.map((party, p) => teamCard(s, id, r, party, p, uses.get(p + 1) ?? [], p === all.length - 1));
+  const teams = all.map((party, p) => teamCard(s, id, r, party, p, uses.get(p + 1) ?? [], p === all.length - 1, scriptUses(id).filter((b) => b.party === p + 1)));
   const add = h(
     "button",
     {
@@ -314,7 +343,7 @@ function firstSpecies(): string {
   return ["RATTATA", "PIDGEY"].find((m) => mons[m]) ?? Object.keys(mons)[0] ?? "RATTATA";
 }
 
-function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, used: { mapId: string; index: number }[], isLast: boolean): HTMLElement {
+function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, used: { mapId: string; index: number }[], isLast: boolean, scripts: ScriptBattle[]): HTMLElement {
   const mons = store.table("pokemon") as Record<string, Rec>;
   const speciesIds = Object.keys(mons).sort();
   const moveIds = store.adapter.pokemon?.moveNames(store.ctx) ?? [];
@@ -374,14 +403,17 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
     );
   });
 
-  const usedBy = used.length
+  const usedBy = used.length || scripts.length
     ? h(
         "div",
         { class: "row" },
         h("span", { class: "hint" }, "Fought at:"),
         ...used.map((u) => h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(u.mapId, "objects", u.index) }, `${u.mapId} #${u.index + 1}`)),
+        ...scripts.map((b) => b.where.startsWith("event:")
+          ? h("button", { class: "btn small ghost", onclick: () => nav.openEvent(b.where.slice(6)) }, `event ${b.where.slice(6)}`)
+          : h("span", { class: "tag", title: "A battle the game's own script starts" }, `script: ${b.where}`)),
       )
-    : h("p", { class: "hint" }, "No map NPC uses this team.");
+    : h("p", { class: "hint" }, "No map NPC or script uses this team.");
 
   const removeTeam = () => {
     if (used.length && !confirm(`Team ${p + 1} is used by ${used.length} NPC(s). Remove it anyway? They would have no team to fight with.`)) return;

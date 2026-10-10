@@ -24,6 +24,32 @@ async function scriptFiles(host: Host): Promise<Map<string, string> | null> {
   return files;
 }
 
+// A trainer battle a script starts (rival fights, gen1recomp's post-game
+// CHIEF and Prof. Oak): class, team number and the script file.
+export interface ScriptBattle {
+  cls: string;
+  party: number;
+  where: string;
+}
+
+// The battles the game's scripts start ({ "rival_battle", class, team } and
+// { "start_battle", "trainer", class, team } rows); [] on a release build,
+// whose scripts can't be read.
+// ponytail: every version's scripts count (Yellow-only ones show on Red too)
+let battles: Promise<ScriptBattle[]> | null = null;
+export function scriptBattles(host: Host): Promise<ScriptBattle[]> {
+  battles ??= scriptFiles(host).then((files) => {
+    const out: ScriptBattle[] = [];
+    const re = /\{\s*"(?:rival_battle|start_battle)",\s*(?:"trainer",\s*)?"(OPP_[A-Z0-9_]+)",\s*(\d+)/g;
+    for (const [path, text] of files ?? []) {
+      const where = path.split("/").pop()!.replace(/\.lua$/, "");
+      for (const m of text.matchAll(re)) out.push({ cls: m[1], party: Number(m[2]), where });
+    }
+    return out;
+  }).catch(() => []);
+  return battles;
+}
+
 // null when this install has no readable game scripts (a release build)
 export function gameEvents(host: Host, version: string): Promise<GameScripts | null> {
   let p = cache.get(version);

@@ -1037,6 +1037,7 @@ export class MapView {
   // The next left click on the current map reports its cell instead of
   // using the tool (Escape cancels).
   private cellPick: ((cx: number, cy: number) => void) | null = null;
+  private pickEnd: (() => void) | null = null;
   private pickDone: ((keep: boolean) => void) | null = null;
   private pickBack: ((cx: number, cy: number) => void) | null = null;
 
@@ -1141,8 +1142,10 @@ export class MapView {
     this.canvas.focus();
   }
 
-  pickCell(onPick: (cx: number, cy: number) => void): void {
+  // one cell; `onEnd` runs when picking ends (picked, Escape or cancelPick)
+  pickCell(onPick: (cx: number, cy: number) => void, onEnd?: () => void): void {
     this.cellPick = onPick;
+    this.pickEnd = onEnd ?? null;
     this.canvas.style.cursor = "crosshair";
     this.canvas.focus();
   }
@@ -1153,8 +1156,11 @@ export class MapView {
     this.pickBack = null;
     const done = this.pickDone;
     this.pickDone = null;
+    const end = this.pickEnd;
+    this.pickEnd = null;
     this.invalidate();
     done?.(keep);
+    end?.();
     this.canvas.style.cursor = "";
   }
 

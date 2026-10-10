@@ -112,6 +112,9 @@ items or Pokémon, start a battle, walk people around, warp, play music, and so 
 - **Tilesets:** the tiles and blocks maps are built from.
   - Add your own tiles and blocks after the game's, and set which tiles you can walk on, surf on or
     cut.
+  - **+ Blocks from another tileset…** copies blocks of another game tileset into this one (cave
+    blocks on an outdoor map, for example). The game takes their tiles from the player's own files,
+    so your mod contains no game art.
   - Make animated tiles.
   - Start a whole new tileset from a picture.
 - **Sprites:** the people and objects walking around the overworld.

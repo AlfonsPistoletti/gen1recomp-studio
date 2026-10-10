@@ -15,7 +15,7 @@ import { counterLabel, counters, prizeCounterEditor, showCounter } from "./prize
 import { recall, remember } from "./storage.ts";
 import { rodsCard } from "./fishingPanel.ts";
 import { slotCards, slotsEdited, SLOTS_ID } from "./slotEditor.ts";
-import { editedIds, MUSIC, SFX, songLabel, soundCards, soundsEdited } from "./soundEditor.ts";
+import { MUSIC, SFX, songLabel, soundCards, soundsEdited } from "./soundEditor.ts";
 import { tradeCards, tradesEdited, TRADES_ID, TRADES_REGISTRY } from "./tradeEditor.ts";
 
 const SECTION_KEY = "studio.globalSection";
@@ -517,49 +517,35 @@ function typesCard(tc: NonNullable<GlobalsSpec["typeChart"]>, ids: string[], tab
 
 // ------------------------------------------------------------------ changed list
 
+// Every changed record a Global section edits (globalSectionOf), in the
+// order of the sections, each with its own Revert.
 function changedList(s: GlobalsSpec, open: (section: string) => void): HTMLElement[] {
-  const items: HTMLElement[] = [];
-  const add = (sectionId: string, text: string, registry: string, id: string) =>
-    items.push(
-      h(
+  const label = (registry: string, id: string): string => {
+    // a table of several settings: name the ones that differ from vanilla
+    const same = s.numbers.filter((m) => m.registry === registry && m.id === id);
+    if (same.length) {
+      const changed = same[0].key ? same.filter((m) => numberValue(m) !== Number(keyOf(s.defaults[m.registry]?.[m.id], m.key!))) : same;
+      return (changed.length ? changed : same).map((m) => m.label).join(", ");
+    }
+    if (registry === s.typeChart?.registry) return id.includes(">") ? id.replace(">", " → ") : store.baseTable(registry)[id] === undefined ? `New type ${id}` : `${id} type`;
+    if (registry === store.adapter.towns?.prizeRegistry) return `Prizes: ${counterLabel(id)}`;
+    return globalLabelOf(registry, id) ?? id;
+  };
+  const order = s.sections.map((x) => x.id);
+  const rows: [number, string, HTMLElement][] = [];
+  for (const [registry, records] of Object.entries(store.changed())) {
+    for (const id of Object.keys(records)) {
+      const section = globalSectionOf(registry, id);
+      if (!section) continue;
+      const text = label(registry, id);
+      rows.push([order.indexOf(section), text, h(
         "div",
         { class: "use-row static" },
-        h("button", { class: "linkish", onclick: () => open(sectionId) }, text),
-        h("button", { class: "btn small ghost", title: "Back to the base value", onclick: () => store.revertRecord(registry, id, `Revert ${text}`) }, "Revert"),
-      ),
-    );
-  const odds = store.adapter.encounters?.sharedOdds;
-  if (odds && store.isRecordEdited(odds.registry, odds.id)) add("wild", "Slot chances", odds.registry, odds.id);
-  const seen = new Set<string>();
-  for (const n of s.numbers) {
-    const key = `${n.registry}:${n.id}`;
-    if (seen.has(key) || !store.isRecordEdited(n.registry, n.id)) continue;
-    seen.add(key);
-    // a table of several settings: name the ones that differ from vanilla
-    const same = s.numbers.filter((m) => m.registry === n.registry && m.id === n.id);
-    const changed = n.key ? same.filter((m) => numberValue(m) !== Number(keyOf(s.defaults[m.registry]?.[m.id], m.key!))) : [n];
-    add(n.section, (changed.length ? changed : same).map((m) => m.label).join(", "), n.registry, n.id);
-  }
-  if (s.hmBadges && store.isRecordEdited(s.hmBadges.registry, s.hmBadges.id)) add("fieldmoves", "HM badges", s.hmBadges.registry, s.hmBadges.id);
-  if (slotsEdited()) add("slots", "Slot machine wheels", "field", SLOTS_ID);
-  if (store.isRecordEdited("field", "boot")) add("names", "New game start", "field", "boot");
-  if (store.isRecordEdited("field", "presetNames")) add("names", "Preset names", "field", "presetNames");
-  for (const id of editedIds(MUSIC)) add("sounds", `Song: ${songLabel(id)}`, MUSIC, id);
-  for (const id of editedIds(SFX)) add("sounds", `Sound: ${id}`, SFX, id);
-  if (s.typeChart) {
-    const reg = s.typeChart.registry;
-    const ids = new Set([...Object.keys(store.table(reg)), ...Object.keys(store.baseTable(reg))]);
-    for (const id of [...ids].sort()) {
-      if (!store.isRecordEdited(reg, id)) continue;
-      const label = id.includes(">") ? id.replace(">", " → ") : store.baseTable(reg)[id] === undefined ? `New type ${id}` : `${id} type`;
-      add("types", label, reg, id);
+        h("button", { class: "linkish", onclick: () => open(section) }, text),
+        h("button", { class: "btn small danger", title: "Back to the game's value", onclick: () => store.revertRecord(registry, id, `Revert ${text}`) }, "Revert"),
+      )]);
     }
   }
-  const prizes = store.adapter.towns?.prizeRegistry;
-  if (prizes) {
-    const ids = new Set([...Object.keys(store.table(prizes)), ...Object.keys(store.baseTable(prizes))]);
-    for (const id of [...ids].sort()) if (store.isRecordEdited(prizes, id)) add("prizes", `Prizes: ${counterLabel(id)}`, prizes, id);
-  }
-  if (!items.length) items.push(h("p", { class: "hint" }, "Everything is vanilla."));
-  return items;
+  if (!rows.length) return [h("p", { class: "hint" }, "Everything is vanilla.")];
+  return rows.sort((a, b) => a[0] - b[0] || a[1].localeCompare(b[1])).map((r) => r[2]);
 }

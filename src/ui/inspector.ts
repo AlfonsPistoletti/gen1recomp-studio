@@ -275,7 +275,14 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     roofField(map),
     ...mapRulesSection(map),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Size (blocks)"), h("div", { class: "row" }, w, h("span", { class: "x" }, "×"), hgt, anchor, resize)),
-    h("div", { class: "field" }, h("span", { class: "field-label" }, "Border block"), h("div", { class: "row" }, border, useStamp)),
+    // gen1recomp TileRenderer.borderBlockFor: OVERWORLD maps fill the void
+    // with the player's VOID FILL option (trees, water or black), not this block
+    h("div", { class: "field" },
+      h("span", { class: "field-label" }, "Void fill (border block)"),
+      h("div", { class: "row" }, border, useStamp),
+      h("span", { class: "hint" }, map.tileset === "OVERWORLD"
+        ? "Not used on OVERWORLD maps: there the game fills the space around the map with the player's VOID FILL option (trees, water or black, in the game's settings)."
+        : "The block the game repeats in the space around the map.")),
     h("h4", {}, "Connections"),
     h("p", { class: "hint" }, "The number shifts the neighbour along the shared edge, in blocks (the arrows move it one block). Setting a connection also writes the return connection on the other map."),
     ...DIRECTIONS.map((dir) => connectionRow(map, dir, ids, view)),

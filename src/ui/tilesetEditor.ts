@@ -12,7 +12,7 @@ import { addAsset } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
 import type { TilesetDef } from "../core/types.ts";
 import {
-  animationsOf, canAnimate, CUT_TILES, EXTENSIONS, shoreTilesOf, waterTilesOf, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
+  animationsOf, baseSheetUrl, canAnimate, canCopyFrom, CUT_TILES, EXTENSIONS, parseTileRef, shoreTilesOf, waterTilesOf, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
   tilesetIds, tilesetKey, tilesetUrl, type EngineAnimation, type TilesetExtension,
 } from "../core/tilesets.ts";
 import { blockAtlas, loadImage, markerIcon, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
@@ -127,6 +127,97 @@ function quarterMarks(id: string, ts: TilesetDef, b: number): { water: boolean; 
 // whether a tileset has surfable water (field.waterTilesets)
 function surfableTileset(id: string): boolean {
   return ((store.table("field").waterTilesets as string[] | undefined) ?? []).includes(id);
+}
+
+// a tile copied from another game tileset: where it comes from
+function copiedNote(id: string, tiles: number[], ed: Editable): HTMLElement[] {
+  if (tiles.length !== 1 || ed.own) return [];
+  const ref = parseTileRef(extensionOf(id)?.tiles[tiles[0] - ed.firstTile] ?? "");
+  return ref ? [h("p", { class: "hint" }, `Copied from ${ref.tileset} #${ref.tile}: the game takes it from the player's own files.`)] : [];
+}
+
+// The blocks of another game tileset to copy into `target`: pick a tileset,
+// click (or drag over) blocks. Drawn in `palette`.
+function promptBlocksFrom(target: string, palette: string): Promise<{ source: string; blocks: number[] } | null> {
+  const sources = tilesetIds().filter((t) => t !== target && canCopyFrom(t));
+  return new Promise((done) => {
+    const dialog = h("dialog", { class: "blocks-from" });
+    const close = (v: { source: string; blocks: number[] } | null) => {
+      dialog.close();
+      dialog.remove();
+      done(v);
+    };
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      close(null);
+    });
+    let source = sources.includes("CAVERN") ? "CAVERN" : sources[0];
+    const picked = new Set<number>();
+    const sel = h("select", {}, ...sources.map((s) => h("option", { value: s, selected: s === source }, s)));
+    const wrap = h("div", { class: "sheet-wrap" });
+    const addBtn = h("button", { class: "btn primary", disabled: true, onclick: () => close({ source, blocks: [...picked].sort((a, b) => a - b) }) }, "Add blocks");
+    const B = BLOCK * 2;
+    let token = 0;
+    const draw = async () => {
+      const my = ++token;
+      const ts = store.baseTable("tilesets")[source] as TilesetDef;
+      const atlas = await blockAtlas(ts, baseSheetUrl(ts), palette, store.adapter.tileColors(store.ctx, ts, palette), `copy|${source}`);
+      if (my !== token) return;
+      const rows = Math.max(1, Math.ceil(ts.blocks.length / ATLAS_COLUMNS));
+      const canvas = h("canvas", { class: "block-sheet", width: ATLAS_COLUMNS * B, height: rows * B });
+      const ctx = canvas.getContext("2d")!;
+      const paint = () => {
+        ctx.imageSmoothingEnabled = false;
+        ctx.fillStyle = "#11141a";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(atlas.canvas, 0, 0, atlas.canvas.width * 2, atlas.canvas.height * 2);
+        ctx.strokeStyle = "#4c8dff";
+        ctx.lineWidth = 3;
+        for (const b of picked) ctx.strokeRect((b % ATLAS_COLUMNS) * B + 1.5, Math.floor(b / ATLAS_COLUMNS) * B + 1.5, B - 3, B - 3);
+        addBtn.textContent = picked.size ? `Add ${picked.size} block${picked.size === 1 ? "" : "s"}` : "Add blocks";
+        addBtn.disabled = !picked.size;
+      };
+      // click toggles a block; dragging adds (or removes) every block it passes
+      let dragAdds: boolean | null = null;
+      const blockAt = (e: MouseEvent) => {
+        const r = canvas.getBoundingClientRect();
+        const b = Math.floor(((e.clientY - r.top) / r.height) * rows) * ATLAS_COLUMNS + Math.floor(((e.clientX - r.left) / r.width) * ATLAS_COLUMNS);
+        return b >= 0 && b < ts.blocks.length ? b : null;
+      };
+      const apply = (b: number | null) => {
+        if (b === null || dragAdds === null) return;
+        if (dragAdds) picked.add(b);
+        else picked.delete(b);
+        paint();
+      };
+      canvas.addEventListener("mousedown", (e) => {
+        const b = blockAt(e);
+        if (b === null) return;
+        dragAdds = !picked.has(b);
+        apply(b);
+      });
+      canvas.addEventListener("mousemove", (e) => apply(blockAt(e)));
+      window.addEventListener("mouseup", () => (dragAdds = null), { once: false });
+      paint();
+      wrap.replaceChildren(canvas);
+    };
+    sel.addEventListener("change", () => {
+      source = sel.value;
+      picked.clear();
+      void draw();
+    });
+    dialog.append(
+      h("h3", {}, `Blocks from another tileset → ${target}`),
+      field("Tileset", sel),
+      wrap,
+      h("p", { class: "hint" }, "Click blocks to pick them, or drag over several. They are added after this tileset's blocks; the tiles they need are copied by the game from the player's own files, so the mod ships no game art."),
+      h("p", { class: "hint" }, "Copied tiles take the map's colors. Tall grass and the game's water/flower animation don't come along: set them per tile afterwards."),
+      h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), addBtn),
+    );
+    document.body.append(dialog);
+    dialog.showModal();
+    void draw();
+  });
 }
 
 // ------------------------------------------------------------------ pixels
@@ -483,6 +574,11 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         onclick: () => void importAnimatedBlock(id),
       }, "+ Animated block"),
       h("button", { class: "btn small", title: "A new block: a copy of the selected one, or empty", onclick: () => addBlock(id) }, "+ New block"),
+      ...(ed.own ? [] : [h("button", {
+        class: "btn small",
+        title: "Copy blocks of another game tileset into this one (the game copies their tiles from the player's own files, so the mod ships no game art)",
+        onclick: () => void addBlocksFrom(id),
+      }, "+ Blocks from another tileset…")]),
     );
 
     const sheetImg = sheet ? colorSheet(sheet, tint, per) : null;
@@ -928,6 +1024,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
             h("h4", {}, multi ? `${tiles.length} tiles (#${tiles[0]}–#${tiles[tiles.length - 1]})` : `Tile #${t}`),
             mine.length === tiles.length ? h("span", { class: "tag new" }, "yours") : can ? h("span", { class: "hint" }, "partly yours") : h("span", { class: "hint" }, "the game's")),
           h("div", { class: "row" }, prev, h("div", { class: "tile-flags" }, ...toggles)),
+          ...copiedNote(id, tiles, ed),
           ...animRow,
           ...gbcRow(id, tiles, mine),
           !can ? h("p", { class: "hint" }, multi ? "The game's tiles: their settings can't change." : "The game's tile: its settings can't change.") : null,
@@ -1162,6 +1259,42 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       d.blocks.push(copy);
     });
     selBlock = (liveTileset(id)?.blocks.length ?? 1) - 1;
+    void render();
+  };
+
+  // Blocks of another game tileset, appended to this one: each tile they use
+  // becomes an added tile referring to it ("CAVERN:37", copied by the
+  // recipe; once per tile), with its walkability, water/shore and RED++ group
+  const addBlocksFrom = async (id: string) => {
+    const pick = await promptBlocksFrom(id, paletteKey(id));
+    if (!pick) return;
+    const src = store.baseTable("tilesets")[pick.source] as TilesetDef;
+    const ed = editable(id);
+    const walk = new Set((src.walkable as number[] | undefined) ?? []);
+    const surf = surfableTileset(pick.source);
+    const water = new Set(surf ? waterTilesOf(src) : []);
+    const shore = new Set(surf ? shoreTilesOf(src) : []);
+    const groups = gbcAvailable() && groupColors(pick.source) && groupColors(id) ? (t: number) => groupOf(pick.source, t) : null;
+    editTileset(id, `Blocks from ${pick.source}`, (d) => {
+      const e = d as unknown as TilesetExtension;
+      const idOf = new Map(e.tiles.map((t, i) => [t, ed.firstTile + i] as [string, number]));
+      const tileFor = (t: number): number => {
+        const key = `${pick.source}:${t}`;
+        const known = idOf.get(key);
+        if (known !== undefined) return known;
+        e.tiles.push(key);
+        const nid = ed.firstTile + e.tiles.length - 1;
+        idOf.set(key, nid);
+        if (walk.has(t)) e.walkable!.push(nid);
+        if (water.has(t)) (e.water ??= []).push(nid);
+        if (shore.has(t)) (e.shore ??= []).push(nid);
+        if (groups) ((e.gbc ??= {}).groups ??= []).push([nid, groups(t)]);
+        return nid;
+      };
+      for (const b of pick.blocks) e.blocks.push(src.blocks[b].map(tileFor));
+    });
+    selBlock = (liveTileset(id)?.blocks.length ?? 1) - 1;
+    toast(`Added ${pick.blocks.length} block${pick.blocks.length === 1 ? "" : "s"} from ${pick.source}`, "ok");
     void render();
   };
 

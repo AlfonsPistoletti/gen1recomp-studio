@@ -145,7 +145,12 @@ export class Store {
     this.emit("map");
   }
 
+  // while a cell is picked on the map (Play from here, Pick on map) the
+  // Select tool stays on
+  toolLocked = false;
+
   setTool(tool: Tool): void {
+    if (this.toolLocked) return;
     this.tool = tool;
     if (tool !== "select") this.selection = null;
     this.emit("tool");

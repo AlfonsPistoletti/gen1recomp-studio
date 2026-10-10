@@ -81,7 +81,9 @@ export interface SheetRecipe {
   source: string;
   out: string;
   per: number;
-  tiles: string[];
+  // shade digits, or a tile copied from a game sheet ({ from, x, y }: the
+  // sheet's path below assets/generated and the tile's pixel position)
+  tiles: (string | { from: string; x: number; y: number })[];
   // animated tiles: one 8x8 image per frame (shade digits)
   frames?: { out: string; tile: string }[];
   // cache art the extension's animations need copied (the flower frames)
@@ -118,13 +120,16 @@ function recipe(mod: string, rels: string[], sheets: SheetRecipe[] = [], aliases
     lines.push(
       "",
       "-- tilesets the mod extends: the player's own sheet with the mod's tiles",
-      "-- below it (64 shade digits per tile, 0 white .. 3 black)",
+      "-- below it (64 shade digits per tile, 0 white .. 3 black, or a tile",
+      "-- copied from another of the player's sheets: { from, x, y })",
       "local SHEETS = {",
       ...sheets.flatMap((s) => [
         "  {",
         `    source = ${JSON.stringify(s.source)}, out = ${JSON.stringify(s.out)}, per = ${s.per},`,
         "    tiles = {",
-        ...s.tiles.map((t) => `      ${JSON.stringify(t)},`),
+        ...s.tiles.map((t) => typeof t === "string"
+          ? `      ${JSON.stringify(t)},`
+          : `      { from = ${JSON.stringify(t.from)}, x = ${t.x}, y = ${t.y} },`),
         "    },",
         ...(s.frames?.length
           ? ["    frames = {", ...s.frames.map((f) => `      { out = ${JSON.stringify(f.out)}, tile = ${JSON.stringify(f.tile)} },`), "    },"]
@@ -163,8 +168,15 @@ function recipe(mod: string, rels: string[], sheets: SheetRecipe[] = [], aliases
       "      local w, h = src:getWidth(), src:getHeight()",
       "      local img = ctx.blank(w, h + math.ceil(#s.tiles / s.per) * 8, 1, 1, 1, 1)",
       "      ctx.blit(img, src, 0, 0)",
-      "      for i, digits in ipairs(s.tiles) do",
-      "        paint(img, ((i - 1) % s.per) * 8, h + math.floor((i - 1) / s.per) * 8, digits)",
+      "      local sheets = {}",
+      "      for i, t in ipairs(s.tiles) do",
+      "        local tx, ty = ((i - 1) % s.per) * 8, h + math.floor((i - 1) / s.per) * 8",
+      "        if type(t) == \"table\" then",
+      "          if sheets[t.from] == nil then sheets[t.from] = ctx.exists(t.from) and ctx.readImage(t.from) or false end",
+      "          if sheets[t.from] then ctx.blit(img, sheets[t.from], tx, ty, t.x, t.y, 8, 8) end",
+      "        else",
+      "          paint(img, tx, ty, t)",
+      "        end",
       "      end",
       "      ctx.writeImage(img, s.out)",
       "    end",

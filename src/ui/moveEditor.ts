@@ -73,6 +73,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
       store.group(`Revert ${id}`, () => {
         store.revertRecord(s.registry, id);
         if (s.animRegistry) store.revertRecord(s.animRegistry, id);
+        dropUnusedEffects();
       });
     },
   }, "Revert to base");
@@ -124,6 +125,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
     store.group(`Delete ${id}`, () => {
       store.setRecord(s.registry, id, `Delete ${id}`, undefined);
       if (s.animRegistry) store.setRecord(s.animRegistry, id, "Delete move animation", undefined);
+      dropUnusedEffects();
     });
     current = ordered()[0] ?? null;
     list.render();
@@ -180,6 +182,15 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
 function edit(id: string, label: string, mutate: (r: Rec) => void): void {
   store.editRecord<Rec>(spec()!.registry, id, label, mutate);
   store.seal();
+}
+
+// custom effects no move points at any more are dropped (call inside a
+// group), like the Items workspace does with item effects
+function dropUnusedEffects(): void {
+  const custom = spec()?.custom;
+  if (!custom) return;
+  const used = new Set(Object.values(moves()).map((m) => m.effect));
+  for (const fx of Object.keys(store.table(custom.registry))) if (!used.has(fx)) store.setRecord(custom.registry, fx, "Remove unused custom effect", undefined);
 }
 
 function moveForm(s: MoveSpec, id: string, r: Rec): HTMLElement[] {
@@ -305,7 +316,11 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
   const custom = s.custom;
   const specs = custom ? (store.table(custom.registry) as Record<string, EffectSpec>) : {};
   const spec = specs[effect];
-  const sel = selectInput(effect, s.effects(store.ctx), (v) => edit(id, "Move effect", (d) => (d.effect = v)));
+  const sel = selectInput(effect, s.effects(store.ctx), (v) =>
+    store.group("Move effect", () => {
+      edit(id, "Move effect", (d) => (d.effect = v));
+      dropUnusedEffects();
+    }));
   for (const o of sel.options) if (o.value) o.title = custom?.describe(o.value) || (specs[o.value] ? "Custom effect" : "");
   const card = h("section", { class: "card" }, h("h4", {}, "Effect"), field("Effect", sel));
   if (!custom) return card;

@@ -106,14 +106,14 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       return store.table("moves")[id] ? () => nav.openMove(id) : null;
     case "studio_effects": {
       const user = Object.entries(store.table("moves")).find(([, m]) => (m as { effect?: unknown }).effect === id)?.[0];
-      return user ? () => nav.openMove(user) : null;
+      return user ? () => nav.openMove(user) : removed ? null : removeUnused(registry, id);
     }
     case "items":
     case "balls":
       return store.table("items")[id] ? () => nav.openItem(id) : null;
     case "studio_item_effects": {
       const user = Object.entries(store.table("items")).find(([, m]) => (m as { effect?: unknown }).effect === id)?.[0];
-      return user ? () => nav.openItem(user) : null;
+      return user ? () => nav.openItem(user) : removed ? null : removeUnused(registry, id);
     }
     case "studio_events":
       return removed ? null : () => nav.openEvent(id);
@@ -143,6 +143,15 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
   }
   return null;
 }
+
+// a custom effect nothing uses any more: its row removes it
+const unusedEffect = (registry: string, id: string, record: unknown): boolean =>
+  record !== null && (registry === "studio_effects" || registry === "studio_item_effects")
+  && !Object.values(store.table(registry === "studio_effects" ? "moves" : "items")).some((r) => (r as { effect?: unknown }).effect === id);
+const removeUnused = (registry: string, id: string) => () => {
+  store.setRecord(registry, id, "Remove unused custom effect", undefined);
+  store.seal();
+};
 
 // field keys the studio edits
 const FIELD_NAMES: Record<string, string> = { flyWarps: "Landing spots", hiddenExtras: "PCs, bench guys, gym statues", hiddenItems: "Hidden items", hiddenCoins: "Hidden coins", playerSprites: "The player's sprites", superRod: "Super Rod lists", trades: "In-game trades", fishing: "Old Rod and Good Rod" };
@@ -237,14 +246,15 @@ export function mountChangesMenu(): HTMLElement {
             {
               class: "menu-row",
               disabled: !open,
-              title: open ? "Open" : "Nothing to open",
+              title: unusedEffect(registry, id, record) ? "Not used by any move or item: click to remove it" : open ? "Open" : "Nothing to open",
               onclick: () => {
                 close();
                 open?.();
               },
             },
             h("span", { class: "changes-name" }, global ?? displayName(record, id, registry)),
-            removed ? h("span", { class: "tag removed" }, "removed") : added ? h("span", { class: "tag new" }, "new") : null,
+            unusedEffect(registry, id, record) ? h("span", { class: "tag removed" }, "unused · remove")
+              : removed ? h("span", { class: "tag removed" }, "removed") : added ? h("span", { class: "tag new" }, "new") : null,
           ),
         );
       }

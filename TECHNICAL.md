@@ -131,6 +131,14 @@ Both follow the gen1recomp wiki's
     `<owner>@users.noreply.github.com`.
   - **Checkout:** the mod becomes a nested repository inside the gen1recomp checkout.
 
+## Blocks from another tileset
+
+An extension's added tile is either 64 shade digits (the mod's own pixels) or a reference
+`"CAVERN:37"`, an original tile of another cache tileset. `sheetRecipes` turns a reference into
+`{ from = "tilesets/cavern.png", x, y }`, and the recipe `blit`s that 8×8 region from the player's
+own sheet (`ImageWriter.blit` takes a source region), so the mod holds tile numbers only. The editor
+previews the same in `compose`. Copied tiles keep their walkability, water/shore and RED++ group.
+
 ## Mod page and DIFFERENCES.md
 
 - **README.md:** edited in **Mod page…** (`src/ui/modPage.ts`) and written straight to disk, like

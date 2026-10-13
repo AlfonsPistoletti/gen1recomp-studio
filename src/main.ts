@@ -9,6 +9,7 @@ import { MOD_MAP_INDEX_BASE, type MapDef, type ModInfo } from "./core/types.ts";
 import { adapterFor, GAME_NAMES, GAME_OF_VERSION } from "./games/index.ts";
 import { httpHost } from "./host/httpHost.ts";
 import { chooseGameRoot, isTauri, tauriHost } from "./host/tauriHost.ts";
+import { checkForUpdates } from "./ui/updates.ts";
 import type { HostInfo } from "./host/types.ts";
 import { configureLua } from "./lua/vm.ts";
 import { createMod, ensurePlayEnv, listMods, openProject as loadProject, saveProject, validateMod, wireUp } from "./project/project.ts";
@@ -87,7 +88,8 @@ const folderBtn = menuRow("Open folder", () => void host.openFolder(currentMod ?
 packBtn.append(h("span", { class: "menu-key" }, "Ctrl+P"));
 // clickable in the desktop app
 const installBtn = menuRow("", () => switchInstall());
-modMenuPanel.append(modDetailsBtn, modPageBtn, validateBtn, exportBtn, publishBtn, packBtn, folderBtn, h("div", { class: "menu-sep" }), installBtn);
+const updateBtn = menuRow("Check for updates…", () => void checkForUpdates(false));
+modMenuPanel.append(modDetailsBtn, modPageBtn, validateBtn, exportBtn, publishBtn, packBtn, folderBtn, h("div", { class: "menu-sep" }), installBtn, updateBtn);
 
 // what Export .zip and Publish on GitHub need from the top bar
 function shareContext(modId: string): ShareContext {
@@ -1188,6 +1190,8 @@ async function openProject(mod: string | null): Promise<void> {
 }
 
 async function boot(): Promise<void> {
+  // the desktop app looks for a newer release once, quietly, after starting
+  setTimeout(() => void checkForUpdates(true), 4000);
   try {
     hostInfo = await host.info();
     allMods = await listMods(host);

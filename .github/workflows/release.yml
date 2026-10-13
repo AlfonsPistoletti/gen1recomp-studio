@@ -45,10 +45,16 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match package.json version $version"; exit 1
           fi
 
+      # the updater's files (installer signatures and latest.json) are signed
+      # with the key in these two secrets; the app checks them with the
+      # public key in tauri.conf.json
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          includeUpdaterJson: true
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: Gen1Recomp Studio ${{ github.ref_name }}
           releaseBody: See the changes since the previous release below.

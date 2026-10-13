@@ -409,6 +409,7 @@ body.resizing * { cursor: col-resize !important; }
 .notice strong { color: var(--warn); }
 .notice p { margin: 4px 0 8px; }
 .team-choice { margin-left: 10px; font-weight: normal; }
+.update-notes { max-height: 240px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; background: var(--panel-2); padding: 8px; border-radius: 4px; }
 .badge-row { gap: 6px; margin: 4px 0; }
 .badge-num { width: 2ch; text-align: right; color: var(--muted); }
 /* one width, so every row's buttons line up */

@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The studio window: core APIs, the folder picker and the Export .zip save dialog",
+  "description": "The studio window: core APIs, the folder picker, the Export .zip save dialog, and app updates (check, install, restart)",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save"]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save", "updater:default", "process:allow-restart"]
 }

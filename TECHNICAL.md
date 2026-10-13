@@ -250,6 +250,28 @@ npm run release -- 0.2.0   # sets the version everywhere, runs typecheck + selft
 git push && git push origin v0.2.0
 ```
 
+### Updates
+
+The desktop app updates itself (Tauri's updater plugin, `src/ui/updates.ts`): a quiet check a few
+seconds after start, and **Check for updates…** in the gear menu. It reads `latest.json` from the
+newest **published** release (`releases/latest/download/latest.json`, so drafts stay invisible),
+downloads the installer, checks its signature against the public key in `tauri.conf.json`, installs
+it (`installMode: passive`: a progress bar, no wizard) and restarts.
+
+- **Signing:** the release workflow signs with the repo secrets `TAURI_SIGNING_PRIVATE_KEY` and
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, and `tauri-action` uploads the `.sig` files and
+  `latest.json` (`includeUpdaterJson`). The private key lives outside the repo
+  (`%USERPROFILE%\.tauri\gen1recomp-studio.key`); losing it means installed copies can't verify
+  updates any more, so keep a backup.
+- **Local builds** need the key too, since every build makes updater files. In cmd:
+  ```
+  set TAURI_SIGNING_PRIVATE_KEY=%USERPROFILE%\.tauri\gen1recomp-studio.key
+  set TAURI_SIGNING_PRIVATE_KEY_PASSWORD=<the password>
+  npm run tauri build
+  ```
+  (PowerShell: `$env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\gen1recomp-studio.key"`.)
+- The first version with the updater has to be installed by hand once.
+
 The selftest needs an imported ROM dataset, so it only runs locally (the release script runs it).
 The installers are not code-signed yet, so Windows SmartScreen asks for confirmation on first
 launch.

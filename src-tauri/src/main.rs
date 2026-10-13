@@ -417,6 +417,8 @@ fn image_response(app: &AppHandle, request: &Request<Vec<u8>>) -> Response<Vec<u
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(Studio::default())
         .register_uri_scheme_protocol("studio", |ctx: UriSchemeContext<'_, tauri::Wry>, request| {
             image_response(ctx.app_handle(), &request)

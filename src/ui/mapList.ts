@@ -1,13 +1,15 @@
 import { mapChanged } from "./mapReset.ts";
 import { store } from "../core/store.ts";
 import type { MapView } from "../render/mapView.ts";
-import { clear, h } from "./dom.ts";
+import { Swords } from "lucide";
+import { clear, h, icon, listFocus, listKeys } from "./dom.ts";
 import { hasWild } from "./encounterPanel.ts";
 
 // Left sidebar: searchable list of maps, edited ones first.
 export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => void): void {
   const search = h("input", { type: "search", placeholder: "Search maps…  (Ctrl+F)", spellcheck: false, id: "map-search" });
   const list = h("div", { class: "map-list", role: "listbox" });
+  listKeys(list);
   host.append(
     h("div", { class: "panel-head" }, h("span", {}, "Maps"), h("button", { class: "btn small", onclick: onNewMap, title: "Create a new map" }, "+ New")),
     h("div", { class: "panel-pad" }, search),
@@ -23,6 +25,7 @@ export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => v
   const render = () => {
     const scrollTop = list.scrollTop;
     const pinnedBefore = pinnedHeight();
+    const refocus = listFocus(list);
     clear(list);
     if (!store.project) return;
     const q = query.toLowerCase();
@@ -44,9 +47,10 @@ export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => v
             view.fitMap();
           },
           title: `${id} · ${m.tileset} · ${m.width}×${m.height} blocks`,
+          "data-id": id,
         },
         h("span", { class: "map-name" }, id),
-        hasWild(id) ? h("span", { class: "wild-dot", title: "Has wild Pokémon" }) : null,
+        hasWild(id) ? h("span", { class: "wild-icon", title: "Has wild encounters" }, icon(Swords, 12)) : null,
         isNew ? h("span", { class: "tag new" }, "new") : edited.includes(id) ? h("span", { class: "tag edited" }, "edited") : null,
         h("span", { class: "map-meta" }, `${m.width}×${m.height}`),
       );
@@ -60,6 +64,7 @@ export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => v
     // when the pinned "Edited" section above grows or shrinks
     const shift = scrollTop > pinnedBefore ? pinnedHeight() - pinnedBefore : 0;
     list.scrollTop = scrollTop + shift;
+    refocus();
   };
 
   search.addEventListener("input", () => {

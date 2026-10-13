@@ -8,7 +8,7 @@ import { store } from "../core/store.ts";
 import { DIRECTIONS, type Direction, type EntityRecord, type MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec } from "../games/types.ts";
 import type { MapView } from "../render/mapView.ts";
-import { clear, field, h, numberInput, rerender, selectInput, toast, errorText, onFocusLeave } from "./dom.ts";
+import { clear, comboInput, field, h, numberInput, rerender, selectInput, toast, errorText, onFocusLeave } from "./dom.ts";
 import { npcTextSection } from "./mapText.ts";
 import { roleSection, townSection } from "./mapTown.ts";
 import { changedParts, resetMapDialog } from "./mapReset.ts";
@@ -71,6 +71,9 @@ function editMap(label: string, mutate: (d: MapDef) => void): void {
 // ---------------------------------------------------------------- fields
 
 // Keys a set of specs edits (so "extras" can show everything else).
+// an object the game picks up (gen1recomp talkTo: `item`, not pokered's "0")
+export const isItemBall = (r: Rec): boolean => r.item !== undefined && r.item !== "0" && r.item !== 0;
+
 function claimedKeys(specs: FieldSpec[], out = new Set<string>(["x", "y"])): Set<string> {
   for (const s of specs) {
     if (s.kind === "pair") claimedKeys(s.fields, out);
@@ -111,9 +114,61 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
     }
     case "warpTarget":
       return warpTarget(spec, record, edit, view);
-    case "extras":
-      return extrasField(spec, record, edit, claimedKeys(all));
+    case "extras": {
+      // an item ball's item is edited in its Role (mapTown.ts)
+      const claimed = claimedKeys(all);
+      if (isItemBall(record)) claimed.add("item");
+      return extrasField(spec, record, edit, claimed);
+    }
   }
+}
+
+// Connect a warp to a cell of another map, both ways: the other map gets a
+// warp there (made when missing) leading back to this one, and this one
+// leads to it. Warps beside each one that went to the same place (a two-
+// cell mat, a double door) follow along. Map ids are written on both sides
+// (the game's exits often say LAST_MAP; an explicit map works everywhere).
+function connectWarps(spec: Extract<FieldSpec, { kind: "warpTarget" }>, fromMap: string, fromIndex: number, toMap: string, x: number, y: number): void {
+  const layer = store.adapter.layers.find((l) => l.kind === "warp")!;
+  const same = (a: Rec, b: Rec) => a[spec.mapKey] === b[spec.mapKey] && a[spec.warpKey] === b[spec.warpKey];
+  // the warp at `i` and its neighbours in the same row that went where it went
+  const group = (list: Rec[], i: number) => list
+    .map((_, k) => k)
+    .filter((k) => k === i || (list[k].y === list[i].y && Math.abs((list[k].x as number) - (list[i].x as number)) === 1 && same(list[k], list[i])));
+  if (fromMap === toMap) return void toast("Pick a cell on another map", "error");
+  let toIndex = -1;
+  store.group(`Connect ${fromMap} and ${toMap}`, () => {
+    store.edit(toMap, "Connect door", (d) => {
+      const list = store.entities(d, layer.key) as Rec[];
+      toIndex = list.findIndex((w) => w.x === x && w.y === y);
+      if (toIndex < 0) {
+        list.push(layer.create(d, x, y, store.ctx));
+        toIndex = list.length - 1;
+        d[layer.key] = list;
+      }
+      for (const k of group(list, toIndex)) {
+        list[k][spec.mapKey] = fromMap;
+        list[k][spec.warpKey] = fromIndex + 1;
+      }
+    });
+    store.edit(fromMap, "Connect door", (d) => {
+      const list = store.entities(d, layer.key) as Rec[];
+      for (const k of group(list, fromIndex)) {
+        list[k][spec.mapKey] = toMap;
+        list[k][spec.warpKey] = toIndex + 1;
+      }
+    });
+  });
+  store.seal();
+  nav.selectEntity(fromMap, layer.key, fromIndex);
+  toast(`${fromMap} warp ${fromIndex + 1} ↔ ${toMap} warp ${toIndex + 1}`, "ok");
+}
+
+// connectWarps without a field spec at hand (a new map's entrance)
+export function connectDoor(fromMap: string, fromIndex: number, toMap: string, x: number, y: number): void {
+  const layer = store.adapter.layers.find((l) => l.kind === "warp");
+  const spec = layer?.fields.find((f): f is Extract<FieldSpec, { kind: "warpTarget" }> => f.kind === "warpTarget");
+  if (spec) connectWarps(spec, fromMap, fromIndex, toMap, x, y);
 }
 
 function warpTarget(spec: Extract<FieldSpec, { kind: "warpTarget" }>, record: Rec, edit: Edit, view: MapView): HTMLElement {
@@ -144,6 +199,11 @@ function warpTarget(spec: Extract<FieldSpec, { kind: "warpTarget" }>, record: Re
   return h(
     "div",
     { class: "field-group" },
+    field("Connect to a door…", comboInput("", "dl-maps", Object.keys(store.maps).sort(), (to) => {
+      const from = store.currentMap;
+      const index = store.selection?.index ?? 0;
+      nav.pickCell(to, (x, y) => connectWarps(spec, from, index, to, x, y));
+    }, "Pick a map, then click the spot"), "Both ways at once: the other map gets a warp on the cell you click (made if missing) that leads back here."),
     field("Destination map", mapSelect),
     field("Destination warp", warpControl, spec.specialMaps.includes(destId) ? spec.hint : undefined),
     problem
@@ -214,6 +274,9 @@ function extrasField(spec: Extract<FieldSpec, { kind: "extras" }>, record: Rec, 
 
 // ---------------------------------------------------------------- map
 
+// whether the open game has a registry (the map panel shows what it can save)
+const has = (registry: string) => store.adapter.content.some((c) => c.registry === registry);
+
 function mapForm(map: MapDef, view: MapView): HTMLElement[] {
   const adapter = store.adapter;
   const ids = Object.keys(store.maps).sort();
@@ -271,9 +334,10 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     h("div", { class: "kv" }, h("span", {}, "Id"), h("code", {}, map.id), isNew ? h("span", { class: "tag new" }, "new") : null),
     ...adapter.mapFields.map((f) => renderField(f, map as Rec, editRecord, adapter.mapFields, view)),
     field("Tileset", tilesetSelect),
-    musicField(map),
-    roofField(map),
-    ...mapRulesSection(map),
+    // only what this game's registries hold (Gen 2 has no map_songs, roofs or field rules yet)
+    has("map_songs") ? musicField(map) : null,
+    has("studio_roofs") ? roofField(map) : null,
+    ...(has("field") ? mapRulesSection(map) : []),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Size (blocks)"), h("div", { class: "row" }, w, h("span", { class: "x" }, "×"), hgt, anchor, resize)),
     // gen1recomp TileRenderer.borderBlockFor: OVERWORLD maps fill the void
     // with the player's VOID FILL option (trees, water or black), not this block
@@ -498,13 +562,14 @@ function trainerSection(record: EntityRecord): HTMLElement | null {
 
 // ---------------------------------------------------------------- actions
 
-export function addEntity(layerKey: string, cx: number, cy: number): void {
+export function addEntity(layerKey: string, cx: number, cy: number, variantId?: string): void {
   const layer = store.adapter.layers.find((l) => l.key === layerKey);
   if (!layer) return;
+  const variant = layer.variants?.find((v) => v.id === variantId);
   let index = 0;
-  store.edit(store.currentMap, `Add ${layer.singular}`, (d) => {
+  store.edit(store.currentMap, `Add ${variant?.label.toLowerCase() ?? layer.singular}`, (d) => {
     const list = store.entities(d, layer.key);
-    list.push(layer.create(d, cx, cy, store.ctx));
+    list.push((variant ?? layer).create(d, cx, cy, store.ctx));
     d[layer.key] = list;
     index = list.length - 1;
   });

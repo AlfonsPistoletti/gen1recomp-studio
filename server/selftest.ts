@@ -156,7 +156,8 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
 }
 
 // shop stock lives in text_pointers, which the engine merges "deep": a patched
-// list appends, so adding writes only the new tail and removing overrides
+// list appends, so adding writes only the new tail and removing writes the
+// list as mod.DELETE and then the new list (two patches)
 {
   const shop = content.text_pointers.ViridianMart as Record<string, { mart?: string[] }>;
   const stock = shop.TEXT_VIRIDIANMART_CLERK.mart ?? [];
@@ -168,7 +169,26 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   check("shop addition reads back without duplicates", deepEqual((table.ViridianMart as typeof shop).TEXT_VIRIDIANMART_CLERK.mart, [...stock, "MAX_POTION"]));
   const removed = { ...clone(shop), TEXT_VIRIDIANMART_CLERK: { ...shop.TEXT_VIRIDIANMART_CLERK, mart: stock.slice(1) } };
   const rmCalls = contentCalls(adapter, { maps: base, ...content }, { text_pointers: { ViridianMart: removed } }).calls;
-  check("shop removal overrides the map's pointers", rmCalls.length === 1 && rmCalls[0].op === "override");
+  check("shop removal is DELETE + the new list", rmCalls.length === 2 && rmCalls.every((c) => c.op === "patch"), JSON.stringify(rmCalls));
+  const rmTable = clone(content.text_pointers) as Record<string, unknown>;
+  applyOps(rmTable, rmCalls as Parameters<typeof applyOps>[1], "text_pointers", true);
+  check("shop removal reads back", deepEqual((rmTable.ViridianMart as typeof shop).TEXT_VIRIDIANMART_CLERK.mart, stock.slice(1)));
+}
+
+// the Town Map grid (field.townMap.background.map) is a list inside a deep
+// record: a changed tile is DELETE + the new list, never an override (that
+// would copy the record's assets/generated paths into the mod: MK301)
+{
+  const tm = content.field.townMap as { background: { map: number[] } };
+  check("town map grid loaded", Array.isArray(tm?.background?.map) && tm.background.map.length === 360);
+  const next = clone(tm);
+  next.background.map[0] = (next.background.map[0] + 1) % 16;
+  const calls = contentCalls(adapter, { maps: base, ...content }, { field: { townMap: next } }).calls;
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("town map tile change: DELETE + list, no game paths", calls.length === 2 && src.includes("mod.DELETE") && !src.includes("assets/generated"), src.slice(0, 300));
+  const table = clone(content.field) as Record<string, unknown>;
+  applyOps(table, calls as Parameters<typeof applyOps>[1], "field", true);
+  check("town map tile change reads back", deepEqual(table.townMap, next));
 }
 
 // a map's song is a plain string record: written as override

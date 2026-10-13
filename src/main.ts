@@ -18,12 +18,12 @@ import { modPageDialog } from "./ui/modPage.ts";
 import { isTyping, MapView } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { differencesMarkdown, mountChangesMenu } from "./ui/changesMenu.ts";
-import { DoorOpen, Footprints, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
+import { Brush, DoorOpen, Footprints, Package, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
-import { $, clear, dropdown, field, h, icon, numberInput, toast, errorText } from "./ui/dom.ts";
-import { addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
+import { $, clear, comboInput, dropdown, field, h, icon, numberInput, setComboLabels, toast, errorText } from "./ui/dom.ts";
+import { addEntity, connectDoor, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
 import { mountMapList } from "./ui/mapList.ts";
-import { nav, WORKSPACES, type WorkspaceId } from "./ui/nav.ts";
+import { nav, WORKSPACES, type GraphicsView, type WorkspaceId } from "./ui/nav.ts";
 import { mountEncounterPane } from "./ui/encounterPanel.ts";
 import { mountGlobalWorkspace } from "./ui/globalWorkspace.ts";
 import { mountPokemonWorkspace } from "./ui/pokemonEditor.ts";
@@ -38,6 +38,8 @@ import { mountTilesetWorkspace } from "./ui/tilesetEditor.ts";
 import { mountSpriteWorkspace } from "./ui/spriteEditor.ts";
 import { mountImageWorkspace } from "./ui/imageEditor.ts";
 import { mountPaletteWorkspace } from "./ui/paletteEditor.ts";
+import { mountTownMapWorkspace, townMapSheets } from "./ui/townMapEditor.ts";
+import { MAX_BLOCKS } from "./core/tileBrush.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
 import { playEvent } from "./ui/eventPreview.ts";
@@ -204,7 +206,8 @@ function renderVersionSelect(): void {
     // picking one can explain how to get its data
     if (!v.available && !ready) continue;
     const game = GAME_OF_VERSION[v.version];
-    const label = `${v.version[0].toUpperCase()}${v.version.slice(1)} · ${GAME_NAMES[game]}${!ready ? " (coming soon)" : !v.available ? " (not imported)" : ""}`;
+    const viewOnly = !!adapterFor(v.version)?.readOnly;
+    const label = `${v.version[0].toUpperCase()}${v.version.slice(1)} · ${GAME_NAMES[game]}${!ready ? " (coming soon)" : !v.available ? " (not imported)" : viewOnly ? " (view only)" : ""}`;
     versionSelect.append(h("option", { value: v.version, selected: v.version === currentVersion, disabled: !ready }, label));
   }
 }
@@ -237,7 +240,7 @@ function refreshTopbar(): void {
   exportBtn.disabled = publishBtn.disabled = modPageBtn.disabled = !currentMod;
   folderBtn.textContent = currentMod ? "Open mod folder" : "Open mods folder";
   folderBtn.title = hostInfo ? `${hostInfo.modsDir}${currentMod ? `\\${currentMod}` : ""}` : "";
-  playBtn.disabled = !store.project;
+  playBtn.disabled = !store.project || !!store.adapter?.readOnly;
   packBtn.disabled = validateBtn.disabled;
   packBtn.title = validateBtn.disabled && hostInfo && !hostInfo.modkit ? "Packing needs a gen1recomp source checkout (tools/modkit.py)" : "Make the .modpkg file players install (runs validate --strict first)";
   validateBtn.title = hostInfo && !hostInfo.modkit
@@ -250,7 +253,8 @@ function refreshTopbar(): void {
 
 const TOOLS: { id: Tool; label: string; key: string; tip: string; icon: IconNode }[] = [
   { id: "select", label: "Select", key: "S", tip: "Select, move and edit warps, NPCs and signs", icon: MousePointer2 },
-  { id: "brush", label: "Brush", key: "B", tip: "Paint the current stamp", icon: Paintbrush },
+  { id: "brush", label: "Block brush", key: "B", tip: "Paint the current stamp of blocks", icon: Paintbrush },
+  { id: "tile", label: "Tile brush", key: "T", tip: "Paint single 8×8 tiles: the studio makes or reuses the blocks (right-click picks a tile, right-drag an area)", icon: Brush },
   { id: "rect", label: "Rect", key: "R", tip: "Fill a rectangle with the stamp pattern", icon: Square },
   { id: "fill", label: "Fill", key: "F", tip: "Flood-fill connected identical blocks", icon: PaintBucket },
 ];
@@ -296,7 +300,7 @@ store.on((reason) => {
 });
 
 // one "+" button per entity layer of the current game (the map markers' icons)
-const ADD_ICONS: Partial<Record<string, IconNode>> = { warp: DoorOpen, npc: UserRound, sign: Signpost };
+const ADD_ICONS: Partial<Record<string, IconNode>> = { warp: DoorOpen, npc: UserRound, sign: Signpost, item: Package };
 const addGroup = h("div", { class: "seg" });
 function renderAddButtons(): void {
   clear(addGroup);
@@ -307,6 +311,13 @@ function renderAddButtons(): void {
       h("button", { class: "btn small add-btn", title: `Add a ${name.toLowerCase()} at the cursor or view centre`, "aria-label": `Add ${name}`, onclick: () => addAt(layer.key) },
         "+", glyph ? icon(glyph) : ` ${name}`),
     );
+    for (const v of layer.variants ?? []) {
+      const vglyph = ADD_ICONS[v.id];
+      addGroup.append(
+        h("button", { class: "btn small add-btn", title: `Add an ${v.label.toLowerCase()} at the cursor or view centre`, "aria-label": `Add ${v.label}`, onclick: () => addAt(layer.key, v.id) },
+          "+", vglyph ? icon(vglyph) : ` ${v.label}`),
+      );
+    }
   }
 }
 const zoomLabel = h("span", { class: "zoom-label" });
@@ -386,9 +397,9 @@ $("#viewport").append(
   ),
 );
 
-function addAt(layer: string): void {
+function addAt(layer: string, variant?: string): void {
   const { cx, cy } = view.centerCell();
-  addEntity(layer, cx, cy);
+  addEntity(layer, cx, cy, variant);
 }
 
 function refreshToolbar(): void {
@@ -401,6 +412,20 @@ function refreshToolbar(): void {
   $("#viewport").dataset.tool = store.tool;
 }
 
+// names next to the ids in pick lists (dom.ts attachCombo): the list id says
+// which registry its options come from
+const COMBO_REGISTRY: [RegExp, string][] = [[/species/, "pokemon"], [/moves/, "moves"], [/items/, "items"], [/trainer/, "trainers"]];
+setComboLabels((listId, id) => {
+  const reg = COMBO_REGISTRY.find(([re]) => re.test(listId))?.[1];
+  const rec = reg && store.project ? (store.table(reg)[id] as { name?: unknown } | undefined) : undefined;
+  if (typeof rec?.name === "string") return reg === "items" && /^(TM|HM)\d/.test(rec.name) ? `${rec.name} ${machineMove(rec)}` : rec.name;
+  return undefined;
+});
+// a TM/HM item's move, for its label ("TM51 ABSORB")
+function machineMove(rec: unknown): string {
+  return String((rec as { machine?: { move?: string } }).machine?.move ?? "").replace(/_/g, " ");
+}
+
 // ---------------------------------------------------------------- status bar
 
 const status = {
@@ -411,6 +436,9 @@ const status = {
   hint: h("span", { class: "muted right" }, "Middle-drag pan · wheel zoom · right-click/drag pick · double-click neighbour to open"),
 };
 $("#statusbar").append(status.map, status.pos, status.block, status.walk, status.hint);
+
+view.onTilesetFull = (tileset) =>
+  toast(`${tileset} has ${MAX_BLOCKS} blocks, the most a map can use: no room for another. Paint with blocks it has, or free some in Graphics > Tilesets.`, "error");
 
 view.onHover = (info) => {
   if (!info) {
@@ -445,32 +473,35 @@ mountTilesetWorkspace($("#tilesets-left"), $("#tilesets-center"), $("#tilesets-r
 mountSpriteWorkspace($("#sprites-left"), $("#sprites-center"), $("#sprites-right"));
 mountImageWorkspace($("#images-left"), $("#images-center"), $("#images-right"));
 mountPaletteWorkspace($("#palettes-left"), $("#palettes-center"), $("#palettes-right"));
+mountTownMapWorkspace($("#townmap-left"), $("#townmap-center"), $("#townmap-right"));
 // the Graphics workspace's view switch, on top of both left panels
 const GRAPHICS_VIEW_KEY = "studio.graphicsView";
 const savedView = recall(GRAPHICS_VIEW_KEY);
-nav.graphicsView = savedView === "sprites" || savedView === "images" || savedView === "palettes" ? savedView : "tilesets";
-const viewSwitches: HTMLButtonElement[] = [];
-for (const host of [$("#tilesets-left"), $("#sprites-left"), $("#images-left"), $("#palettes-left")]) {
-  const seg = h("div", { class: "seg view-switch" });
-  for (const [view, label] of [["tilesets", "Tilesets"], ["sprites", "Sprites"], ["images", "Images"], ["palettes", "Palettes"]] as const) {
-    const b = h("button", { class: "toggle", "data-view": view, onclick: () => nav.showGraphics(view) }, label);
-    viewSwitches.push(b);
-    seg.append(b);
-  }
-  host.prepend(seg);
+nav.graphicsView = savedView === "sprites" || savedView === "images" || savedView === "palettes" || savedView === "townmap" ? savedView : "tilesets";
+// a drop-down: fits the narrowest left panel however many views there are
+const GRAPHICS_VIEWS: [GraphicsView, string][] = [["tilesets", "Tilesets"], ["sprites", "Sprites"], ["images", "Images"], ["palettes", "Palettes"], ["townmap", "Town Map"]];
+const viewSwitches: HTMLSelectElement[] = [];
+for (const host of [$("#tilesets-left"), $("#sprites-left"), $("#images-left"), $("#palettes-left"), $("#townmap-left")]) {
+  const select = h("select", { class: "view-switch", "aria-label": "Graphics view", onchange: () => nav.showGraphics(select.value as GraphicsView) },
+    ...GRAPHICS_VIEWS.map(([view, label]) => h("option", { value: view }, label)));
+  viewSwitches.push(select);
+  host.prepend(select);
 }
 nav.showGraphics = (view) => {
   nav.graphicsView = view;
   remember(GRAPHICS_VIEW_KEY, view);
-  for (const b of viewSwitches) b.classList.toggle("active", b.dataset.view === view);
+  for (const s of viewSwitches) s.value = view;
   if (nav.workspace === "graphics") setWorkspace("graphics");
 };
-for (const b of viewSwitches) b.classList.toggle("active", b.dataset.view === nav.graphicsView);
+for (const s of viewSwitches) s.value = nav.graphicsView;
 mountSplitters($("#layout"));
 
 // ---------------------------------------------------------------- workspaces
 
 function setWorkspace(id: WorkspaceId): void {
+  // a generation without this workspace (shortcuts, links) stays on Maps
+  const allowed = adapterFor(currentVersion)?.workspaces;
+  if (allowed && !allowed.includes(id)) id = "maps";
   if (drawing && id !== "maps") drawing.finish(true);
   nav.workspace = id;
   document.body.dataset.ws = id;
@@ -480,7 +511,7 @@ function setWorkspace(id: WorkspaceId): void {
   for (const b of workspaceTabs) b.classList.toggle("active", b.dataset.ws === id);
   remember(WORKSPACE_KEY, id);
   if (id === "maps") view.invalidate();
-  if (id === "graphics") ({ tilesets: nav.onTilesetsShown, sprites: nav.onSpritesShown, images: nav.onImagesShown, palettes: nav.onPalettesShown })[nav.graphicsView]();
+  if (id === "graphics") ({ tilesets: nav.onTilesetsShown, sprites: nav.onSpritesShown, images: nav.onImagesShown, palettes: nav.onPalettesShown, townmap: nav.onTownMapShown })[nav.graphicsView]();
 }
 nav.setWorkspace = setWorkspace;
 // a jump from elsewhere (changes list, links): the view moves to the map too
@@ -753,10 +784,13 @@ function newMapDialog(): void {
     ),
     field("Fill block", fill, "Defaults to the selected palette block"),
   );
+  // where the copy's exit leads: picked on that map after creating it
+  let entrance = "";
   const copyFields = h(
     "div",
     { hidden: true },
     field("Copy of", source),
+    field("Its door is on", comboInput("", "dl-maps", mapIds, (v) => (entrance = v), "(connect later)"), "After creating it, click the door on that map: the copy's exit and that door are connected both ways."),
     h(
       "p",
       { class: "hint" },
@@ -779,6 +813,14 @@ function newMapDialog(): void {
         const src = store.maps[source.value];
         if (!src) return toast("Pick a map to copy", "error");
         copyMap(src, mapId, index);
+        if (entrance) {
+          // the copy's exit: its first warp out of the building (LAST_MAP), else warp 1
+          const warps = store.entities(store.maps[mapId], "warps");
+          const exit = Math.max(0, warps.findIndex((w) => w.destMap === "LAST_MAP"));
+          dialog.close();
+          nav.pickCell(entrance, (x, y) => connectDoor(mapId, exit, entrance, x, y));
+          return;
+        }
       } else {
         const block = Math.max(0, Math.trunc(Number(fill.value) || 0));
         store.createMap(store.adapter.newMap({ id: mapId, tileset: tileset.value, width, height, fill: block, index }));
@@ -829,6 +871,7 @@ function copyMap(src: MapDef, mapId: string, index: number): void {
 // ---------------------------------------------------------------- save / validate
 
 async function save(): Promise<void> {
+  if (adapterFor(currentVersion)?.readOnly) return;
   if (!currentMod) {
     toast("Choose a mod to save into, or create one", "error");
     modSelect.focus();
@@ -870,7 +913,7 @@ async function save(): Promise<void> {
     const shots = await saveOverrides(host, currentMod, store.table(OVERRIDES));
     art.written += shots.written;
     // vanilla art reused through the asset-transforms recipe
-    const tf = await syncTransforms(host, currentMod, saved, sheetRecipes(), imageAliases(store.table(OVERRIDES)));
+    const tf = await syncTransforms(host, currentMod, saved, [...sheetRecipes(), ...townMapSheets()], imageAliases(store.table(OVERRIDES)));
     if (tf.blocked) toast(`mods/${currentMod} already has its own assets_transforms file, so vanilla art cannot be reused there. Import art instead.`, "error");
     store.markSaved();
     const parts = [];
@@ -1099,6 +1142,20 @@ async function refreshMods(): Promise<void> {
   renderModSelect();
 }
 
+// what a generation the studio only partly supports hides: workspaces it
+// has no editors for; while it is view-only, saving and the mod picker
+function applyAdapterLimits(adapter: NonNullable<ReturnType<typeof adapterFor>>): void {
+  const shown = adapter.workspaces;
+  for (const b of workspaceTabs) b.hidden = !!shown && !shown.includes(b.dataset.ws!);
+  if (shown && !shown.includes(nav.workspace)) setWorkspace(shown[0] as WorkspaceId);
+  const ro = adapter.readOnly;
+  modSelect.disabled = !!ro;
+  saveBtn.disabled = playBtn.disabled = !!ro;
+  addGroup.hidden = !!ro;
+  saveBtn.title = ro ?? "Save into the mod (Ctrl+S)";
+  if (ro) toast(ro, "info");
+}
+
 async function openProject(mod: string | null): Promise<void> {
   const adapter = adapterFor(currentVersion);
   if (!adapter) {
@@ -1115,6 +1172,7 @@ async function openProject(mod: string | null): Promise<void> {
     remember(LAST_MOD_KEY, currentMod);
     store.load(project);
     renderModSelect();
+    applyAdapterLimits(adapter);
     // the studio runs mods against a stand-in API, so code that needs the
     // running game can fail here without affecting its map registrations
     if (project.warnings.length) {

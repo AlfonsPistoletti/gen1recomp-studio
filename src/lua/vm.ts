@@ -302,6 +302,8 @@ local stubs = {
   ["src.core.GameVersion"] = GameVersion,
   ["src.script.MapScripts"] = { attachBase = attach },
 }
+-- the script files this version's init loads (Yellow's own Oak's Lab, ...)
+local files = {}
 local function req(name)
   if stubs[name] then return stubs[name] end
   if loaded[name] ~= nil then return loaded[name] end
@@ -309,6 +311,7 @@ local function req(name)
   local src = __read(rel)
   -- engine modules the scripts only use while the game runs
   if src == nil then return __dummy end
+  files[#files + 1] = rel
   local env = setmetatable({ require = req }, { __index = _G })
   local chunk = assert(load(src, "@" .. rel, "t", env))
   local result = chunk()
@@ -317,18 +320,19 @@ local function req(name)
   return result
 end
 req("data.scripts.init")
-return __json(attached)
+return __json({ maps = attached, files = files })
 `;
 
-// files: "data/scripts/....lua" -> source
-export async function loadGameScripts(files: Map<string, string>, version: string): Promise<GameScripts> {
+// files: "data/scripts/....lua" -> source. maps: what each map gets; files:
+// the ones the version's init.lua actually loads
+export async function loadGameScripts(files: Map<string, string>, version: string): Promise<{ maps: GameScripts; files: string[] }> {
   return withEngine(files, async (engine) => {
     engine.global.setMemoryMax(256 * 1024 * 1024);
     engine.global.setTimeout(Date.now() + 10000);
     engine.global.set("__version", version);
     engine.global.set("__runner", GAME_SCRIPTS_RUNNER);
     const json: string = await engine.doString(`local f = assert(load(__runner, "=studio_game_scripts")) return f(__version)`);
-    const parsed = JSON.parse(json) as GameScripts | unknown[];
-    return Array.isArray(parsed) ? {} : parsed;
+    const parsed = JSON.parse(json) as { maps?: GameScripts | unknown[]; files?: string[] };
+    return { maps: Array.isArray(parsed.maps) || !parsed.maps ? {} : parsed.maps, files: parsed.files ?? [] };
   }, true);
 }

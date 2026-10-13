@@ -7,7 +7,7 @@
 // Saving diffs the editor's records against Base and rewrites only
 // studio_content.lua, so hand-written mod code is never touched.
 
-import { applyOps, clone, deepEqual, diffDeep, diffRecord, isPlainObject, OVERRIDE } from "../core/merge.ts";
+import { applyOps, clone, deepEqual, diffDeep, diffRecord, isPlainObject, OVERRIDE, splitReplaced } from "../core/merge.ts";
 import { MOD_MAP_INDEX_BASE, type MapDef, type ModInfo, type RegistryOp, type SaveResult } from "../core/types.ts";
 import type { Dataset, GameAdapter } from "../games/types.ts";
 import { PLAY_ENV, type Host, type ProcessResult } from "../host/types.ts";
@@ -308,7 +308,9 @@ function recordCall(registry: string, old: unknown, id: string, value: unknown, 
   if (deep && old !== undefined) {
     const diff = diffDeep(old, value);
     if (diff === undefined) return;
+    const split = diff === OVERRIDE ? null : splitReplaced(diff);
     if (diff === OVERRIDE) out.calls.push({ registry, op: "override", id, value: clone(value) });
+    else if (split) out.calls.push({ registry, op: "patch", id, value: split[0] }, { registry, op: "patch", id, value: split[1] });
     else out.calls.push({ registry, op: "patch", id, value: diff });
     out.patched.push(`${registry} ${id}`);
     return;

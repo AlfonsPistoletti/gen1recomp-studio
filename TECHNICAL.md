@@ -68,7 +68,9 @@ A save writes `mods/<id>/studio_content.lua` (plus the data files below):
   slots are written whole, because lists replace when merged. Changed strings become
   `text:override(...)`, new ones `register(...)`.
 - **"Deep" registries** (`text_pointers`, `field`) append patched lists, so only a grown list's
-  tail is written, and a shrunk list overrides the record. `constants` and the other `replace`
+  tail is written. Any other changed list is written as two patches: the list set to
+  `mod.DELETE`, then the new list (the Town Map grid, a shorter shop list). Overriding the record
+  instead would copy its `assets/generated/` paths into the mod. `constants` and the other `replace`
   registries are written whole with `override`.
 - **Engine defaults:** values the engine fills in itself are restated as the base, so a change
   becomes a small patch:
@@ -138,6 +140,61 @@ An extension's added tile is either 64 shade digits (the mod's own pixels) or a 
 `{ from = "tilesets/cavern.png", x, y }`, and the recipe `blit`s that 8×8 region from the player's
 own sheet (`ImageWriter.blit` takes a source region), so the mod holds tile numbers only. The editor
 previews the same in `compose`. Copied tiles keep their walkability, water/shore and RED++ group.
+
+## Tile brush
+
+`blockWithTile` (`src/core/tileBrush.ts`) turns "this tile into this cell" into a block id:
+an identical block of the live tileset if there is one; else the cell's own block changed in
+place, when it is one of the mod's (an extension block, or any block of a mod tileset) and no
+other cell, border or cut-tree swap uses it; else a new block appended (the extension for a game
+tileset). Map block ids are capped at 0–255 by gen1recomp's schema, so a tileset holds at most
+256 blocks. The tileset write and the map write share one undo step (same label, merged in
+`store.record`). The palette's Tiles view draws each tile as a one-tile block of the map's atlas
+(`MapView.tileSheetFor`), so palette and RED++ colors match the map.
+
+## Starter Pokémon
+
+The Oak's Lab ball scripts (gen1recomp `data/scripts/oaks_lab.lua`, `starterBall`) name their
+species literally: the Pokédex entry (`push_screen DexEntryMenu`), the received lines (`show_text`
+with `RAM`, also the rival's) and `give_pokemon`. The studio leaves the script alone: its helper
+(`src/lua/starterRuntime.ts`) wraps the public `script.command` hook and, in `OAKS_LAB` only, hands
+those rows the mod's species and level (`studio_starters.lua`: ball species -> `{ species, level }`).
+No `engine_internals`. The questions are ordinary `text` records. The rival's teams follow the
+`EVENT_CHOSE_*` flags, not species: `rival_battle` fights base team + 0/1/2 (Charmander's,
+Squirtle's, Bulbasaur's ball), so the studio counts all three as used and labels each rival team
+with its ball; it never changes them itself. Yellow is not offered (Oak's Pikachu
+is the follower).
+
+## Gift Pokémon
+
+`gameGifts` (`src/project/gameEvents.ts`) finds the gifts in the script files the version loads:
+talk rows with `give_pokemon` (map, NPC and its texts known), literal `give_pokemon` rows inside
+script code (map and NPC from the nearest `M.<MAP>` / `TEXT_` before them), and `CODE_GIFTS`, the
+few whose species the code picks (Fighting Dojo, fossils), restated. Oak's Lab belongs to the
+starters. `studio_gifts.lua` (`"<MAP>:<SPECIES>" -> { species, level }`) is applied by a helper
+that wraps the public `script.command` hook and swaps the `give_pokemon` row on that map.
+
+## Oak's speech
+
+gen1recomp builds the intro from a list of steps (`OakSpeech.defaultSteps`) that mods reshape
+through the public `intro.oak_speech.build` hook. `studio_intro.lua` holds the mod's list
+(`speech = { steps }`): the game's steps by id with any changed keys, the mod's own whole
+(`say`, `choice`, `yesno`, `pic`). The helper (`src/lua/introRuntime.ts`) rebuilds the list in that
+order and keeps steps other mods added after the step they followed. Texts are `text` records (new
+steps: `STUDIO_INTRO_<n>`); the Pokémon Oak shows is `field.oakSpeech.demoSpecies`. The save exists
+while the speech runs, so `intro.oak_speech.answered` sets the answer's flag in it. The names and
+the final shrink can't be removed.
+
+## Town Map
+
+`field.townMap.background.map` is the 20×18 grid of tile numbers that gen1recomp's
+`src/ui/TownMap.lua` draws from `background.tiles.path`; the quads come from the image size, so a
+taller sheet just works. The mod's own tiles are 64 shade digits in
+`background.tiles.studioTiles` (the engine ignores the key; `background` is `any` in the schema).
+With own tiles, `path` points at `save/mod-derived/<mod>/studio/townmap/tiles.png`, which the
+recipe builds like a tileset extension (`townMapSheets`). `locations[MAP] = { name, x, y }` shows
+at screen tile (x + 2, y + 1); the d-pad only stops at maps in `cursorOrder`, so placing a map
+appends it there. Fly to new towns stays blocked: `Map.isFlyTown` takes index < 11 only.
 
 ## Mod page and DIFFERENCES.md
 

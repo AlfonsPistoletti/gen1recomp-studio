@@ -6,7 +6,8 @@
 
 import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../core/geometry.ts";
 import { store, type Selection, type Stamp } from "../core/store.ts";
-import { EXTENSIONS, liveTileset, mapAnimations, perRow, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
+import { EXTENSIONS, liveTileset, mapAnimations, perRow, sheetTiles, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
+import { blockWithTile } from "../core/tileBrush.ts";
 import { liveSprite, playerSprites, spriteUrl } from "../core/sprites.ts";
 import { gbcColorsFor, gbcKey, isGbcKey, spriteGbcColors } from "../core/gbc.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
@@ -37,6 +38,9 @@ export interface HoverInfo {
   mapId: string;
   bx: number;
   by: number;
+  // 8x8 tile coordinates
+  tx: number;
+  ty: number;
   cx: number;
   cy: number;
   block: number;
@@ -48,6 +52,8 @@ export interface HoverInfo {
 type Drag =
   | { kind: "pan"; sx: number; sy: number; camX: number; camY: number }
   | { kind: "paint"; lastBx: number; lastBy: number }
+  | { kind: "tile"; lastTx: number; lastTy: number }
+  | { kind: "tilepick"; mapId: string; tx: number; ty: number }
   | { kind: "rect"; bx: number; by: number }
   | { kind: "pick"; mapId: string; bx: number; by: number }
   | { kind: "move"; sel: NonNullable<Selection>; offX: number; offY: number };
@@ -86,7 +92,9 @@ export class MapView {
   private animOn = false;
   // the last fit stays live (re-applied on resize) until the user pans or
   // zooms, so a fit made while the page layout is still settling corrects itself
-  private liveFit: "map" | "world" | null = "map";
+  // re-applied on resize until the user pans or zooms: a fit, or a centered
+  // cell (centering while Maps is hidden would use a 0-wide view)
+  private liveFit: "map" | "world" | { cx: number; cy: number } | null = "map";
   onHover: (info: HoverInfo | null) => void = () => {};
   onDraw: () => void = () => {};
 
@@ -144,7 +152,8 @@ export class MapView {
     this.canvas.style.height = host.clientHeight + "px";
     if (this.liveFit && host.clientWidth > 0 && store.project) {
       if (this.liveFit === "world") this.fitWorld();
-      else this.fitMap();
+      else if (this.liveFit === "map") this.fitMap();
+      else this.centerOnCell(this.liveFit.cx, this.liveFit.cy);
     }
     this.invalidate();
   }
@@ -699,6 +708,15 @@ export class MapView {
       outline(ctx, r.x * BLOCK, r.y * BLOCK, r.w * BLOCK, r.h * BLOCK, this.zoom, "#ffd34d");
       return;
     }
+    if (this.drag?.kind === "tilepick" && h) {
+      const origin = this.placedOf(this.drag.mapId);
+      const m = store.maps[this.drag.mapId];
+      if (origin && m && h.mapId === this.drag.mapId) {
+        const r = this.tileRect(this.drag, h, m);
+        outline(ctx, origin.x + r.x * TILE, origin.y + r.y * TILE, r.w * TILE, r.h * TILE, this.zoom, "#4dd2ff");
+      }
+      return;
+    }
     if (this.drag?.kind === "pick" && h) {
       const origin = this.placedOf(this.drag.mapId);
       const at = this.blockUnder(this.drag.mapId);
@@ -713,6 +731,8 @@ export class MapView {
       const s = store.tool === "brush" ? store.stamp : { ...store.stamp, w: 1, h: 1 };
       this.drawStamp(s, h.bx, h.by, 0.7);
       outline(ctx, h.bx * BLOCK, h.by * BLOCK, s.w * BLOCK, s.h * BLOCK, this.zoom, "#ffd34d");
+    } else if (store.tool === "tile") {
+      outline(ctx, h.tx * TILE, h.ty * TILE, store.tileStamp.w * TILE, store.tileStamp.h * TILE, this.zoom, "#ffd34d");
     } else if (store.tool === "select") {
       outline(ctx, h.cx * CELL, h.cy * CELL, CELL, CELL, this.zoom, "rgba(255,255,255,0.6)");
     }
@@ -794,6 +814,8 @@ export class MapView {
     return {
       mapId: id,
       bx, by, cx, cy,
+      tx: Math.floor(lx / TILE),
+      ty: Math.floor(ly / TILE),
       block: blockAt(m, bx, by),
       tile: cell.tile,
       walkable: cell.walkable,
@@ -879,6 +901,12 @@ export class MapView {
       else if (multi) this.cellPick = pick;
       return;
     }
+    // the tile brush picks the tile under the cursor (right-drag: an area)
+    if ((e.altKey || e.button === 2) && store.tool === "tile") {
+      this.drag = { kind: "tilepick", mapId: h.mapId, tx: h.tx, ty: h.ty };
+      this.invalidate();
+      return;
+    }
     // right-click / right-drag (or Alt+click) picks blocks from any tool
     if (e.altKey || e.button === 2) {
       this.drag = { kind: "pick", mapId: h.mapId, bx: h.bx, by: h.by };
@@ -900,6 +928,9 @@ export class MapView {
     } else if (tool === "brush") {
       this.paintAt(h.bx, h.by);
       this.drag = { kind: "paint", lastBx: h.bx, lastBy: h.by };
+    } else if (tool === "tile") {
+      this.paintTileAt(h.tx, h.ty);
+      this.drag = { kind: "tile", lastTx: h.tx, lastTy: h.ty };
     } else if (tool === "rect") {
       this.drag = { kind: "rect", bx: h.bx, by: h.by };
     } else if (tool === "fill") {
@@ -938,6 +969,19 @@ export class MapView {
       }
       d.lastBx = tx;
       d.lastBy = ty;
+    } else if (d?.kind === "tile" && h) {
+      const map = store.map;
+      const tx = Math.max(0, Math.min(h.tx, map.width * 4 - 1));
+      const ty = Math.max(0, Math.min(h.ty, map.height * 4 - 1));
+      let x = d.lastTx;
+      let y = d.lastTy;
+      while (x !== tx || y !== ty) {
+        x += Math.sign(tx - x);
+        y += Math.sign(ty - y);
+        this.paintTileAt(x, y);
+      }
+      d.lastTx = tx;
+      d.lastTy = ty;
     } else if (d?.kind === "move" && h) {
       const map = store.map;
       const nx = clamp(h.cx - d.offX, 0, map.width * 2 - 1);
@@ -969,6 +1013,18 @@ export class MapView {
             }
           }
         });
+      }
+    } else if (d?.kind === "tilepick") {
+      const h = this.hoverInfo();
+      const m = store.maps[d.mapId];
+      const ts = m && liveTileset(m.tileset);
+      if (h && ts && h.mapId === d.mapId) {
+        const r = this.tileRect(d, h, m);
+        const tiles: number[] = [];
+        for (let y = r.y; y < r.y + r.h; y++) {
+          for (let x = r.x; x < r.x + r.w; x++) tiles.push(ts.blocks[blockAt(m, Math.floor(x / 4), Math.floor(y / 4))]?.[(y % 4) * 4 + (x % 4)] ?? 0);
+        }
+        store.setTileStamp({ w: r.w, h: r.h, blocks: tiles });
       }
     } else if (d?.kind === "pick") {
       const at = this.blockUnder(d.mapId);
@@ -1019,6 +1075,66 @@ export class MapView {
     this.openMap(destId);
     this.fitMap();
     if (target) store.select({ layer: w.layer.key, index: destIndex });
+  }
+
+  // one tile: the cell's block becomes one with that tile (tileBrush.ts);
+  // the tileset change and the map change are one undo step
+  private fullWarned = false;
+  // the tile brush found the tileset full (main.ts tells the user)
+  onTilesetFull: (tileset: string) => void = () => {};
+  // the tiles between a right-drag's start and the pointer, inside the map
+  private tileRect(from: { tx: number; ty: number }, h: HoverInfo, m: MapDef): { x: number; y: number; w: number; h: number } {
+    const cx = (v: number, n: number) => Math.max(0, Math.min(v, n * 4 - 1));
+    const x0 = cx(from.tx, m.width), x1 = cx(h.tx, m.width);
+    const y0 = cx(from.ty, m.height), y1 = cx(h.ty, m.height);
+    return { x: Math.min(x0, x1), y: Math.min(y0, y1), w: Math.abs(x1 - x0) + 1, h: Math.abs(y1 - y0) + 1 };
+  }
+
+  // the tile stamp with its top-left tile at (tx, ty)
+  private paintTileAt(tx: number, ty: number): void {
+    const s = store.tileStamp;
+    for (let y = 0; y < s.h; y++) for (let x = 0; x < s.w; x++) this.paintOneTile(tx + x, ty + y, s.blocks[y * s.w + x]);
+  }
+
+  private paintOneTile(tx: number, ty: number, tile: number): void {
+    const map = store.map;
+    const bx = Math.floor(tx / 4);
+    const by = Math.floor(ty / 4);
+    if (tx < 0 || ty < 0 || bx >= map.width || by >= map.height) return;
+    const res = blockWithTile(store.currentMap, bx, by, (ty % 4) * 4 + (tx % 4), tile);
+    if (!res) {
+      if (!this.fullWarned) this.onTilesetFull(map.tileset);
+      this.fullWarned = true;
+      return;
+    }
+    this.fullWarned = false;
+    if (res.write) store.setRecord(res.write.registry, res.write.id, "Tile brush", res.write.next, true);
+    store.edit(store.currentMap, "Tile brush", (d) => {
+      d.blocks[by * d.width + bx] = res.block;
+    }, true);
+    store.markMap("Tile brush", store.currentMap);
+  }
+
+  // The tiles of a tileset in the map's colors, laid out like its sheet
+  // (`per` a row), for the palette: drawn as one-tile blocks, so RED++ and
+  // palette colors come out as on the map.
+  async tileSheetFor(tilesetId: string, palette: string): Promise<{ canvas: HTMLCanvasElement; count: number; per: number } | null> {
+    const ts = liveTileset(tilesetId);
+    if (!ts) return null;
+    const count = sheetTiles(ts);
+    const per = perRow(ts);
+    const colorsFor = isGbcKey(palette) ? gbcColorsFor(tilesetId, palette) : store.adapter.tileColors(store.ctx, ts, palette);
+    const single = { ...ts, id: `${tilesetId}#tiles`, blocks: Array.from({ length: count }, (_, t) => [t]) };
+    const atlas = await blockAtlas(single, await tilesetUrl(tilesetId), palette, colorsFor, tilesetKey(tilesetId));
+    const canvas = document.createElement("canvas");
+    canvas.width = per * TILE;
+    canvas.height = Math.max(1, Math.ceil(count / per)) * TILE;
+    const ctx = canvas.getContext("2d")!;
+    for (let t = 0; t < count; t++) {
+      const [sx, sy] = atlasRect(t);
+      ctx.drawImage(atlas.canvas, sx, sy, TILE, TILE, (t % per) * TILE, Math.floor(t / per) * TILE, TILE, TILE);
+    }
+    return { canvas, count, per };
   }
 
   private paintAt(bx: number, by: number): void {
@@ -1171,7 +1287,7 @@ export class MapView {
   centerOnCell(cx: number, cy: number): void {
     this.camX = cx * CELL + CELL / 2 - this.viewW / 2 / this.zoom;
     this.camY = cy * CELL + CELL / 2 - this.viewH / 2 / this.zoom;
-    this.liveFit = null;
+    this.liveFit = { cx, cy };
     this.invalidate();
   }
 
@@ -1243,5 +1359,7 @@ export interface EventPreviewState {
 
 export function isTyping(e: KeyboardEvent): boolean {
   const t = e.target as HTMLElement | null;
-  return !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
+  // a ticked checkbox keeps focus but takes no typing: shortcuts (Ctrl+Z) still work
+  const box = t instanceof HTMLInputElement && (t.type === "checkbox" || t.type === "radio");
+  return !!t && !box && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable);
 }

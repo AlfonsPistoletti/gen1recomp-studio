@@ -29,6 +29,46 @@ export function append(el: Element, children: Child[]): void {
   }
 }
 
+// Up/Down on a focused row of a left-panel list opens the previous/next
+// row instead of scrolling. Rows are rebuilt when one opens, so the new row
+// is focused again after that (by position; an edited record is listed twice).
+export function listKeys(list: HTMLElement): void {
+  list.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    const rows = () => [...list.querySelectorAll<HTMLElement>(".map-row")].filter((r) => r.offsetParent !== null);
+    const all = rows();
+    const at = all.indexOf(e.target as HTMLElement);
+    if (at < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const next = all[at + (e.key === "ArrowUp" ? -1 : 1)];
+    if (!next) return;
+    const id = next.dataset.id;
+    const index = at + (e.key === "ArrowUp" ? -1 : 1);
+    next.click();
+    requestAnimationFrame(() => {
+      const now = rows();
+      const row = now[index]?.dataset.id === id ? now[index] : now.find((r) => r.dataset.id === id);
+      row?.focus();
+      row?.scrollIntoView({ block: "nearest" });
+    });
+  });
+}
+
+// A list about to be rebuilt: when one of its rows has focus (a click
+// focuses the row, then the click's re-render would drop it), the returned
+// function focuses the open row again, so Up/Down keep working.
+export function listFocus(list: HTMLElement): () => void {
+  const rows = () => [...list.querySelectorAll<HTMLElement>(".map-row")];
+  const at = rows().indexOf(document.activeElement as HTMLElement);
+  if (at < 0) return () => {};
+  return () => {
+    const now = rows();
+    const row = now[at]?.classList.contains("active") ? now[at] : list.querySelector<HTMLElement>(".map-row.active");
+    row?.focus({ preventScroll: true });
+  };
+}
+
 export function clear(el: Element): void {
   while (el.firstChild) el.removeChild(el.firstChild);
 }
@@ -112,22 +152,141 @@ export function selectInput(value: string, options: string[], onChange: (v: stri
   return select;
 }
 
-// A text input that offers `options` while typing (one shared <datalist>
-// per `listId`) and only accepts values from the list; anything else is
-// reported and reverted. Case-insensitive, stored as the option's spelling.
+// ------------------------------------------------------------------ combo list
+
+// The studio's own pick list for text inputs (the browser's <datalist> only
+// lists what matches the text already in the box). One popup, shown in the
+// top layer (popover) so it works inside dialogs too. Focus opens the whole
+// list with the current value highlighted; typing filters by id or name;
+// arrows, Enter and Escape; a pick sets the text and fires "change", so the
+// input's own handlers decide what happens.
+
+// a display name for an option of a list (set by main.ts: Pokémon, move,
+// item names); undefined shows the id alone
+let comboLabel: (listId: string, id: string) => string | undefined = () => undefined;
+export function setComboLabels(fn: (listId: string, id: string) => string | undefined): void {
+  comboLabel = fn;
+}
+
+let pop: HTMLDivElement | null = null;
+// when the last pick happened: the form re-renders after a pick and puts
+// focus back into the (new) input, which must not open the list again
+let pickedAt = 0;
+function popup(): HTMLDivElement {
+  if (!pop) {
+    pop = h("div", { class: "combo-pop", popover: "manual" });
+    document.body.append(pop);
+  }
+  return pop;
+}
+
+export function attachCombo(input: HTMLInputElement, options: () => string[], listId: string): void {
+  let open = false;
+  let shown: string[] = [];
+  let at = -1;
+  let before = "";
+  const label = (o: string) => {
+    const name = comboLabel(listId, o);
+    return name && name.toUpperCase() !== o.toUpperCase() ? name : "";
+  };
+  const highlight = (i: number) => {
+    at = Math.max(-1, Math.min(i, shown.length - 1));
+    const rows = popup().children;
+    for (let k = 0; k < rows.length; k++) rows[k].classList.toggle("active", k === at);
+    (rows[at] as HTMLElement | undefined)?.scrollIntoView({ block: "nearest" });
+  };
+  const render = (query: string) => {
+    const q = query.trim().toUpperCase();
+    const all = options();
+    shown = q ? all.filter((o) => o.toUpperCase().includes(q) || label(o).toUpperCase().includes(q)) : all;
+    const p = popup();
+    p.replaceChildren(...shown.map((o) => {
+      const name = label(o);
+      const row = h("div", { class: "combo-row" }, h("span", { class: "combo-id" }, o), name ? h("span", { class: "combo-name" }, name) : null);
+      // mousedown, not click: the input keeps focus
+      row.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        pick(o);
+      });
+      return row;
+    }));
+    if (!shown.length) p.append(h("div", { class: "combo-empty" }, "No match"));
+  };
+  const place = () => {
+    const r = input.getBoundingClientRect();
+    const p = popup();
+    const below = window.innerHeight - r.bottom;
+    p.style.left = `${r.left}px`;
+    p.style.minWidth = `${Math.max(r.width, 200)}px`;
+    p.style.maxHeight = `${Math.max(120, Math.min(320, below > 160 ? below - 8 : r.top - 8))}px`;
+    if (below > 160) {
+      p.style.top = `${r.bottom + 2}px`;
+      p.style.bottom = "";
+    } else {
+      p.style.top = "";
+      p.style.bottom = `${window.innerHeight - r.top + 2}px`;
+    }
+  };
+  const show = () => {
+    before = input.value;
+    render("");
+    place();
+    const p = popup();
+    if (!p.matches(":popover-open")) p.showPopover();
+    open = true;
+    highlight(shown.indexOf(options().find((o) => o.toUpperCase() === input.value.trim().toUpperCase()) ?? ""));
+  };
+  const hide = () => {
+    if (!open) return;
+    open = false;
+    const p = popup();
+    if (p.matches(":popover-open")) p.hidePopover();
+  };
+  // a pick is a decision: the list closes and the input lets go of focus
+  const pick = (o: string) => {
+    hide();
+    pickedAt = Date.now();
+    input.value = o;
+    input.dispatchEvent(new Event("change"));
+    input.blur();
+  };
+  input.addEventListener("focus", () => {
+    if (Date.now() - pickedAt < 400) return;
+    show();
+    input.select();
+  });
+  input.addEventListener("mousedown", () => {
+    if (document.activeElement === input && !open) show();
+  });
+  input.addEventListener("input", () => {
+    if (!open) show();
+    render(input.value);
+    highlight(0);
+  });
+  input.addEventListener("blur", hide);
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!open) return show();
+      highlight(at + (e.key === "ArrowDown" ? 1 : -1));
+    } else if (e.key === "Enter" && open && at >= 0) {
+      e.preventDefault();
+      pick(shown[at]);
+    } else if (e.key === "Escape" && open) {
+      e.preventDefault();
+      e.stopPropagation();
+      input.value = before;
+      hide();
+    }
+  });
+}
+
+// A text input that picks one of `options` (attachCombo) and only accepts
+// values from the list; anything else is reported and reverted.
+// Case-insensitive, stored as the option's spelling.
 export function comboInput(value: string, listId: string, options: string[], onChange: (v: string) => void, placeholder = ""): HTMLInputElement {
-  let list = document.getElementById(listId) as HTMLDataListElement | null;
-  if (!list) {
-    list = h("datalist", { id: listId });
-    document.body.append(list);
-  }
-  if (list.dataset.key !== String(options.length) + (options[0] ?? "")) {
-    clear(list);
-    for (const o of options) list.append(h("option", { value: o }));
-    list.dataset.key = String(options.length) + (options[0] ?? "");
-  }
   const input = h("input", { type: "text", value, spellcheck: false, placeholder, class: "combo" });
-  input.setAttribute("list", listId);
+  attachCombo(input, () => options, listId);
   input.addEventListener("change", () => {
     const typed = input.value.trim().toUpperCase();
     const match = options.find((o) => o.toUpperCase() === typed);
@@ -137,9 +296,12 @@ export function comboInput(value: string, listId: string, options: string[], onC
       return;
     }
     input.value = match;
-    if (match !== value) onChange(match);
+    // remembered, so a second change event (Enter, then blur) does nothing
+    if (match !== value) {
+      value = match;
+      onChange(match);
+    }
   });
-  input.addEventListener("focus", () => input.select());
   return input;
 }
 
@@ -188,6 +350,9 @@ export function toast(message: string, kind: "info" | "error" | "ok" = "info"): 
   const host = document.getElementById("toasts")!;
   const el = h("div", { class: `toast ${kind}` }, message);
   host.append(el);
+  // re-shown each time so it stacks above a modal dialog opened since
+  if (host.matches(":popover-open")) host.hidePopover();
+  host.showPopover();
   setTimeout(() => el.classList.add("leaving"), kind === "error" ? 6000 : 2800);
   setTimeout(() => el.remove(), kind === "error" ? 6400 : 3200);
 }

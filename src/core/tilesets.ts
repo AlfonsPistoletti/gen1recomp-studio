@@ -283,7 +283,7 @@ export function tilesetUrl(id: string): Promise<string> {
   return p;
 }
 
-async function compose(url: string, per: number, tiles: string[]): Promise<string> {
+export async function compose(url: string, per: number, tiles: string[]): Promise<string> {
   const img = await loadImage(url);
   const width = img?.width || per * TILE;
   const top = img?.height ?? 0;

@@ -286,7 +286,8 @@ export interface GlobalNumber {
 }
 
 export interface GlobalsSpec {
-  sections: { id: string; label: string; hint: string }[];
+  // shown in the left list in this order, under a heading per group
+  sections: { id: string; group?: string; label: string; hint: string }[];
   numbers: GlobalNumber[];
   // what the engine uses for a global record nobody set (registry -> id ->
   // value); the studio compares against these and drops records that match
@@ -472,6 +473,8 @@ export interface EntityLayer {
   create(map: MapDef, cx: number, cy: number, ctx: GameContext): EntityRecord;
   // fix up a duplicated record (fresh ids and the like)
   duplicate?(map: MapDef, copy: EntityRecord): void;
+  // ready-made kinds of this layer with their own add button (an item ball)
+  variants?: { id: string; label: string; create(map: MapDef, cx: number, cy: number, ctx: GameContext): EntityRecord }[];
   sprite?(record: EntityRecord): SpriteRef | null;
 }
 
@@ -504,6 +507,10 @@ export interface GameAdapter {
   name: string;
   // the manifest "games" value mods for this generation declare
   manifestGame: string;
+  // set while the studio can only show this generation: why (no saving)
+  readOnly?: string;
+  // the workspaces this generation has; unset = all of them
+  workspaces?: string[];
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;

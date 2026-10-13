@@ -1,5 +1,5 @@
 import { store } from "../core/store.ts";
-import { clear, h } from "./dom.ts";
+import { clear, h, listFocus, listKeys } from "./dom.ts";
 
 // Left-panel list for a workspace: search box, edited records pinned on
 // top (and kept in their usual place too), never scrolls by itself. Shares
@@ -42,7 +42,8 @@ export interface RecordList {
 export function mountRecordList(host: HTMLElement, opts: RecordListOptions): RecordList {
   const search = h("input", { type: "search", placeholder: opts.placeholder, spellcheck: false, id: opts.searchId });
   const list = h("div", { class: "map-list", role: "listbox" });
-  host.append(h("div", { class: "panel-head" }, h("span", {}, opts.title), ...(opts.head ?? [])), h("div", { class: "panel-pad" }, search), list);
+  listKeys(list);
+  host.append(h("div", { class: "panel-head" }, h("span", {}, opts.title), opts.head?.length ? h("div", { class: "row nowrap" }, ...opts.head) : null), h("div", { class: "panel-pad" }, search), list);
 
   let query = "";
   let foldOpen = false;
@@ -53,6 +54,7 @@ export function mountRecordList(host: HTMLElement, opts: RecordListOptions): Rec
   const render = () => {
     const scrollTop = list.scrollTop;
     const pinnedBefore = pinnedHeight();
+    const refocus = listFocus(list);
     clear(list);
     if (!store.project) return;
     const q = query.toLowerCase();
@@ -102,6 +104,7 @@ export function mountRecordList(host: HTMLElement, opts: RecordListOptions): Rec
     }
     const shift = scrollTop > pinnedBefore ? pinnedHeight() - pinnedBefore : 0;
     list.scrollTop = scrollTop + shift;
+    refocus();
   };
 
   search.addEventListener("input", () => {

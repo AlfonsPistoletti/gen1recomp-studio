@@ -12,17 +12,18 @@ import { store } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { HiddenKind, TownSpec } from "../games/types.ts";
 import type { MapView } from "../render/mapView.ts";
-import { comboInput, h, numberInput, selectInput, toast } from "./dom.ts";
+import { comboInput, field, h, numberInput, selectInput, toast } from "./dom.ts";
 import { idBase, newTextId, pointerEntry, type PointerEntry } from "./mapText.ts";
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
 import { counterId, counters, freshCounter, prizeCounterEditor } from "./prizeEditor.ts";
 import { createEvent, eventId, gameTalkEvent, splitEventId, studioEvent, studioEventsOf } from "./eventEditor.ts";
+import { isItemBall } from "./inspector.ts";
 import { buildTrainer, currentSetup, facingOf, isStale, removeTrainer, trainerEventOf, type TrainerSetup } from "./trainerEvents.ts";
 
-type Role = "" | "mart" | "nurse" | "pc" | "prizes" | "event" | "trainer";
+type Role = "" | "mart" | "nurse" | "pc" | "prizes" | "event" | "trainer" | "item";
 
-const ROLE_LABEL: Record<Role, string> = { "": "Normal (says its text)", trainer: "Trainer (battles)", event: "Event (runs commands)", mart: "Shop clerk", nurse: "Nurse (heals)", pc: "PC", prizes: "Prize counter" };
+const ROLE_LABEL: Record<Role, string> = { "": "Normal (says its text)", item: "Item ball (picked up)", trainer: "Trainer (battles)", event: "Event (runs commands)", mart: "Shop clerk", nurse: "Nurse (heals)", pc: "PC", prizes: "Prize counter" };
 
 function spec(): TownSpec | undefined {
   return store.adapter?.towns;
@@ -56,12 +57,26 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
     return wrap;
   }
   const textId = typeof entity.text === "string" && /^TEXT_[A-Z0-9_]+$/.test(entity.text) ? entity.text : "";
-  const role: Role = kind === "npc" && typeof entity.trainerClass === "string" ? "trainer" : textId ? roleOf(s, map.id, label, textId) : "";
+  const role: Role = kind === "npc" && typeof entity.trainerClass === "string" ? "trainer"
+    : kind === "npc" && isItemBall(entity) ? "item"
+    : textId ? roleOf(s, map.id, label, textId) : "";
   const cid = textId ? counterId(map.id, textId) : "";
   const vanillaCounter = !!cid && store.baseTable(s.prizeRegistry)[cid] !== undefined;
-  const roles: Role[] = kind === "sign" ? ["", "event", "prizes"] : ["", "trainer", "event", "mart", "nurse", "pc", "prizes"];
+  const roles: Role[] = kind === "sign" ? ["", "event", "prizes"] : ["", "item", "trainer", "event", "mart", "nurse", "pc", "prizes"];
 
   const setRole = (next: Role) => {
+    if (next === "item" || role === "item") {
+      // an item ball stands still; leaving the role takes the item away
+      editEntity?.(next === "item" ? "Make item ball" : "Not an item ball", (e) => {
+        if (next === "item") {
+          e.item = "POTION";
+          e.movement = "STAY";
+          e.range = "NONE";
+        } else delete e.item;
+      });
+      store.seal();
+      if (next === "item" || next === "") return;
+    }
     if (next === "trainer" || role === "trainer") return setTrainerRole(map, entity, index, next === "trainer", setTextId, editEntity);
     store.group(`Role: ${ROLE_LABEL[next]}`, () => {
       let id = textId;
@@ -100,6 +115,15 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
   }
 
   if (role === "trainer") wrap.append(...trainerFields(map, entity, index, setTextId, editEntity));
+  if (role === "item") {
+    const items = Object.keys(store.table("items")).sort();
+    wrap.append(
+      field("Item", comboInput(String(entity.item ?? ""), "dl-items", items, (v) => {
+        editEntity?.("Item ball item", (e) => (e.item = v));
+        store.seal();
+      })),
+    );
+  }
   if (role === "event") {
     const ev = studioEvent(eventId(map.id, "talk", textId));
     wrap.append(

@@ -404,9 +404,24 @@ body.resizing * { cursor: col-resize !important; }
 .field > input, .field > select { width: 100%; }
 .hint { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }
 .hint.warn { color: var(--warn); }
+/* something the user still has to do by hand */
+.notice { margin: 10px 0; padding: 8px 10px; border: 1px solid var(--warn); border-left-width: 4px; border-radius: 4px; background: color-mix(in srgb, var(--warn) 10%, transparent); }
+.notice strong { color: var(--warn); }
+.notice p { margin: 4px 0 8px; }
+.team-choice { margin-left: 10px; font-weight: normal; }
+.badge-row { gap: 6px; margin: 4px 0; }
+.badge-num { width: 2ch; text-align: right; color: var(--muted); }
+/* one width, so every row's buttons line up */
+.badge-row select { width: 18ch; flex: none; }
+.intro-kind { margin-left: 10px; font-weight: normal; }
+.intro-pic { align-items: flex-end; }
+.intro-answer { gap: 6px; margin: 4px 0; }
+.intro-answer input[type="text"] { width: 14ch; }
+.intro-add { width: auto; }
 .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 .row.wrap { flex-wrap: wrap; }
-.row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* field grids align at the top: a hint under one field must not shift the others */
+.row.two { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; align-items: start; }
 .row .x { color: var(--muted); }
 .row.nowrap { flex-wrap: nowrap; }
 .panel-head .zoom-label { min-width: 38px; font-weight: 500; text-transform: none; letter-spacing: 0; }
@@ -472,7 +487,15 @@ dialog.blocks-from canvas { cursor: pointer; }
 .md-preview p, .md-preview li { line-height: 1.5; }
 .md-preview code { padding: 0 3px; border-radius: 3px; background: var(--panel); }
 
+/* a manual popover (dom.ts toast): it renders in the top layer, above open
+   modal dialogs, which no z-index can beat */
 #toasts {
+  inset: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
   position: fixed;
   right: 16px;
   bottom: 40px;
@@ -584,16 +607,29 @@ dialog.blocks-from canvas { cursor: pointer; }
 }
 .card h4 { margin: 0; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .card-head { display: flex; align-items: center; justify-content: space-between; }
-.row.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.row.three { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: start; }
 .row.three input[type="number"] { width: 100%; }
 .row.nowrap { flex-wrap: nowrap; }
 .btn.active { border-color: var(--accent); }
 
 input.combo { width: 100%; min-width: 0; }
+/* the pick list of a combo input (dom.ts attachCombo), in the top layer */
+.combo-pop {
+  position: fixed; inset: auto; margin: 0; padding: 4px 0; overflow-y: auto;
+  background: var(--panel); color: inherit; border: 1px solid var(--line); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); font-size: 12px;
+}
+.combo-row { display: flex; gap: 10px; padding: 3px 10px; cursor: pointer; white-space: nowrap; }
+.combo-row:hover { background: var(--panel-2); }
+.combo-row.active { background: var(--accent-2); color: #fff; }
+.combo-id { font-family: var(--mono, monospace); }
+.combo-name { margin-left: auto; color: var(--muted); }
+.combo-row.active .combo-name { color: #e8eefc; }
+.combo-empty { padding: 4px 10px; color: var(--muted); }
 
 .row-icon { width: 22px; height: 22px; image-rendering: pixelated; object-fit: contain; flex: none; }
 .more-rows { width: 100%; margin-top: 6px; }
-.wild-dot { width: 7px; height: 7px; border-radius: 50%; background: #3fbf6a; flex: none; }
+.wild-icon { display: inline-flex; flex: none; color: #e5534b; }
 
 /* ---------------------------------------------------------- pokémon */
 
@@ -621,12 +657,17 @@ input.combo { width: 100%; min-width: 0; }
 .learn-row input[type="number"] { width: 100%; }
 .move-chip { display: inline-flex; align-items: center; gap: 2px; width: 190px; }
 
+.moves-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; align-items: start; }
 .tm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 2px 8px; }
 .tm { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 2px 4px; border-radius: 4px; cursor: pointer; color: var(--muted); }
 .tm:hover { background: #20242d; }
 .tm.on { color: var(--text); }
 .tm-num { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 32px; }
 .tm-move { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.learners { margin-top: 10px; }
+.learners-head { align-items: center; gap: 8px; margin-bottom: 6px; }
+.learners-head input[type="search"] { width: 160px; }
+.learners-head select { width: auto; }
 
 /* ---------------------------------------------------------- encounters */
 
@@ -764,9 +805,11 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 /* ---------------------------------------------------------- art */
 
 .art-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
-.art-slot { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+/* label, controls, picture, note share rows across the slots: the pictures line up */
+.art-slot { display: grid; grid-row: span 4; grid-template-rows: subgrid; row-gap: 6px; justify-items: start; align-content: start; }
+.art-slot .art-controls { align-self: start; }
 .art-slot select { width: 100%; }
-.art-controls { display: flex; flex-direction: column; gap: 6px; width: 100%; min-height: 62px; }
+.art-controls { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .art-controls .btn { align-self: flex-start; }
 .art-thumb { width: 112px; height: 112px; display: flex; align-items: flex-end; justify-content: center; background: #f4f4ec; border-radius: 6px; overflow: hidden; }
 .art-thumb img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
@@ -795,6 +838,9 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .step-row.item-step .row.nowrap input[type="number"] { width: 80px; }
 .step-row.item-step .row.nowrap select { width: auto; }
 .inline-check { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+/* long checkbox labels in dialogs wrap instead of overflowing the dialog */
+dialog .inline-check { display: flex; align-items: flex-start; white-space: normal; margin: 6px 0; }
+dialog .inline-check input { flex: none; margin-top: 2px; }
 .list-fold { margin-top: 6px; }
 .list-fold > summary { cursor: pointer; list-style: revert; }
 .list-fold .fold-hint { margin: 2px 10px 6px; }
@@ -813,8 +859,6 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .prize-row { display: grid; grid-template-columns: 100px minmax(0, 1fr) auto; gap: 6px; align-items: center; }
 .prize-row input[type="number"] { width: 72px; }
 .id-input { width: 180px; text-transform: uppercase; }
-.battle-preview-wrap { display: flex; gap: 12px; align-items: flex-end; margin: 8px 0; }
-.battle-preview { width: 320px; height: 288px; image-rendering: pixelated; border: 1px solid var(--line-2); border-radius: 4px; flex: none; }
 .block-list { display: flex; flex-direction: column; gap: 1px; }
 .block-row { display: flex; align-items: center; gap: 8px; padding: 3px 6px; border-radius: 4px; cursor: pointer; font-size: 13px; min-height: 26px; }
 .block-row:hover { background: var(--panel-2); }
@@ -865,7 +909,6 @@ dialog.modal { min-width: 420px; }
 
 /* ------------------------------------------------------------ sprites */
 .view-switch { margin: 8px 8px 0; }
-.view-switch .toggle { flex: 1; }
 .sprite-preview { display: block; align-self: flex-start; max-width: 100%; image-rendering: pixelated; border: 1px solid var(--line); border-radius: 4px; }
 .sprite-frames { display: flex; flex-wrap: wrap; gap: 10px; }
 .sprite-frame-box { display: flex; flex-direction: column; align-items: center; gap: 2px; }
@@ -877,7 +920,6 @@ dialog.modal { min-width: 420px; }
 .image-frame { display: grid; place-items: center; min-height: 120px; padding: 10px; border-radius: 4px;
   background: repeating-conic-gradient(#2a2f38 0% 25%, #20242c 0% 50%) 50% / 16px 16px; }
 .image-pic { image-rendering: pixelated; }
-.view-switch .toggle { font-size: 12px; }
 .mod-details { width: min(560px, 92vw); }
 .mod-details textarea { width: 100%; resize: vertical; }
 .mod-details .row > .field { flex: 1; }
@@ -910,7 +952,10 @@ dialog.modal { min-width: 420px; }
 .palette-swatch { display: flex; flex-direction: column; gap: 4px; }
 .palette-swatch input[type="color"] { width: 100%; height: 56px; padding: 0; border: 1px solid var(--line); border-radius: 6px; background: none; cursor: pointer; }
 .palette-preview { display: block; max-width: 100%; image-rendering: pixelated; border: 1px solid var(--line); }
-.view-switch .toggle { padding-left: 4px; padding-right: 4px; }
+.townmap-canvas { display: block; max-width: 100%; image-rendering: pixelated; border: 1px solid var(--line); cursor: crosshair; touch-action: none; }
+.townmap-tiles { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
+.townmap-tile { width: 32px; height: 32px; image-rendering: pixelated; border: 2px solid transparent; cursor: pointer; }
+.townmap-tile.active { border-color: var(--accent); }
 .palette-mon > div { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 
 /* slot machine wheels (Global > Slot machines) */

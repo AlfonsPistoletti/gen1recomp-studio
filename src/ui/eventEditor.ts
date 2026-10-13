@@ -16,12 +16,13 @@ import type { EventCommand, EventParam, EventRow, EventSpec } from "../games/typ
 import type { GameScripts } from "../lua/vm.ts";
 import { gameEvents } from "../project/gameEvents.ts";
 import { tradeLabel, trades } from "./tradeEditor.ts";
-import { clear, comboInput, errorText, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
+import { attachCombo, clear, comboInput, errorText, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
 import { arrows } from "../games/gen1/events.ts";
 import { followerPath, STEP } from "../core/eventBlocks.ts";
 import { mountRecordList } from "./recordList.ts";
+import { introFlags } from "./introEditor.ts";
 
 export interface StudioEvent {
   x?: number;
@@ -913,10 +914,8 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
         break;
       case "flag": {
         // any name: new flags are made by using them; known ones are suggested
-        const list = document.getElementById("dl-event-flags") ?? document.body.appendChild(h("datalist", { id: "dl-event-flags" }));
-        list.replaceChildren(...knownFlags().map((f) => h("option", { value: f })));
         const inp = h("input", { type: "text", value: String(value ?? ""), spellcheck: false, class: "combo mono" });
-        inp.setAttribute("list", "dl-event-flags");
+        attachCombo(inp, knownFlags, "flags");
         inp.addEventListener("change", () => {
           const v = inp.value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
           if (!v) return void (inp.value = String(value ?? ""));
@@ -1093,9 +1092,9 @@ function combo(options: string[], value: unknown, set: (v: string) => void): HTM
   return comboInput(String(value ?? ""), `dl-ev-${options.length}-${options[0] ?? ""}`, options, (v) => options.includes(v) && set(v));
 }
 
-// flags used by the studio's events and the game's own
-function knownFlags(): string[] {
-  const out = new Set<string>();
+// flags used by the studio's events, Oak's speech and the game's own
+export function knownFlags(): string[] {
+  const out = new Set<string>(introFlags());
   const walk = (rows: EventRow[] | false | undefined) => {
     for (const r of rows || []) if ((r[0] === "check_flag" || r[0] === "set_flag" || r[0] === "clear_flag") && typeof r[1] === "string") out.add(r[1]);
   };

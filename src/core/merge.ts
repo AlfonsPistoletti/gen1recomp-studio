@@ -104,6 +104,39 @@ function isEmpty(v: unknown): boolean {
 // a patch (a list shrank or changed), undefined when nothing changed.
 export const OVERRIDE = Symbol("override");
 
+// In a deep diff: a list inside the record that changed (not only grew). A
+// patch can't say that (lists append), so it is written as two patches, the
+// list key set to mod.DELETE and then the new list (see splitReplaced).
+export const REPLACE_KEY = "__replace";
+
+const isReplace = (v: unknown): v is Record<string, unknown[]> => isPlainObject(v) && Array.isArray(v[REPLACE_KEY]);
+
+// a deep diff with replaced lists -> [the DELETE patch, the patch that sets
+// them and carries the rest]; null when it has none
+export function splitReplaced(diff: unknown): [unknown, unknown] | null {
+  let found = false;
+  const deletes = (v: unknown): unknown => {
+    if (isReplace(v)) {
+      found = true;
+      return { [DELETE_KEY]: true };
+    }
+    if (!isPlainObject(v)) return undefined;
+    const out: Record<string, unknown> = {};
+    for (const [k, inner] of Object.entries(v)) {
+      const d = deletes(inner);
+      if (d !== undefined) out[k] = d;
+    }
+    return Object.keys(out).length ? out : undefined;
+  };
+  const sets = (v: unknown): unknown => {
+    if (isReplace(v)) return v[REPLACE_KEY];
+    if (!isPlainObject(v)) return v;
+    return Object.fromEntries(Object.entries(v).map(([k, inner]) => [k, sets(inner)]));
+  };
+  const first = deletes(diff);
+  return found ? [first, sets(diff)] : null;
+}
+
 export function diffDeep(base: unknown, next: unknown): unknown {
   if (deepEqual(base, next)) return undefined;
   if (Array.isArray(next)) {
@@ -121,7 +154,13 @@ export function diffDeep(base: unknown, next: unknown): unknown {
       continue;
     }
     const d = diffDeep(b, n);
-    if (d === OVERRIDE) return OVERRIDE;
+    if (d === OVERRIDE) {
+      // a changed list: DELETE + the new list (splitReplaced); anything
+      // else a patch can't say overrides the whole record
+      if (!Array.isArray(n)) return OVERRIDE;
+      out[key] = { [REPLACE_KEY]: clone(n) };
+      continue;
+    }
     if (d !== undefined) out[key] = d;
   }
   return Object.keys(out).length ? out : undefined;

@@ -16,7 +16,9 @@ import { spriteUrl } from "./pokemonEditor.ts";
 import { mountRecordList } from "./recordList.ts";
 import { colorSelect, defaultView, monPaletteName, paletteField, picColors } from "./picColors.ts";
 import { showTinted } from "../render/graphics.ts";
-import { scriptBattles, type ScriptBattle } from "../project/gameEvents.ts";
+import { gameEvents, scriptBattles, type ScriptBattle } from "../project/gameEvents.ts";
+import type { GameScripts } from "../lua/vm.ts";
+import { STARTER_BALLS } from "../lua/starterRuntime.ts";
 
 type Rec = Record<string, unknown>;
 type Party = TrainerSlot[];
@@ -52,6 +54,18 @@ function parties(r: Rec | undefined): Party[] {
 // battles the game's scripts start (rivals, ...), loaded with the project;
 // empty on a release build
 let scripted: ScriptBattle[] = [];
+// the game's own map scripts: an NPC whose talk one of them (or a studio
+// talk event) handles as plain rows never fights with its own trainer class
+// and team (OverworldController:talkTo, "hand-ported scripts always win";
+// rows can't fight the NPC). Talk written as code may (gym leaders and the
+// Elite Four call ow:engageTrainer(npc)), so it still counts.
+let gameTalk: GameScripts | null = null;
+function talkOwned(mapId: string, text: unknown): boolean {
+  if (typeof text !== "string") return false;
+  if (Array.isArray(gameTalk?.[mapId]?.talk?.[text])) return true;
+  const reg = store.adapter.events?.registry;
+  return !!reg && store.table(reg)[`${mapId}:talk:${text}`] !== undefined;
+}
 
 // battles the mod's own events start (studio trainers are map NPCs already)
 function eventBattles(): ScriptBattle[] {
@@ -79,7 +93,7 @@ function fightCounts(): Map<string, number> {
   for (const map of Object.values(store.maps)) {
     for (const o of store.entities(map, layer.key)) {
       const c = o[s.objectClassKey];
-      if (typeof c === "string") out.set(c, (out.get(c) ?? 0) + 1);
+      if (typeof c === "string" && !talkOwned(map.id, o.text)) out.set(c, (out.get(c) ?? 0) + 1);
     }
   }
   for (const b of [...scripted, ...eventBattles()]) out.set(b.cls, (out.get(b.cls) ?? 0) + 1);
@@ -94,7 +108,7 @@ function usesOf(id: string): Map<number, { mapId: string; index: number }[]> {
   if (!layer) return out;
   for (const map of Object.values(store.maps)) {
     store.entities(map, layer.key).forEach((o, index) => {
-      if (o[s.objectClassKey] !== id) return;
+      if (o[s.objectClassKey] !== id || talkOwned(map.id, o.text)) return;
       const n = Number(o[s.objectPartyKey] ?? 1);
       if (!out.has(n)) out.set(n, []);
       out.get(n)!.push({ mapId: map.id, index });
@@ -274,8 +288,10 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
       if (!current || !trainers()[current]) current = Object.keys(trainers()).sort()[0] ?? null;
       render(true);
       // the game's scripted battles (checkout only), then the list again
-      void scriptBattles(store.project.host).then((b) => {
+      const { host, version } = store.project;
+      void Promise.all([scriptBattles(host, version), gameEvents(host, version).catch(() => null)]).then(([b, talk]) => {
         scripted = b;
+        gameTalk = talk;
         list.render();
         render(true);
       });
@@ -319,7 +335,7 @@ function mainForm(s: TrainerSpec, id: string, r: Rec): HTMLElement[] {
       { class: "mon-ident" },
       idRow(s.registry, id, String(r.name ?? ""), (to) => nav.openTrainer(to)),
       field("Name", name, `Up to ${s.nameMax} characters, shown as "${String(r.name ?? id)} wants to fight!"`),
-      field("Prize money", money, "The game pays this × the level of the team's last Pokémon."),
+      field("Prize money", money, prizeHint(r)),
       ...s.notes(id, store.ctx).map((n) => h("p", { class: "hint" }, n)),
       fightCounts().get(id) ? null : h("p", { class: "hint warn" }, "Unused: no NPC on any map, no event and no game script fights this trainer class."),
     ),
@@ -338,9 +354,29 @@ function mainForm(s: TrainerSpec, id: string, r: Rec): HTMLElement[] {
   return [header, ...teams, h("div", { class: "row" }, add, h("span", { class: "hint" }, "Map NPCs choose a team by its number (trainerParty)."))];
 }
 
+// BattleState: the prize is baseMoney × the level of the last Pokémon the
+// trainer sends out (the team's last), so it is shown per team
+function prizeHint(r: Rec): string {
+  const base = Number(r.baseMoney ?? 0);
+  const won = parties(r).map((p, i) => `${parties(r).length > 1 ? `team ${i + 1} ` : ""}₽${base * Number(p[p.length - 1]?.level ?? 0)}`);
+  return `The game pays this × the level of the team's last Pokémon: ${won.join(", ") || "₽0"}`;
+}
+
 function firstSpecies(): string {
   const mons = store.table("pokemon");
   return ["RATTATA", "PIDGEY"].find((m) => mons[m]) ?? Object.keys(mons)[0] ?? "RATTATA";
+}
+
+// The rival's teams come in threes, one per ball the player took
+// (Commands.rival_battle: base team + 0 Charmander's, 1 Squirtle's, 2
+// Bulbasaur's ball). Red/Blue; Yellow picks his team another way.
+function rivalChoice(id: string, p: number): string | null {
+  if (!/^OPP_RIVAL[123]$/.test(id) || store.project.version === "yellow") return null;
+  const k = p % 3;
+  const b = STARTER_BALLS[k];
+  const own = (store.table("studio_starters")[b.ball] as { species?: string } | undefined)?.species ?? b.ball;
+  const name = String((store.table("pokemon")[own] as { name?: string } | undefined)?.name ?? own);
+  return `When the player chooses ball ${k + 1}: ${name}`;
 }
 
 function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, used: { mapId: string; index: number }[], isLast: boolean, scripts: ScriptBattle[]): HTMLElement {
@@ -425,7 +461,7 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
     h(
       "div",
       { class: "card-head" },
-      h("h4", {}, `Team ${p + 1}`),
+      h("h4", {}, `Team ${p + 1}`, rivalChoice(id, p) ? h("span", { class: "hint team-choice" }, rivalChoice(id, p)) : null),
       h(
         "div",
         { class: "row nowrap" },

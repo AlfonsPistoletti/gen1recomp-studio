@@ -20,7 +20,8 @@ first start. Click **More info**, then **Run anyway**.
 - **Your game imported once:** start gen1recomp, pick Red, Blue or Yellow and give it your ROM.
   gen1recomp reads the data it needs out of your own ROM; the studio works from that.
 
-  Every version you imported shows up in the studio's game picker.
+  Every version you imported shows up in the studio's game picker. Gold, Silver and Crystal are
+  **view only** for now: their maps can be looked at, but not changed or saved yet.
 
 Some features need the developer copy of gen1recomp, because the tools for them only come with it:
 - **Validate** and **Pack**, the tools that check a mod and package it for sharing;
@@ -49,8 +50,19 @@ you can jump into.
 ### Maps
 - **Painting:** paint maps with blocks from the panel on the right. Right-click a block on the map
   to pick it up; right-drag to copy a whole area as a stamp.
+- **Tile brush** (T): paints single 8×8 tiles. Pick a tile in the panel's **Tiles** view (drag for
+  several), or right-click one on the map. The studio makes the blocks this needs (or reuses ones the tileset
+  already has).
+  - A map can use at most 256 different blocks per tileset; the panel shows how many there are.
+  - Where the player can walk depends on tiles, so painting one can change that spot.
 - **Neighbours:** the neighbouring maps are drawn around the open one, so towns and routes read as
   one world. Double-click a neighbour to open it.
+- **Items on the map:** the **+ Item ball** button puts a Poké Ball down; pick its item in the panel
+  (Role: Item ball). Any sprite works, a fossil for example. The game picks it up once and says
+  "<player> found <item>!", so it needs no text.
+- **Doors:** select a warp, then **Connect to a door…**: pick the other map and click the spot. Both
+  sides are set at once (a warp is made there if needed), and a two-cell mat or double door follows
+  along. One connect per door or staircase, also for buildings with many floors.
 - **Warps, people and signs:** add them with the **+** buttons in the toolbar, or drag them around.
   Select one to edit it on the right, including what a person or sign says.
 - **New text:** **Create text** gives a person new lines. **New text for this one** gives them
@@ -69,20 +81,23 @@ you can jump into.
 - **Wild Pokémon:** the **Encounters** tab at the bottom of the right panel edits grass, water and
   Super Rod Pokémon. The swords button in the toolbar shows which cells can start a wild battle.
 - **New maps:** **+ New** in the map list starts an empty map, or a copy of another one (handy
-  for a new Pokémon Center or shop).
+  for a new Pokémon Center or shop). For a copy, "Its door is on" picks the town: click the door
+  there and both sides are connected.
 
 ### Pokémon
 - Stats, types, catch rate, growth, evolutions, moves, TMs/HMs and the Pokédex entry.
 - **Art:** import front and back pictures and a menu icon, or borrow another Pokémon's.
   - Pictures are turned into the 4 Game Boy shades unless you tick **Full color**.
   - **Battle palette** sets the colors the game paints them in.
-  - A battle preview shows how they will sit on the battle screen.
 - **Cry:** import a sound file (WAV, OGG, MP3, FLAC) or borrow another Pokémon's cry.
 - **+ New** adds a Pokémon as a copy of an existing one.
 
 ### Moves and items
 - Moves: power, accuracy, PP, type, priority and their effect. Items: price, what they do, and which
   shops sell them.
+- **New TMs and HMs:** **+ TM/HM** in the item list makes one that teaches any move. Its page lists
+  who can learn it: tick Pokémon, or use All / None / "Same as" another TM. Then sell it in a shop
+  or give it out with an event.
 - **Effects from blocks:** effects can be built from blocks instead of code:
   - for a move: lower a stat, poison, heal, hit 2–5 times, …;
   - for an item: heal, cure, revive, raise a stat, act as a Poké Ball, …
@@ -124,6 +139,12 @@ items or Pokémon, start a battle, walk people around, warp, play music, and so 
 - **Images:** any other picture: title screen, battle screen, Town Map, fonts, and so on. Replace
   one with your own picture of the same size.
 - **Palettes:** the 4-color Game Boy palettes. Recolor one, or add one a map can use.
+- **Town Map:** the map you open from the START menu.
+  - Paint it with the game's tiles or your own (**+ Import tiles** cuts a picture into tiles).
+  - Pick a map on the left to place it on the Town Map, rename its place, give a building its
+    town's spot ("Same spot as…"), or choose where the cursor stops at it.
+  - The top row stays as it is: the game writes the place name on it.
+  - New towns can be shown on the Town Map, but not flown to (see below).
 
 The color menu at the top of these views (and of Pokémon and Trainers) only changes how things are
 shown in the studio, so you can preview any palette or the RED++ colors.
@@ -132,11 +153,24 @@ shown in the studio, so you can preview any palette or the RED++ colors.
 Game-wide settings:
 - **Wild encounters:** how likely each wild slot is, and the Old and Good Rod.
 - **Type chart:** type matchups, plus your own new types.
-- **Pokémon & items:** level cap and bag size.
+- **Limits:** level cap and bag size.
 - **Status conditions:** the catch bonus of each status.
 - **Overworld:** walking and bike speed, poison steps.
 - **Field moves:** which badge each HM needs.
-- **New game:**
+- **Badges:** the badges in order, as the trainer card shows them. A badge is an item whose id contains
+  BADGE (it never shows in the bag); make one in Items and give it out with an event. Only the first
+  eight have a picture on the trainer card.
+- **Starter Pokémon** (Red and Blue): which Pokémon each of the three balls in Oak's Lab holds, at
+  which level, and Oak's question about it. The rival takes the matching ball in the cutscene, but
+  his teams don't change by themselves: edit them in Trainers (each rival team says which ball
+  the player took for it).
+- **Gift Pokémon:** the Pokémon people give the player (Eevee, Lapras, the Magikarp salesman, the
+  Fighting Dojo, the fossils, and Yellow's extra gifts): which Pokémon and at which level, with
+  buttons to the giver on the map and to their texts.
+- **Oak's speech:** the intro before a new game, as a list of steps. Change what Oak says and shows
+  (and the Pokémon he presents), move steps around, and add your own: lines, pictures, and
+  questions. An answer can set a flag that your events check later.
+- **Start values:**
   - where a new game starts;
   - the starting money;
   - where the player wakes up after blacking out before the first Pokémon Center;
@@ -222,7 +256,7 @@ Your mod lives in gen1recomp's `mods` folder; **Open mod folder** (gear menu) sh
 | Ctrl+F | Jump to the search box |
 | Ctrl+V / Ctrl+P | Validate / Pack the mod (Ctrl+V still pastes inside text fields) |
 | 1 … 9 | Maps, Pokémon, Moves, Items, Trainers, Text, Events, Graphics, Global |
-| S / B / R / F | Map tools: select, brush, rectangle, fill |
+| S / B / R / F / T | Map tools: select, block brush, rectangle, fill, tile brush |
 | Right-click, right-drag (or Alt+click) | Pick up a block, or copy an area |
 | G / C / E / N / W / A | Show or hide: grid, walkable cells, warps & people, neighbouring maps, wild cells, animation |
 | Middle-drag or Space+drag | Move the map |

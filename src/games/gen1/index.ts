@@ -13,6 +13,9 @@ import { GEN1_EFFECTS } from "./effects.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../../lua/itemEffectRuntime.ts";
 import { PRIZE_RUNTIME, prizeRegistration } from "../../lua/prizeRuntime.ts";
+import { STARTER_RUNTIME, starterRegistration } from "../../lua/starterRuntime.ts";
+import { INTRO_RUNTIME, introRegistration } from "../../lua/introRuntime.ts";
+import { GIFT_RUNTIME, giftRegistration } from "../../lua/giftRuntime.ts";
 import { EVENT_RUNTIME, eventRegistration } from "../../lua/eventRuntime.ts";
 import { ROOF_RUNTIME, roofRegistration, TILESET_RUNTIME, tilesetRegistration } from "../../lua/tilesetRuntime.ts";
 import { vanillaPrizes } from "./prizes.ts";
@@ -129,8 +132,10 @@ const content: ContentSpec[] = [
   // (hiddenExtras.pcTiles) and landing spots (flyWarps). Merged "deep".
   // (field.boot, the new-game start, is not in field.lua: the engine fills
   // it in at load, so its defaults are restated as the base record and a
-  // change is written as a patch of the changed keys)
-  { registry: "field", file: "field.lua", editable: true, deep: true, build: (f) => ({ boot: structuredClone(BOOT_DEFAULTS), ...f }) },
+  // change is written as a patch of the changed keys. Its namePresets are
+  // copied from field.presetNames then, before mods run: the intro reads
+  // only boot.namePresets, so that is where names are edited)
+  { registry: "field", file: "field.lua", editable: true, deep: true, build: (f) => ({ boot: { ...structuredClone(BOOT_DEFAULTS), namePresets: namePresets(f) }, ...f }) },
   // Game Corner prize counters: plain data in the mod's studio_prizes.lua,
   // turned into map_scripts talk handlers by the generated helper. The base
   // is the vanilla three counters of the open version.
@@ -192,6 +197,24 @@ const content: ContentSpec[] = [
     registry: "studio_roofs", editable: true, build: () => ({}), studioFile: "studio_roofs.lua",
     generator: { what: "RED++ roof colors", order: ["index", "colors"], runtime: ROOF_RUNTIME, registration: roofRegistration, writes: [], internals: true },
   },
+  // the Oak's Lab starters (the game's ball species -> { species, level }),
+  // swapped in the game's own script as it runs (src/lua/starterRuntime.ts)
+  {
+    registry: "studio_starters", editable: true, build: () => ({}), studioFile: "studio_starters.lua",
+    generator: { what: "starter Pokémon", order: ["species", "level"], runtime: STARTER_RUNTIME, registration: starterRegistration, writes: [] },
+  },
+  // the game's gift Pokémon ("<MAP>:<SPECIES>" -> { species, level }), swapped
+  // in its give_pokemon rows as they run (src/lua/giftRuntime.ts)
+  {
+    registry: "studio_gifts", editable: true, build: () => ({}), studioFile: "studio_gifts.lua",
+    generator: { what: "gift Pokémon", order: ["species", "level"], runtime: GIFT_RUNTIME, registration: giftRegistration, writes: [] },
+  },
+  // Oak's intro speech as a list of steps (speech = { steps }), rebuilt
+  // through the public intro.oak_speech.build hook (src/lua/introRuntime.ts)
+  {
+    registry: "studio_intro", editable: true, build: () => ({}), studioFile: "studio_intro.lua",
+    generator: { what: "Oak's speech", order: ["id", "kind", "textKey", "pic", "reveal", "cry", "choices", "flags"], runtime: INTRO_RUNTIME, registration: introRegistration, writes: [] },
+  },
 ];
 
 interface Field {
@@ -203,6 +226,12 @@ interface Field {
 // gen1recomp src/core/Data.lua BOOT_DEFAULTS (special_warps.asm NewGameWarp:
 // the bedroom upstairs), the keys the studio edits
 const BOOT_DEFAULTS = { startMap: "REDS_HOUSE_2F", startX: 3, startY: 6, startFacing: "down", startMoney: 3000 };
+
+// Data.lua: boot.namePresets = field.presetNames' lists, else these
+function namePresets(f: unknown): { player: string[]; rival: string[] } {
+  const p = (f as { presetNames?: { player?: string[]; rival?: string[] } }).presetNames;
+  return { player: [...(p?.player ?? ["RED", "ASH", "JACK"])], rival: [...(p?.rival ?? ["BLUE", "GARY", "JOHN"])] };
+}
 
 // src/battle/TypeChart.lua TYPES: the type records the engine registers
 // (Gen 1 splits physical/special by type). Kept in the game's type order.
@@ -657,17 +686,21 @@ const SPEEDS = [
 
 const globals: GlobalsSpec = {
   sections: [
-    { id: "wild", label: "Wild encounters", hint: "How likely each of the ten slots of a wild table is, and what the Old and Good Rod catch. The tables themselves (and Super Rod lists) are per map (Maps, Encounters tab)." },
-    { id: "types", label: "Type chart", hint: "Type effectiveness, and which types are physical or special." },
-    { id: "battle", label: "Pokémon & items", hint: "Level cap and bag size." },
-    { id: "status", label: "Status conditions", hint: "How much each status helps catching, and the stat Burn and Paralysis cut. What the statuses do in battle (damage, skipped turns) is the engine's code and stays as it is." },
-    { id: "overworld", label: "Overworld", hint: "Walking and biking speed, poison, blacking out, Day-Care." },
-    { id: "fieldmoves", label: "Field moves", hint: "Which badge each HM needs outside of battle." },
-    { id: "names", label: "New game", hint: "Where a new game starts, the money the player starts with, where they wake up after blacking out before visiting a Pokémon Center, and the names Oak offers in the intro." },
-    { id: "trades", label: "In-game trades", hint: "The Pokémon trades NPCs offer: what they want, what the player gets and its nickname. A trade happens once (its done flag). New trades are offered through the Trade event command." },
-    { id: "sounds", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
-    { id: "slots", label: "Slot machines", hint: "The symbols on the Game Corner's three slot wheels. Coin sellers at another price: an event with Has money, Take money and Give coins (Events workspace)." },
-    { id: "prizes", label: "Game Corner prizes", hint: "What each prize counter trades for coins: three prizes per counter, items or Pokémon. Any NPC or sign can be made a counter (Maps, select it, Role)." },
+    { id: "overworld", group: "Game", label: "Overworld", hint: "Walking and biking speed, poison, blacking out, Day-Care." },
+    { id: "battle", group: "Game", label: "Limits", hint: "Level cap and bag size." },
+    { id: "types", group: "Game", label: "Type chart", hint: "Type effectiveness, and which types are physical or special." },
+    { id: "status", group: "Game", label: "Status conditions", hint: "How much each status helps catching, and the stat Burn and Paralysis cut. What the statuses do in battle (damage, skipped turns) is the engine's code and stays as it is." },
+    { id: "wild", group: "Game", label: "Wild encounters", hint: "How likely each of the ten slots of a wild table is, and what the Old and Good Rod catch. The tables themselves (and Super Rod lists) are per map (Maps, Encounters tab)." },
+    { id: "badges", group: "Game", label: "Badges", hint: "The badges in their order: the trainer card shows them, badge gates and HM rules check them. A badge is an item whose id contains BADGE (it never shows in the bag)." },
+    { id: "fieldmoves", group: "Game", label: "Field moves", hint: "Which badge each HM needs outside of battle." },
+    { id: "intro", group: "New game", label: "Oak's speech", hint: "The intro before a new game: what Oak says and shows, in which order. Add your own lines, pictures and questions; an answer can set a flag that events check later." },
+    { id: "names", group: "New game", label: "Start values", hint: "Where a new game starts, the money the player starts with, where they wake up after blacking out before visiting a Pokémon Center, and the names Oak offers in the intro." },
+    { id: "starters", group: "New game", label: "Starter Pokémon", hint: "What the three Poké Balls in Oak's Lab hold, at which level, and how Oak asks about each. The rival takes the ball the game gives him for your pick; his teams are edited in Trainers." },
+    { id: "gifts", group: "Other", label: "Gift Pokémon", hint: "The Pokémon people give the player (Eevee, Lapras, the fossils, ...): which Pokémon and at which level. What they say about it are texts: the buttons open them." },
+    { id: "trades", group: "Other", label: "In-game trades", hint: "The Pokémon trades NPCs offer: what they want, what the player gets and its nickname. A trade happens once (its done flag). New trades are offered through the Trade event command." },
+    { id: "prizes", group: "Other", label: "Game Corner prizes", hint: "What each prize counter trades for coins: three prizes per counter, items or Pokémon. Any NPC or sign can be made a counter (Maps, select it, Role)." },
+    { id: "slots", group: "Other", label: "Slot machines", hint: "The symbols on the Game Corner's three slot wheels. Coin sellers at another price: an event with Has money, Take money and Give coins (Events workspace)." },
+    { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],
   numbers: [
     { section: "battle", registry: "constants", id: "levelCap", label: "Level cap", hint: "Pokémon stop gaining levels here.", min: 1, max: 100 },
@@ -795,6 +828,16 @@ export const gen1: GameAdapter = {
       duplicate: (map, copy) => {
         copy.index = nextObjectIndex(map);
       },
+      // an item ball: any object with `item` is picked up (OverworldController
+      // talkTo); its text id is never shown
+      variants: [{
+        id: "item",
+        label: "Item ball",
+        create: (map, x, y) => {
+          const index = nextObjectIndex(map);
+          return { index, name: `${map.id}_ITEM_${index}`, sprite: "SPRITE_POKE_BALL", movement: "STAY", range: "NONE", item: "POTION", x, y };
+        },
+      }],
       sprite: (o) => {
         if (typeof o.sprite !== "string") return null;
         const still = o.movement === "STAY";

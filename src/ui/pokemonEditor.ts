@@ -1,5 +1,5 @@
-// Pokémon workspace: species list (left), stats/evolutions/moves (center),
-// TM/HM and Pokédex entry (right). Edits go to the "pokemon" registry (and
+// Pokémon workspace: species list (left), stats/evolutions/moves and TM/HM
+// (center), Pokédex entry and cry (right). Edits go to the "pokemon" registry (and
 // the dex text to "text"); a save writes only the changed fields.
 
 import { addAsset, assetUrl, derivedPath, isCachePath } from "../core/assets.ts";
@@ -10,7 +10,7 @@ import type { PokemonSpec } from "../games/types.ts";
 import { importArt, placeholderArt } from "./artImport.ts";
 import { clear, comboInput, field, h, numberInput, rerender, selectInput, onFocusLeave, toast } from "./dom.ts";
 import { colorSelect, defaultView, monPaletteName, paletteField, picColors } from "./picColors.ts";
-import { loadImage, showTinted, tintPixels } from "../render/graphics.ts";
+import { loadImage, showTinted } from "../render/graphics.ts";
 import type { Rgb } from "../render/color.ts";
 import { promptNewRecord } from "./newRecord.ts";
 import { nav } from "./nav.ts";
@@ -97,7 +97,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
   }, "Revert to base");
   const colors = h("span", {});
   center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, colors, revert)), main);
-  right.append(h("div", { class: "panel-head" }, h("span", {}, "Moves & Pokédex")), side);
+  right.append(h("div", { class: "panel-head" }, h("span", {}, "Pokédex & cry")), side);
 
   const open = (id: string) => {
     if (!species()[id]) return;
@@ -126,7 +126,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
     const id = current;
     rerender(main, () => mainForm(id, rec, spec));
-    rerender(side, () => sideForm(id, rec, spec));
+    rerender(side, () => sideForm(id, rec));
     title.textContent = `#${String(rec.dex ?? "?").padStart(3, "0")} ${String(rec.name ?? current)}`;
     colors.replaceChildren(colorSelect(view ?? defaultView(), monPaletteName(id, rec, false), rec.trueColor === true, (v) => {
       view = v;
@@ -228,7 +228,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (reason === "project") {
       if (!current || !species()[current]) current = dexOrder()[0] ?? null;
       schedule();
-    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries")) {
+    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries" || registry === "items")) {
+      // items: a new or changed TM/HM changes the TM/HM list
       if ((registry === REG || registry === "cries") && id !== current) return;
       schedule();
     } else if (reason === "reveal" && registry === REG && id) {
@@ -302,7 +303,6 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
   return [
     header,
     artCard(id, r, spec),
-    cryCard(id),
     card("Base stats", ...statRows, h("div", { class: "stat-row total" }, h("span", { class: "stat-label" }, "Total"), h("strong", {}, String(total)))),
     card(
       "Battle",
@@ -315,7 +315,8 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
       ),
     ),
     evolutionsCard(id, r, spec),
-    learnsetCard(id, r, spec),
+    // level-up moves and machines side by side (stacked when narrow)
+    h("div", { class: "moves-cols" }, learnsetCard(id, r, spec), tmCard(id, r, spec)),
   ];
 }
 
@@ -501,92 +502,9 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       paletteField(r.palette, monPaletteName(id, undefined, false), (v) => edit(id, "Battle palette", (d) => (v ? (d.palette = v) : delete d.palette))),
       "The colors of its battle pictures. In RED++ mode the game uses RED++'s colors for the same palette name.",
     ),
-    h(
-      "div",
-      { class: "battle-preview-wrap" },
-      battlePreview(front ? spriteUrl(front) : undefined, back ? spriteUrl(back) : undefined, frontScale, backScale, mattedArt(front), mattedArt(back), pal),
-      h("p", { class: "hint" }, "In battle: the foe's front sprite top right, yours from behind, feet on the text box. Bigger art grows up and out from there."),
-    ),
     h("label", { class: "ai-layer" }, colorBox, h("span", {}, h("strong", {}, "Full color"), h("span", { class: "hint" }, "Shows this Pokémon's battle sprites exactly as drawn instead of colouring 4 gray shades with the game's palette."))),
     mod ? h("p", { class: "hint" }, `Imported images are saved into mods/${mod}/assets/studio/ when you save.`) : h("p", { class: "hint warn" }, "Choose or create a mod to import art."),
   );
-}
-
-// the game's own pics have a white background the engine makes transparent
-const mattedArt = (path: string | undefined): boolean => !!path && (path.startsWith("assets/generated/") || path.startsWith("save/mod-derived/"));
-
-// The battle screen as gen1recomp lays it out (BattleState.drawPicsLayer):
-// the foe's front pic centred in the 7×7 tile slot at tile (12, 0), bottom
-// edge and centre pinned as it scales (frontPlacement); the player's back pic
-// at x 8 with its feet on the text box top, y 96 (backPlacement), both after
-// trimming the transparent rows/columns the engine trims.
-function battlePreview(front: string | undefined, back: string | undefined, fs: number, bs: number, frontMatted: boolean, backMatted: boolean, pal: Rgb[] | null = null): HTMLElement {
-  const W = 160;
-  const H = 144;
-  const canvas = h("canvas", { width: W, height: H, class: "battle-preview" });
-  const ctx = canvas.getContext("2d")!;
-  const load = (src?: string) =>
-    new Promise<HTMLImageElement | null>((done) => {
-      if (!src) return done(null);
-      const img = new Image();
-      img.onload = () => done(img);
-      img.onerror = () => done(null);
-      img.src = src;
-    });
-  // the pic with the engine's matting, plus its empty bottom rows / left columns
-  const prepare = (img: HTMLImageElement, matted: boolean) => {
-    const c = document.createElement("canvas");
-    c.width = img.naturalWidth;
-    c.height = img.naturalHeight;
-    const g = c.getContext("2d")!;
-    g.drawImage(img, 0, 0);
-    let data: ImageData;
-    try {
-      data = g.getImageData(0, 0, c.width, c.height);
-    } catch {
-      // pixels of another origin can't be read: draw it untrimmed
-      return { c, pad: 0, padL: 0 };
-    }
-    const px = data.data;
-    if (matted) for (let i = 0; i < px.length; i += 4) if (px[i] > 212 && px[i + 1] > 212 && px[i + 2] > 212) px[i + 3] = 0;
-    // the palette goes on after the matting, as in the game
-    if (pal) tintPixels(px, pal);
-    g.putImageData(data, 0, 0);
-    const opaque = (x: number, y: number) => px[(y * c.width + x) * 4 + 3] > 0;
-    let bottom = c.height - 1;
-    while (bottom >= 0 && ![...Array(c.width).keys()].some((x) => opaque(x, bottom))) bottom--;
-    let left = 0;
-    while (left < c.width && ![...Array(c.height).keys()].some((y) => opaque(left, y))) left++;
-    return { c, pad: c.height - 1 - Math.max(bottom, 0), padL: left === c.width ? 0 : left };
-  };
-  Promise.all([load(front), load(back)]).then(([f, b]) => {
-    ctx.imageSmoothingEnabled = false;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillRect(0, 0, W, H);
-    // the text box (rows 12-17)
-    ctx.fillStyle = "#e8e8e8";
-    ctx.fillRect(0, 96, W, 48);
-    ctx.strokeStyle = "#383838";
-    ctx.strokeRect(1.5, 97.5, W - 3, 45);
-    if (f) {
-      const { c } = prepare(f, frontMatted);
-      const tw = Math.min(7, Math.max(1, Math.floor(c.width / 8)));
-      const th = Math.min(7, Math.max(1, Math.floor(c.height / 8)));
-      const ex = 96 + 8 * Math.floor((8 - tw) / 2);
-      const ey = 8 * (7 - th);
-      ctx.drawImage(c, ex + (c.width * (1 - fs)) / 2, ey + c.height * (1 - fs), c.width * fs, c.height * fs);
-    }
-    if (b) {
-      const { c, pad, padL } = prepare(b, backMatted);
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, W, 96);
-      ctx.clip();
-      ctx.drawImage(c, 8 - padL * bs, 96 - (c.height - pad) * bs, c.width * bs, c.height * bs);
-      ctx.restore();
-    }
-  });
-  return canvas;
 }
 
 function evolutionsCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
@@ -686,7 +604,7 @@ function learnsetCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   );
 }
 
-function sideForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
+function tmCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   const machines = spec.machines(store.ctx);
   const has = new Set((r.tmhm as string[] | undefined) ?? []);
   const toggle = (move: string, on: boolean) =>
@@ -705,7 +623,10 @@ function sideForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
       return h("label", { class: `tm${has.has(m.move) ? " on" : ""}`, title: m.move }, box, h("span", { class: "tm-num" }, m.label), h("span", { class: "tm-move" }, m.move.replace(/_/g, " ")));
     }),
   );
+  return card(`TM / HM (${has.size})`, grid);
+}
 
+function sideForm(id: string, r: Rec): HTMLElement[] {
   const dex = r.dexEntry as Rec | undefined;
   const dexFields: HTMLElement[] = [];
   if (dex) {
@@ -726,8 +647,8 @@ function sideForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
   }
 
   return [
-    card(`TM / HM (${has.size})`, grid),
     dex ? card("Pokédex entry", ...dexFields) : card("Pokédex entry", h("p", { class: "hint" }, "No Pokédex entry.")),
+    cryCard(id),
   ];
 }
 

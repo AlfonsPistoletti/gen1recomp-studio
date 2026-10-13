@@ -1,7 +1,10 @@
 import { defineConfig } from "vite";
 import { handleApi } from "./server/api.ts";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // unfinished features (src/features.ts): on in the dev server, off in builds
+  // unless VITE_EXPERIMENTAL=1; a constant, so builds drop the code behind it
+  define: { __EXPERIMENTAL__: JSON.stringify(command === "serve" || process.env.VITE_EXPERIMENTAL === "1") },
   server: {
     port: 5178,
     strictPort: true,
@@ -24,4 +27,4 @@ export default defineConfig({
       },
     },
   ],
-});
+}));

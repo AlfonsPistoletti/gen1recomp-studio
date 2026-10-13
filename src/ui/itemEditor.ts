@@ -7,7 +7,7 @@ import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { BallRecord, ItemEffectSpec, ItemEffectStep, ItemSpec, MartRef } from "../games/types.ts";
 import { describeItemEffect } from "../games/gen1/items.ts";
-import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput } from "./dom.ts";
+import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { idRow } from "./renameId.ts";
 import { promptNewRecord } from "./newRecord.ts";
@@ -40,6 +40,11 @@ function moveLabel(move: string): string {
   return name.toLowerCase().replace(/(^|[\s-])(\S)/g, (_m, sep: string, c: string) => sep + c.toUpperCase());
 }
 
+// gen1recomp Bag.isBadge: an item whose id contains BADGE never shows in
+// the bag (and can't be tossed or sold); the trainer card shows the ones
+// in constants.badges (Global > Badges)
+export const isBadgeId = (id: string) => id.includes("BADGE");
+
 const machineOf = (r: Rec | undefined) => r?.machine as { kind?: string; move?: string; number?: number } | undefined;
 
 // regular items by bag index, then TMs and HMs, then new ones
@@ -64,11 +69,12 @@ function itemEdited(id: string): boolean {
 
 export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
   let current: string | null = null;
-  const newBtn = h("button", { class: "btn small", title: "Add an item, starting as a copy of one", onclick: () => createItem() }, "+ New");
+  const newBtn = h("button", { class: "btn small", title: "Add an item, starting as a copy of one", onclick: () => createItem() }, "+ New Item");
+  const newMachine = h("button", { class: "btn small", title: "A new TM or HM that teaches a move", onclick: () => void createMachine() }, "+ TM/HM");
   const list = mountRecordList(left, {
     title: "Items",
     folded: { label: "Used by the game", hint: "Not real items: elevator floor labels, Surf's hidden item and unused slots. Edit only if you know why." },
-    head: [newBtn],
+    head: [newBtn, newMachine],
     placeholder: "Search items…  (Ctrl+F)",
     searchId: "items-search",
     items: () => {
@@ -81,7 +87,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
         return {
           id,
           label: String(r.name ?? id),
-          meta: m?.move ? moveLabel(m.move) : r.keyItem ? "key" : r.effect ? "custom" : "",
+          meta: m?.move ? moveLabel(m.move) : isBadgeId(id) ? "badge" : r.keyItem ? "key" : r.effect ? "custom" : "",
           search: `${id} ${String(r.name ?? "")} ${m?.move ?? ""}`,
           edited: itemEdited(id),
           isNew: isNewItem(id),
@@ -163,6 +169,30 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
       if (s.ballRegistry && ball) store.setRecord(s.ballRegistry, res.id, "Ball catch numbers", clone(ball));
     });
     open(res.id);
+  };
+
+  // A TM or HM is an item with machine = { kind, move, number }; the
+  // Pokémon's TM/HM lists are built from all such items, so a new one shows
+  // there at once. Its number only names and sorts it (TM51, HM06).
+  const createMachine = async () => {
+    const s = spec();
+    if (!s) return;
+    const res = await promptMachine();
+    if (!res) return;
+    const all = items();
+    // the id is the name (TM51), the one the id row would suggest anyway
+    const name = `${res.kind}${String(res.number).padStart(2, "0")}`;
+    let id = name;
+    for (let k = 2; all[id]; k++) id = `${name}_${k}`;
+    const rec: Rec = {
+      id,
+      name,
+      price: res.kind === "HM" ? 0 : 3000,
+      machine: { kind: res.kind, move: res.move, number: res.number },
+    };
+    store.setRecord(s.registry, id, `New ${rec.name as string}`, rec);
+    store.seal();
+    open(id);
   };
 
   const deleteItem = (id: string) => {
@@ -269,6 +299,13 @@ function itemForm(s: ItemSpec, id: string, r: Rec): HTMLElement[] {
     ),
     check("Key item", keyItem, (v) => edit(id, "Key item", (d) => (v ? (d.keyItem = true) : delete d.keyItem)), "Can't be sold or tossed; plays the key-item jingle when received."),
   );
+  if (isBadgeId(id)) {
+    basics.append(h("div", { class: "notice" },
+      h("strong", {}, "A badge"),
+      h("p", {}, "Its id contains BADGE, so the game never shows it in the bag. The badges the trainer card shows, in their order, are set in Global > Badges; give one with an event (Give item)."),
+      h("button", { class: "btn small", onclick: () => nav.openGlobal("badges") }, "Open Global > Badges"),
+    ));
+  }
   const internal = s.internal(id);
   const out = internal
     ? [h("section", { class: "card warn-card" }, h("h4", {}, "Used by the game"), h("p", { class: "hint" }, internal), h("p", { class: "hint" }, "Changing it can break what relies on it.")), basics]
@@ -281,6 +318,53 @@ function itemForm(s: ItemSpec, id: string, r: Rec): HTMLElement[] {
   if (balls()[id] || effects()[String(r.effect ?? "")]?.steps.some((st) => st.act === "ball")) out.push(ballCard(s, id));
   out.push(martCard(s, id, r));
   return out;
+}
+
+// the next unused number for a TM or an HM
+function nextMachineNumber(kind: string): number {
+  const used = new Set(Object.values(items()).map((r) => machineOf(r)).filter((m) => m?.kind === kind).map((m) => m!.number));
+  let n = 1;
+  while (used.has(n)) n++;
+  return n;
+}
+
+// kind, number and move for a new TM/HM
+function promptMachine(): Promise<{ kind: "TM" | "HM"; number: number; move: string } | null> {
+  return new Promise((resolve) => {
+    const moves = store.adapter.pokemon?.moveNames(store.ctx) ?? [];
+    const taught = new Set(Object.values(items()).map((r) => machineOf(r)?.move));
+    let kind: "TM" | "HM" = "TM";
+    let move = moves.find((m) => !taught.has(m)) ?? moves[0] ?? "";
+    const number = numberInput(nextMachineNumber("TM"), () => {}, 1, 99);
+    const kindSel = selectInput(kind, ["TM", "HM"], (v) => {
+      kind = v as "TM" | "HM";
+      number.value = String(nextMachineNumber(kind));
+    });
+    const moveIn = comboInput(move, "dl-item-moves", moves, (v) => (move = v));
+    const dialog = h("dialog", {});
+    const close = (v: { kind: "TM" | "HM"; number: number; move: string } | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(v);
+    };
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      close(null);
+    });
+    const create = () => {
+      if (!moves.includes(move)) return toast(`${move || "That"} is not a move`, "error");
+      close({ kind, number: Math.max(1, Math.min(99, Math.trunc(Number(number.value) || 1))), move });
+    };
+    dialog.append(
+      h("h3", {}, "New TM / HM"),
+      h("div", { class: "row three" }, field("Kind", kindSel), field("Number", number), field("Teaches", moveIn)),
+      h("p", { class: "hint" }, "HMs are never used up. A new HM teaches the move like a TM; using it outside of battle (like Cut or Surf) only works for the game's field moves."),
+      h("p", { class: "hint" }, "Afterwards, tick it in each Pokémon's TM/HM list that should learn it, and put it in a shop or an event so players can get it."),
+      h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), h("button", { class: "btn primary", onclick: create }, "Create")),
+    );
+    document.body.append(dialog);
+    dialog.showModal();
+  });
 }
 
 function machineCard(id: string, m: { kind?: string; move?: string; number?: number }): HTMLElement {
@@ -302,7 +386,89 @@ function machineCard(id: string, m: { kind?: string; move?: string; number?: num
       field("Number", numberInput(m.number ?? 1, (v) => setM("Machine number", (x) => (x.number = Math.max(0, Math.min(99, v)))), 0, 99)),
       field("Teaches", comboInput(m.move ?? "", "dl-item-moves", moves, (v) => moves.includes(v) && setM("Machine move", (x) => (x.move = v)))),
     ),
-    h("p", { class: "hint" }, "Which Pokémon can learn it is set per Pokémon (TM/HM list). HMs are never used up."),
+    h("p", { class: "hint" }, "HMs are never used up."),
+    m.move ? learnersCard(m.move) : null,
+  );
+}
+
+// Which Pokémon can learn a machine's move: the same `tmhm` lists the
+// Pokémon workspace edits (a move in the list = the TM/HM teaches it).
+// Kept in the game's machine order, like the Pokémon editor writes them.
+// the checklist's search survives the redraw each tick causes
+let learnerQuery = "";
+function learnersCard(move: string): HTMLElement {
+  type Mon = { name?: string; dex?: number; tmhm?: string[] };
+  const mons = store.table("pokemon") as Record<string, Mon>;
+  const ids = Object.keys(mons).sort((a, b) => (mons[a].dex ?? 999) - (mons[b].dex ?? 999) || a.localeCompare(b));
+  const machines = store.adapter.pokemon?.machines(store.ctx) ?? [];
+  const rank = (m: string) => {
+    const i = machines.findIndex((x) => x.move === m);
+    return i < 0 ? 999 : i;
+  };
+  const learns = (id: string) => (store.table("pokemon")[id] as Mon | undefined)?.tmhm?.includes(move) ?? false;
+  // a set of Pokémon learning it from now on (one undo step)
+  const setLearners = (label: string, want: (id: string) => boolean) => {
+    store.group(label, () => {
+      for (const id of ids) {
+        const on = want(id);
+        if (on === learns(id)) continue;
+        store.editRecord<Mon>("pokemon", id, label, (d) => {
+          const cur = (d.tmhm ?? []).filter((x) => x !== move);
+          d.tmhm = (on ? [...cur, move] : cur).sort((a, b) => rank(a) - rank(b));
+        });
+      }
+    });
+    store.seal();
+    for (const [id, box] of boxes) {
+      box.checked = learns(id);
+      box.parentElement!.classList.toggle("on", box.checked);
+    }
+    count.textContent = String(ids.filter(learns).length);
+  };
+  const boxes = new Map<string, HTMLInputElement>();
+  const grid = h("div", { class: "tm-grid" }, ...ids.map((id) => {
+    const box = h("input", { type: "checkbox", checked: learns(id) });
+    box.addEventListener("change", () => setLearners(box.checked ? `Teach ${move} to ${id}` : `Forget ${move} for ${id}`, (x) => (x === id ? box.checked : learns(x))));
+    boxes.set(id, box);
+    return h("label", { class: `tm${box.checked ? " on" : ""}`, "data-search": `${id} ${String(mons[id].name ?? "")}`.toUpperCase() },
+      box, h("span", { class: "tm-num" }, `#${String(mons[id].dex ?? "?").padStart(3, "0")}`), h("span", { class: "tm-move" }, String(mons[id].name ?? id)));
+  }));
+  const search = h("input", { type: "search", placeholder: "Find a Pokémon…", spellcheck: false, value: learnerQuery });
+  const filter = () => {
+    learnerQuery = search.value;
+    const q = search.value.trim().toUpperCase();
+    for (const el of grid.children) (el as HTMLElement).hidden = !!q && !(el as HTMLElement).dataset.search!.includes(q);
+  };
+  search.addEventListener("input", filter);
+  filter();
+  // the learners of another machine's move
+  const others = machines.filter((x) => x.move !== move);
+  const same = h("select", {},
+    h("option", { value: "" }, "Same as…"),
+    ...others.map((x) => h("option", { value: x.move }, `${x.label} ${x.move.replace(/_/g, " ")}`)),
+  );
+  same.addEventListener("change", () => {
+    const other = same.value;
+    same.value = "";
+    if (other) setLearners(`${move}: same as ${other}`, (id) => (store.table("pokemon")[id] as Mon | undefined)?.tmhm?.includes(other) ?? false);
+  });
+  const count = h("strong", {}, String(ids.filter(learns).length));
+  // the game's learners (a Pokémon the game doesn't have keeps its own)
+  const gameLearns = (id: string) => {
+    const base = store.baseTable("pokemon")[id] as Mon | undefined;
+    return base ? (base.tmhm ?? []).includes(move) : learns(id);
+  };
+  const changed = ids.some((id) => learns(id) !== gameLearns(id));
+  return h("div", { class: "learners" },
+    h("div", { class: "row wrap learners-head" },
+      h("span", { class: "field-label" }, "Who can learn it: ", count),
+      search,
+      h("button", { class: "btn small", onclick: () => setLearners(`Every Pokémon learns ${move}`, () => true) }, "All"),
+      h("button", { class: "btn small", onclick: () => setLearners(`No Pokémon learns ${move}`, () => false) }, "None"),
+      same,
+      changed ? h("button", { class: "btn small danger", title: "The Pokémon the game lets learn it", onclick: () => setLearners(`${move}: the game's learners`, gameLearns) }, "Back to the game's") : null,
+    ),
+    grid,
   );
 }
 

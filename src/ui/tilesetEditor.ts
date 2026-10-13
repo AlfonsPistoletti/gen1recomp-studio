@@ -298,7 +298,7 @@ interface Cut {
 
 // `dedupe`: identical tiles are stored once (else every cell is its own
 // tile, in reading order, so the picture's layout survives)
-function cutPicture(img: HTMLImageElement, trueColor: boolean, dedupe = true): Cut {
+export function cutPicture(img: HTMLImageElement, trueColor: boolean, dedupe = true): Cut {
   const cols = Math.floor(img.width / TILE);
   const rows = Math.floor(img.height / TILE);
   const c = document.createElement("canvas");
@@ -423,7 +423,7 @@ interface ImportPlan {
   filler?: Set<number>;
 }
 
-function pickFile(): Promise<File | null> {
+export function pickFile(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = h("input", { type: "file", accept: "image/png,image/gif,image/bmp,image/webp" });
     input.addEventListener("change", () => resolve(input.files?.[0] ?? null));

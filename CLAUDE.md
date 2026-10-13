@@ -24,15 +24,19 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   (the source tree's own stale dataset has no marker).
 - `src/games/`: one `GameAdapter` per generation (data files, entity layers +
   declarative inspector fields, connections, collision, colors, new-map defaults,
-  `content` registries, `pokemon`/`encounters` specs). Only `gen1` exists; Gen 2/3
-  show as "coming soon" in the game picker.
+  `content` registries, `pokemon`/`encounters` specs). `gen1` is complete; `gen2`
+  (`src/games/gen2`) is a view-only map viewer (`readOnly`: no saving, no mod picker; `workspaces: ["maps"]`
+  hides the rest). Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
+  tileset `tilePalettes[tile]` (1-based), roof slot colors from `roofs[group]` in TOWN/ROUTE; walls from per-block
+  `collision` quads via gen1recomp's CollPermissions table (restated). The map panel shows music/roof/rules only when
+  the game has those registries (`has()` in inspector.ts). Gen 3 shows as "coming soon".
 - Content registries: the adapter's `content` list (pokemon, encounters, text,
   text_pointers editable; moves, items lookup-only) loads into `Dataset.content`.
   `store.ts` keeps every editable registry (maps included) as records with one undo
   history. Map edits emit `"edit"`, other registries `"content"`, and undo/redo of a
   non-map record emits `"reveal"`. Save writes every editable registry; ops of
   registries the studio doesn't edit are kept verbatim.
-- UI workspaces (Maps / Pokémon / Moves / Items / Trainers / Text / Events / Graphics / Global; Graphics has two views, Tilesets and Sprites: panels carry `data-view`, `nav.showGraphics`): `index.html` has one panel set per
+- UI workspaces (Maps / Pokémon / Moves / Items / Trainers / Text / Events / Graphics / Global; Graphics has views Tilesets, Sprites, Images, Palettes and Town Map, picked in a drop-down on top of the left panel: panels carry `data-view`, `nav.showGraphics`): `index.html` has one panel set per
   workspace (`data-ws`), switched in `main.ts`. Cross-links go through `src/ui/nav.ts`;
   the top-bar changes dropdown (`src/ui/changesMenu.ts`) maps each changed record to a nav call.
   Encounters live in the Maps right panel, not in a workspace: its bottom tab bar
@@ -82,8 +86,17 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   (modkit MK006). `balls` is a `replace` registry restated from the engine. Shop stock is
   `text_pointers[<map label>][TEXT_*].mart`.
 - "deep" registries (`ContentSpec.deep`: text_pointers, field): the engine APPENDS patched
-  lists. `diffDeep` writes only a grown list's tail and overrides the record when a list
-  shrank; `applyOps(..., deep)` appends the same way when reading a mod back.
+  lists. `diffDeep` writes only a grown list's tail; any other changed list becomes a
+  `{ __replace }` marker that `recordCall` splits (`splitReplaced`) into two patches: the list set
+  to `mod.DELETE`, then the new list (an override would copy `assets/generated/` paths: MK301).
+  `applyOps(..., deep)` appends the same way when reading a mod back.
+- Town Map (Graphics > Town Map, `src/ui/townMapEditor.ts`): edits the `field` record `townMap`
+  (grid `background.map`, `locations`, `cursorOrder`). Own tiles are shade digits in
+  `background.tiles.studioTiles` (schema `any`), `path` then points at the recipe's
+  `studio/townmap/tiles.png` (`townMapSheets`). Fly to new towns: blocked (Map.isFlyTown).
+- Item balls: any map object with `item` (not pokered's "0") is picked up (gen1recomp talkTo; its text id is never
+  shown, vanilla ones point at asm PickUpItemText). Role "Item ball" in `roleSection` (`isItemBall`, inspector.ts keeps
+  `item` out of the JSON extras); toolbar "+ Item ball" = the objects layer's `variants` (EntityLayer).
 - Towns (`src/ui/mapTown.ts`, `adapter.towns`): NPC roles are text_pointer flags (mart list,
   nurse, pc); hidden events (`towns.hidden`: PC tiles, bench guys, hidden items/coins, gym
   statues) are per-map lists in `field` (`hiddenExtras.*`, `hiddenItems`, `hiddenCoins`); bench
@@ -101,8 +114,7 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
 - Battle sprite sizes: the engine draws a battle pic of any size at `battle_sprite_scales[path]` >
   `pokemon.battleScaleFront/Back` > default (front 1x, back 2x), grounded by its transparent rows
   (BattleState resolveBattleScale/backPlacement/frontPlacement). The studio's back import offers
-  `backSizes` and sets battleScaleBack = 1 for > 32 px; the Art card's battle preview restates the
-  placement math. Battle-sprite imports keep alpha-0 pixels (`ArtTarget.keepTransparent`).
+  `backSizes` and sets battleScaleBack = 1 for > 32 px. Battle-sprite imports keep alpha-0 pixels (`ArtTarget.keepTransparent`).
 - Cries: the engine plays `cries[<species id>]` (the pokemon record's `cry` field is not read in
   Gen 1), so new species get a `cries` record (`{ base }` or a copied `{ file }`). `cries` is a
   `replace` registry (chip data / base / file shapes). Imported sounds use the art asset pipeline
@@ -177,7 +189,24 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   modkit's developer README counts as missing). DIFFERENCES.md is rewritten on every save from
   `store.changed()` (`differencesMarkdown`, changesMenu.ts). Changes are grouped by `grouped()`: Global-edited
   records join the constants group "Global settings".
-- New game (Global > New game, `newGameCard`): `field.boot` start map/cell/facing, startMoney, lastHeal (unset = the
+- Starters (Global > Starter Pokémon, `starterCards`): `studio_starters` (ball species -> { species, level })
+  -> `studio_starters.lua` -> `src/lua/starterRuntime.ts` wraps the public `script.command` hook and maps the
+  Oak's Lab ball rows (dex entry, received texts, give_pokemon) in OAKS_LAB only; the questions are `text`
+  records (`_OaksLabYouWant*Text`). Red/Blue only (Yellow's Pikachu is the follower).
+- Gift Pokémon (Global > Gift Pokémon, `giftCards`): the list comes from the game's scripts (`gameGifts`:
+  talk rows, literal give_pokemon rows under `M.<MAP>`, restated `CODE_GIFTS` for dojo/fossils; checkout only).
+  `studio_gifts` ("<MAP>:<SPECIES>" -> { species, level }) -> `src/lua/giftRuntime.ts` wraps `script.command`
+  and swaps give_pokemon rows on that map. Script files are per version (`loaded`, from init.lua's requires).
+- Oak's speech (Global > Oak's speech, `src/ui/introEditor.ts`): `studio_intro` record `speech = { steps }`
+  -> `studio_intro.lua` -> `src/lua/introRuntime.ts` wraps the public `intro.oak_speech.build` hook (game
+  steps by id + changed keys, own steps whole, other mods' steps kept after their predecessor) and sets
+  answer flags in the save on `intro.oak_speech.answered`. Game steps restated in `VANILLA_INTRO`; new
+  texts `STUDIO_INTRO_<n>`; demo Pokémon = `field.oakSpeech.demoSpecies`. Answer flags feed the event
+  editor's flag suggestions (`knownFlags`).
+- Badges (Global > Badges, `badgesCard`): `constants.badges` (ordered { id }, position = trainer card slot; constants.lua
+  has none, so the engine's VANILLA list is restated and an equal list isn't written). The engine's badge test is
+  the id containing BADGE (Bag.isBadge: hidden from the bag), not `keyItem`; the card draws only 8 slots.
+- Start values (Global > Start values, `newGameCard`; the Global list groups sections under Game / New game / Other headings, `GlobalsSpec.sections[].group`): `field.boot` start map/cell/facing, startMoney, lastHeal (unset = the
   engine derives it, SaveData.defaultHeal). boot is not in field.lua (Data.lua seeds it), so the gen1 adapter
   restates BOOT_DEFAULTS as the base record (field `build`) and a change is a patch of the changed keys.
 - Play from here (`src/lua/playRuntime.ts`, `host.play`): the studio writes `mods/studio_playtest/`
@@ -222,10 +251,18 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   `mods/<id>/studio_content.lua` (patch / register / override for strings / remove).
 - `src/core/merge.ts` mirrors gen1recomp `src/mods/Merge.lua` record semantics
   (lists replace, objects merge, `mod.DELETE`).
+- Tile brush (tool "tile", `src/core/tileBrush.ts` `blockWithTile`): identical block, else the
+  cell's own mod block in place (used nowhere else), else a new block (extension / own record);
+  map block ids are 0..255 (Schemas), so 256 blocks max. Edits of different records with the same
+  label in one unsealed gesture merge into one undo step (`store.record`).
 - Rendering: block atlas per (tileset, palette) and one cached canvas per map;
   never redraw per tile per frame.
 
 ## Rules
+
+- Unfinished features go behind `FEATURES` (`src/features.ts`): on in the dev server, off in release builds
+  (`__EXPERIMENTAL__` is a Vite `define`, so builds drop the code); `VITE_EXPERIMENTAL=1 npm run tauri build`
+  makes a test build with them. Gen 2 is gated there (`games/index.ts` ADAPTERS).
 
 - gen1recomp itself is read-only: never edit its `src/` or `tools/`; only write mods.
 - Saved mods must pass `py tools/modkit.py validate <id> --strict` and `lint` (checkout).

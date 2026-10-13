@@ -11,7 +11,7 @@ import type { Project } from "../project/project.ts";
 import { clone, deepEqual } from "./merge.ts";
 import type { EntityRecord, MapDef } from "./types.ts";
 
-export type Tool = "select" | "brush" | "rect" | "fill";
+export type Tool = "select" | "brush" | "rect" | "fill" | "tile";
 
 // `layer` is the adapter layer key (the map field holding the list)
 export type Selection = { layer: string; index: number } | null;
@@ -47,6 +47,9 @@ interface Command {
   label: string;
   changes: Change[];
   sealed: boolean;
+  // the map the step was made on, when it may change only other records
+  // (the tile brush changing a block in place): undo/redo shows that map
+  map?: string;
 }
 
 // "edit" = a map changed (id = map id); "content" = a record of another
@@ -66,6 +69,8 @@ export class Store {
   currentMap = "PALLET_TOWN";
   tool: Tool = "select";
   stamp: Stamp = { w: 1, h: 1, blocks: [0] };
+  // the tiles the tile brush paints (tile ids in `blocks`, row by row)
+  tileStamp: Stamp = { w: 1, h: 1, blocks: [0] };
   selection: Selection = null;
   overlays: Overlays = { grid: false, collision: false, entities: true, neighbors: true, wild: false, animate: true };
   // how maps are colored: the Game Boy palettes, or RED++ (pokered-gbc)
@@ -158,6 +163,11 @@ export class Store {
 
   setStamp(stamp: Stamp): void {
     this.stamp = stamp;
+    this.emit("stamp");
+  }
+
+  setTileStamp(stamp: Stamp): void {
+    this.tileStamp = stamp;
     this.emit("stamp");
   }
 
@@ -306,7 +316,8 @@ export class Store {
       ? target?.changes.find((c) => c.registry === change.registry && c.id === change.id)
       : undefined;
     if (sameGesture && existing) existing.after = change.after;
-    else if (this.grouping) this.grouping.changes.push(change);
+    // another record in the same gesture (the tile brush: map + tileset)
+    else if (sameGesture) target!.changes.push(change);
     else this.push({ label, changes: [change], sealed: false });
     this.redoStack = [];
     this.put(change.registry, change.id, change.after);
@@ -341,7 +352,18 @@ export class Store {
     this.emit("edit", id);
   }
 
-  private show(change: Change | undefined, value: unknown): void {
+  // marks the open gesture `label` as made on map `mapId` (see Command.map)
+  markMap(label: string, mapId: string): void {
+    const top = this.undoStack[this.undoStack.length - 1];
+    if (top && !top.sealed && top.label === label) top.map = mapId;
+  }
+
+  // after undo/redo: the step's map when it changed one (the tile brush
+  // also writes the tileset, which must not pull the view to Graphics)
+  private show(cmd: Command, side: "before" | "after"): void {
+    if (cmd.map && this.maps[cmd.map]) return this.openMap(cmd.map);
+    const change = cmd.changes.find((c) => c.registry === "maps") ?? cmd.changes[0];
+    const value = change?.[side];
     if (!change || value === undefined) return;
     if (change.registry === "maps") this.openMap(change.id);
     else this.emit("reveal", change.id, change.registry);
@@ -362,7 +384,7 @@ export class Store {
     } finally {
       this.replaying = false;
     }
-    this.show(cmd.changes[0], cmd.changes[0]?.before);
+    this.show(cmd, "before");
   }
 
   redo(): void {
@@ -377,7 +399,7 @@ export class Store {
     } finally {
       this.replaying = false;
     }
-    this.show(cmd.changes[0], cmd.changes[0]?.after);
+    this.show(cmd, "after");
   }
 
   get canUndo(): boolean {

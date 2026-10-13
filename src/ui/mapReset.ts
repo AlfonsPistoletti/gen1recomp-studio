@@ -7,6 +7,7 @@
 
 import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
+import { dropUnusedBlocks } from "../core/tileBrush.ts";
 import type { MapDef } from "../core/types.ts";
 import { h } from "./dom.ts";
 
@@ -168,6 +169,8 @@ export function resetMapDialog(map: MapDef, isNew: boolean, revertLayout: () => 
         for (const p of chosen) if (p.label !== "Layout") p.revert();
         if (isNew) deleteMap();
         else if (chosen.some((p) => p.label === "Layout")) revertLayout();
+        // blocks the tile brush made for this map, now used nowhere
+        dropUnusedBlocks(map.tileset, map.blocks);
       });
       store.seal();
       close();

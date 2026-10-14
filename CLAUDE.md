@@ -40,7 +40,10 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   `warpTarget.backWarp` 255 ("back where the player came from", World:resolveWarp), connections are `{ mapId, offset }`,
   `normalizeMap` drops the extractor's destGroup/destMapNum and connection extras (never read). NPC/sign/trigger
   scripts are cart bytecode: the studio only lets an entity reuse a scriptKey of the same layer on that map. Inspector
-  field keys may be dotted paths (`radius.x`, `hours.0`); selects can be `numeric` with `labels`. Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
+  field keys may be dotted paths (`radius.x`, `hours.0`); selects can be `numeric` with `labels`.
+  Gen 2 encounters (`adapter.timedEncounters`, `src/ui/timedEncounterPanel.ts`): registry ids are kinds (grass,
+  water, fishGroups, ...) holding every map/group; the panel edits one map's entries inside them (grass per
+  MORN/DAY/NITE, water, the map's `fishGroup` and that group's rods), so a save patches only those entries. Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
   tileset `tilePalettes[tile]` (1-based), roof slot colors from `roofs[group]` in TOWN/ROUTE; walls from per-block
   `collision` quads via gen1recomp's CollPermissions table (restated). The map panel shows music/roof/rules only when
   the game has those registries (`has()` in inspector.ts). Gen 3 shows as "coming soon".

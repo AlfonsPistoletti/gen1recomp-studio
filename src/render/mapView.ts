@@ -447,8 +447,8 @@ export class MapView {
   // Cells that roll wild encounters: grass green, surfable water blue, and
   // on maps where every step rolls, every walkable cell amber.
   private wildCanvas(entry: CachedMap): HTMLCanvasElement | null {
-    const spec = store.adapter.encounters;
-    if (!spec) return null;
+    const wildCell = store.adapter.encounters?.wildCell ?? store.adapter.timedEncounters?.wildCell;
+    if (!wildCell) return null;
     if (entry.wild) return entry.wild;
     const map = entry.map;
     const ts = liveTileset(map.tileset);
@@ -460,7 +460,7 @@ export class MapView {
     const sctx = store.ctx;
     for (let cy = 0; cy < map.height * 2; cy++) {
       for (let cx = 0; cx < map.width * 2; cx++) {
-        const kind = spec.wildCell(map, ts, cx, cy, sctx);
+        const kind = wildCell(map, ts, cx, cy, sctx);
         if (!kind) continue;
         ctx.fillStyle = colors[kind];
         ctx.fillRect(cx, cy, 1, 1);

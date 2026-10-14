@@ -411,6 +411,20 @@ export interface EncounterSpec {
   notes(map: MapDef, ctx: GameContext): string[];
 }
 
+// Wild tables keyed by kind, each holding every map (Gen 2: the encounters
+// registry's ids are "grass", "water", "fishGroups", ...), grass per time
+// of day. The panel edits one map's entries inside the kind records.
+export interface TimedEncounterSpec {
+  registry: string;
+  times: { key: string; label: string }[];
+  // chance of each slot in %, in slot order
+  grassOdds: number[];
+  waterOdds: number[];
+  // fishing: the map field naming its group, the group records' kind, rods
+  fish: { mapKey: string; kind: string; rods: { key: string; label: string }[] };
+  wildCell(map: MapDef, tileset: TilesetDef | undefined, cx: number, cy: number, ctx: GameContext): "grass" | "water" | "any" | null;
+}
+
 // ------------------------------------------------------------------ fields
 // Declarative inspector fields; the inspector renders them generically.
 
@@ -605,6 +619,7 @@ export interface GameAdapter {
   content: ContentSpec[];
   pokemon?: PokemonSpec;
   encounters?: EncounterSpec;
+  timedEncounters?: TimedEncounterSpec;
   globals?: GlobalsSpec;
   trainers?: TrainerSpec;
   moves?: MoveSpec;

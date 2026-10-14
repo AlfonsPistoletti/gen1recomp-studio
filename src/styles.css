@@ -985,3 +985,5 @@ dialog.modal { min-width: 420px; }
 .menu-row.active { font-weight: 600; color: var(--accent); }
 /* opens leftwards from the button, inside the narrow list panel */
 .menu.sort-menu { width: 200px; }
+/* a slot row's text that spans the picture, name and level columns */
+.slot-row > .slot-wide { grid-column: 2 / -1; }

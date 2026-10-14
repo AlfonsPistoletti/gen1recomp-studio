@@ -58,6 +58,17 @@ edited.pokemon = { CHIKORITA: chikorita, CHANSEY: chansey };
 edited.moves = { TACKLE: { ...(clone(content.moves.TACKLE) as Rec), power: 40 } };
 edited.items = { POTION: { ...(clone(content.items.POTION) as Rec), price: 250 } };
 edited.type_chart = { "FIRE>STEEL": { multiplier: 10 } };
+// encounters: kind records holding every map; one map's entries change
+{
+  const enc = content.encounters as Record<string, Record<string, Rec>>;
+  const grass = clone(enc.grass) as Record<string, Rec>;
+  ((grass.ROUTE_29.slots as Record<string, Rec[]>).DAY[0]).species = "PIKACHU";
+  delete grass.ROUTE_30;
+  const fish = clone(enc.fishGroups) as Record<string, Record<string, Rec[]>>;
+  const group = Object.keys(fish)[0];
+  fish[group].old[0].level = 42;
+  edited.encounters = { grass, fishGroups: fish };
+}
 edited.map_songs = { NEW_BARK_TOWN: Object.values(content.map_songs).find((s) => s !== content.map_songs.NEW_BARK_TOWN) as string };
 
 // maps, the way the map tools edit them (through the adapter)
@@ -80,6 +91,7 @@ const run = await runMod(new Map([[file, source]]), "studio_selftest", file, nul
 check("generated Lua runs", run.errors.length === 0, run.errors.join("; "));
 check("no game paths written", !source.includes("assets/generated"));
 check("sparse held item written as [2]", source.includes('[2] = "BERRY"'));
+check("encounters patched per map, not whole", /encounters:patch\("grass", \{\s+ROUTE_29 = /.test(source) && source.includes("ROUTE_30 = mod.DELETE") && !source.includes("ROUTE_31 ="));
 check("pokemon saved as a patch", source.includes('pokemon:patch("CHIKORITA"') && !source.includes("spriteFront"));
 
 {

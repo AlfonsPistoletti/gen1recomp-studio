@@ -2,6 +2,8 @@
 // wild tables (the "encounters" registry, id = map id) and the slot chances.
 
 import { superRodCard } from "./fishingPanel.ts";
+import { hasTimedWild, timedEncounterPanel } from "./timedEncounterPanel.ts";
+import { FEATURES } from "../features.ts";
 import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { EncounterSpec, EncounterTerrain } from "../games/types.ts";
@@ -21,6 +23,9 @@ export function wildTable(mapId: string): Wild | undefined {
 
 // Whether a map rolls any wild encounters at all (for the map list).
 export function hasWild(mapId: string): boolean {
+  const timed = store.adapter?.timedEncounters;
+  // only Gen 2 has timed tables: release builds (no Gen 2) drop the module
+  if (FEATURES.gen2 && timed) return hasTimedWild(timed, mapId);
   const spec = store.adapter?.encounters;
   const w = wildTable(mapId);
   return !!spec && !!w && spec.terrains.some((t) => (w[t.key] as Table | undefined)?.rate);
@@ -60,7 +65,7 @@ export function mountEncounterPane(host: HTMLElement): { render(): void } {
   };
   store.on((reason, _id, registry) => {
     if (["project", "map", "edit", "overlays", "saved"].includes(reason)) schedule();
-    if (reason === "content" && (registry === REG || registry === "pokemon" || registry === "field" || registry === store.adapter?.encounters?.sharedOdds?.registry)) schedule();
+    if (reason === "content" && (registry === REG || registry === store.adapter?.timedEncounters?.registry || registry === "pokemon" || registry === "field" || registry === store.adapter?.encounters?.sharedOdds?.registry)) schedule();
   });
   onFocusLeave(body, schedule);
   return { render };
@@ -71,6 +76,8 @@ export function encounterPanel(): HTMLElement[] {
   const spec = store.adapter.encounters;
   const map = store.map;
   if (!map) return [];
+  const timed = store.adapter.timedEncounters;
+  if (FEATURES.gen2 && timed) return timedEncounterPanel(timed);
   if (!spec) return [h("p", { class: "hint" }, "This game has no encounter editor yet.")];
   const ctx = store.ctx;
   const notes = spec.notes(map, ctx);

@@ -9,7 +9,7 @@
 import type { Rgb } from "../../render/color.ts";
 import { MONO } from "../../render/color.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec, TimedEncounterSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
 interface Roofs {
@@ -95,6 +95,9 @@ const content: ContentSpec[] = [
   { registry: "moves", file: "moves.lua", editable: true, build: records, fieldOrder: ["id", "name", "index", "type", "power", "accuracy", "pp", "effect", "effectChance", "description"] },
   { registry: "items", file: "items.lua", editable: true, build: records, fieldOrder: ["id", "name", "index", "price", "pocket", "description"] },
   { registry: "type_chart", file: "type_chart.lua", editable: true, build: typeChartRecords },
+  // ids are kinds (grass, water, fishGroups, ...), each holding every map or
+  // group; only the edited entries are written (gen1recomp Schemas gen2Keys)
+  { registry: "encounters", file: "encounters.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([, v]) => !!v && typeof v === "object")) },
   { registry: "map_songs", file: "audio.lua", editable: true, build: (f) => ((f as { mapSongs?: Record<string, unknown> }).mapSongs ?? {}) },
   { registry: "cries", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { cries?: Record<string, unknown> }).cries ?? {}) },
   { registry: "sfx", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { sfx?: Record<string, unknown> }).sfx ?? {}), fieldOrder: ["file"] },
@@ -327,6 +330,30 @@ const items: ItemSpec = {
       ? { kind: r.tmLabel.slice(0, 2), move: r.teaches, number: Number(r.tmLabel.slice(2)) }
       : undefined,
   machineEdit: false,
+};
+
+// ------------------------------------------------------------------ encounters
+
+// gen1recomp src/battle/gen2/Encounter.lua: slot chances (% of 100), and the
+// cells that roll (FieldMoves.canEncounterWildMon: tall/long grass and water
+// collision; every walkable cell in a CAVE or DUNGEON)
+const ENCOUNTER_COLL = new Set([0x08, 0x14, 0x18, 0x28, 0x48, 0x49, 0x4a, 0x4b]);
+const timedEncounters: TimedEncounterSpec = {
+  registry: "encounters",
+  times: [{ key: "MORN", label: "Morning" }, { key: "DAY", label: "Day" }, { key: "NITE", label: "Night" }],
+  grassOdds: [30, 30, 20, 10, 5, 4, 1],
+  waterOdds: [60, 30, 10],
+  fish: { mapKey: "fishGroup", kind: "fishGroups", rods: [{ key: "old", label: "Old Rod" }, { key: "good", label: "Good Rod" }, { key: "super", label: "Super Rod" }] },
+  wildCell(map, tileset, cx, cy) {
+    const id = map.blocks[Math.floor(cy / 2) * map.width + Math.floor(cx / 2)] ?? 0;
+    const quad = (tileset?.collision as number[][] | undefined)?.[id];
+    const coll = !quad ? -1 : quad[(cy % 2) * 2 + (cx % 2)] ?? -1;
+    if (coll < 0) return null;
+    if (COLL_PERMISSIONS[coll % 256] === 1) return "water";
+    if (ENCOUNTER_COLL.has(coll)) return "grass";
+    const env = String(map.environment ?? "");
+    return (env === "CAVE" || env === "DUNGEON") && COLL_PERMISSIONS[coll % 256] === 0 ? "any" : null;
+  },
 };
 
 // ------------------------------------------------------------------ global
@@ -627,6 +654,7 @@ export const gen2: GameAdapter = {
 
   content,
   pokemon,
+  timedEncounters,
   moves,
   items,
   globals,

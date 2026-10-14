@@ -8,6 +8,7 @@
 
 import type { Rgb } from "../../render/color.ts";
 import { MONO } from "../../render/color.ts";
+import { TILESET_RUNTIME2, tilesetRegistration2 } from "../../lua/tilesetRuntime2.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
@@ -100,6 +101,12 @@ const content: ContentSpec[] = [
   // palettes.lua subtables are the registry's ids (trainers, pokemon, ...);
   // the studio edits trainers (a new class's portrait colors)
   { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => k === "trainers" && !!v && typeof v === "object")) },
+  // blocks (and their collision quads) added to the game's tilesets: plain
+  // data in studio_tilesets.lua, patched in by the generated helper
+  {
+    registry: "studio_tilesets", editable: true, build: () => ({}), studioFile: "studio_tilesets.lua",
+    generator: { what: "tileset extensions", order: ["first", "tiles", "palettes", "blocks", "collision"], runtime: TILESET_RUNTIME2, registration: tilesetRegistration2, writes: ["tilesets"] },
+  },
   // trainer classes (gen1recomp writes the registry one level into `classes`)
   {
     registry: "trainers", file: "trainers.lua", editable: true,
@@ -533,7 +540,13 @@ export const gen2: GameAdapter = {
   workspaces: ["maps", "pokemon", "moves", "items", "trainers", "global"],
   playFromHere: false,
 
-  async load(read): Promise<Dataset> {
+  async load(read, version): Promise<Dataset> {
+    // Crystal's blocks are rewritten to sheet tiles below (crystalTiles), so
+    // an extension made on them couldn't be patched back: its tilesets stay
+    // view-only (Gold/Silver get blocks and the tile brush)
+    gen2.viewOnly = version === "crystal"
+      ? { registries: ["tilesets", "sprites", "studio_tilesets"], reason: "Crystal's tilesets can be looked at, not changed yet." }
+      : { registries: ["sprites"], reason: "Gen 2 sprites can be looked at, not changed yet." };
     const [maps, tilesets, sprites, pal, roofs, initial, constants, ...tables] = await Promise.all([
       read("maps.lua") as Promise<Record<string, MapDef>>,
       read("tilesets.lua") as Promise<Record<string, TilesetDef>>,

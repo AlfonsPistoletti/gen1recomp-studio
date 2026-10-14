@@ -38,14 +38,18 @@ export function blockWithTile(mapId: string, bx: number, by: number, slot: numbe
   // the cell's own block, used nowhere else: free to change or drop
   const ownHere = cur >= firstOwn && cur < ts.blocks.length && usedOnlyAt(id, cur, mapId, at);
   // the mod's blocks (the extension's, or the own tileset's), changed by `mutate`
-  const write = (mutate: (blocks: number[][]) => void): TileResult["write"] => {
+  // Gen 2 tilesets keep a collision quad per block: a new block takes the
+  // painted cell's (the block it replaces)
+  const quads = Array.isArray(ts.collision) ? (ts.collision as number[][]) : null;
+  const write = (mutate: (blocks: number[][], collision: number[][] | null) => void): TileResult["write"] => {
     if (vanilla) {
-      const ext = clone((store.table(EXTENSIONS)[id] as TilesetExtension | undefined) ?? { first: sheetTiles(rec), tiles: [], blocks: [], walkable: [] });
-      mutate(ext.blocks);
+      const ext = clone((store.table(EXTENSIONS)[id] as TilesetExtension | undefined) ?? (quads ? { first: sheetTiles(rec), tiles: [], blocks: [], collision: [] } : { first: sheetTiles(rec), tiles: [], blocks: [], walkable: [] }));
+      if (quads) ext.collision ??= [];
+      mutate(ext.blocks, quads ? ext.collision! : null);
       return { registry: EXTENSIONS, id, next: ext };
     }
     const next = clone(rec);
-    mutate(next.blocks);
+    mutate(next.blocks, Array.isArray(next.collision) ? (next.collision as number[][]) : null);
     return { registry: "tilesets", id, next };
   };
 
@@ -53,12 +57,18 @@ export function blockWithTile(mapId: string, bx: number, by: number, slot: numbe
   if (same >= 0) {
     // the cell leaves its own block: drop it when it is the last one (only
     // the last can go, ids must not shift); else it stays, unused
-    if (ownHere && cur === ts.blocks.length - 1) return { block: same, write: write((blocks) => void blocks.pop()) };
+    if (ownHere && cur === ts.blocks.length - 1) return { block: same, write: write((blocks, coll) => {
+      blocks.pop();
+      coll?.pop();
+    }) };
     return { block: same };
   }
   const block = ownHere ? cur : ts.blocks.length;
   if (!ownHere && block >= MAX_BLOCKS) return null;
-  return { block, write: write((blocks) => void (blocks[block - firstOwn] = tiles)) };
+  return { block, write: write((blocks, coll) => {
+    blocks[block - firstOwn] = tiles;
+    if (coll && !ownHere) coll[block - firstOwn] = [...(quads?.[cur] ?? [0, 0, 0, 0])];
+  }) };
 }
 
 // After a map was reverted or deleted: the mod's blocks it used that no map
@@ -78,8 +88,11 @@ export function dropUnusedBlocks(id: string, used: number[]): void {
   if (blocks.length === (vanilla ? ext!.blocks.length : rec.blocks.length)) return;
   if (!vanilla) return store.setRecord("tilesets", id, "Drop unused blocks", { ...rec, blocks });
   const next: TilesetExtension = { ...ext!, blocks };
+  // Gen 2: the dropped blocks' collision quads go with them
+  if (next.collision) next.collision = next.collision.slice(0, blocks.length);
   // nothing left of an extension the game's data doesn't have: gone
-  const empty = !next.tiles.length && !blocks.length && !(next.walkable ?? []).length && Object.keys(next).every((k) => ["first", "tiles", "blocks", "walkable"].includes(k));
+  const empty = !next.tiles.length && !blocks.length && !(next.walkable ?? []).length && !(next.collision ?? []).length
+    && Object.keys(next).every((k) => ["first", "tiles", "blocks", "walkable", "collision"].includes(k));
   store.setRecord(EXTENSIONS, id, "Drop unused blocks", empty && store.baseTable(EXTENSIONS)[id] === undefined ? undefined : next);
 }
 

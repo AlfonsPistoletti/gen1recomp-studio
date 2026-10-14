@@ -145,6 +145,26 @@ for (const [registry, records] of Object.entries(edited)) {
   }
 }
 
+// a tileset extension (blocks + their collision quads): the data file reads
+// back, and the helper runs (the studio's VM hands out stand-ins for get(),
+// so it only checks that the code loads and registers nothing broken)
+{
+  const { dataFile, studioContentFile: contentFile } = await import("../src/lua/writer.ts");
+  const { loadLuaData } = await import("../src/lua/vm.ts");
+  const { TILESET_RUNTIME2, tilesetRegistration2 } = await import("../src/lua/tilesetRuntime2.ts");
+  const ts = project.data.tilesets.TILESET_JOHTO;
+  const first = Math.floor(Number(ts.imageWidth) / 8) * Math.floor(Number(ts.imageHeight) / 8);
+  const ext = { first, tiles: [], blocks: [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], collision: [[0, 0, 7, 7]] };
+  const dataSrc = dataFile("studio_selftest", "tileset extensions", { TILESET_JOHTO: ext });
+  const back = await loadLuaData<Record<string, unknown>>(dataSrc, "studio_tilesets.lua");
+  check("studio_tilesets.lua round-trips", deepEqual(back.TILESET_JOHTO, ext), JSON.stringify(back.TILESET_JOHTO));
+  const src = contentFile("studio_selftest", [], {}, TILESET_RUNTIME2 + "\n" + tilesetRegistration2("studio_selftest", "studio_tilesets.lua"));
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, src], ["mods/studio_selftest/studio_tilesets.lua", dataSrc]]), "studio_selftest", f, null);
+  check("Gen 2 tileset helper runs", ran.errors.length === 0, ran.errors.join("; "));
+  check("Gen 2 tileset helper has no backticks", !TILESET_RUNTIME2.includes("`"));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);
 

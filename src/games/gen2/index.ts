@@ -9,7 +9,7 @@
 import type { Rgb } from "../../render/color.ts";
 import { MONO } from "../../render/color.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
 interface Roofs {
@@ -46,6 +46,36 @@ const COLL_PERMISSIONS = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 15,
 ];
+
+// ------------------------------------------------------------------ map editing
+
+// constants/map_data_constants.asm environments
+const ENVIRONMENTS = ["TOWN", "ROUTE", "INDOOR", "CAVE", "ENVIRONMENT_5", "GATE", "DUNGEON"];
+
+// SPRITEMOVEDATA_* (gen1recomp src/world/gen2/Npc.lua MOVE)
+const MOVEMENTS: Record<number, string> = {
+  1: "Still (fixed facing)", 2: "Wanders", 3: "Turns around (slow)", 4: "Walks up and down", 5: "Walks left and right",
+  6: "Stands, facing down", 7: "Stands, facing up", 8: "Stands, facing left", 9: "Stands, facing right",
+  10: "Turns around (fast)", 0x16: "Pokémon (fixed)", 0x1e: "Spins counterclockwise", 0x1f: "Spins clockwise",
+  0x24: "Swims around",
+};
+
+// a script pointer picked from the same kind of entity on the open map: the
+// studio can't write cart scripts, so a new person says what another one says
+function scriptField(layer: string, label: string, hint: string): FieldSpec {
+  const list = (map?: MapDef) => asList(map?.[layer]) as Record<string, unknown>[];
+  return {
+    kind: "select", key: "scriptKey", label, hint, emptyLabel: "Nothing (no script)",
+    options: (_ctx, map) => [...new Set(list(map).map((e) => e.scriptKey).filter((k): k is string => typeof k === "string"))],
+    labels: (v, _ctx, map) => {
+      const users = list(map).map((e, i) => ({ e, i })).filter(({ e }) => e.scriptKey === v);
+      const first = users[0];
+      // "YOUNGSTER 3" for a person, "#2" for a sign or trigger
+      const who = !first ? "" : layer === "objects" ? `${String(first.e.sprite ?? "?").replace(/^SPRITE_/, "")} ${first.i + 1}` : `#${first.i + 1}`;
+      return `${who}'s script${users.length > 1 ? ` (also ${users.length - 1} more)` : ""}`;
+    },
+  };
+}
 
 // ------------------------------------------------------------------ content
 
@@ -325,7 +355,7 @@ export const gen2: GameAdapter = {
   name: "Gen 2",
   manifestGame: "gen2",
   startMap: "NEW_BARK_TOWN",
-  viewOnly: { registries: ["maps", "tilesets", "sprites"], reason: "Gen 2 maps can be looked at, not changed yet." },
+  viewOnly: { registries: ["tilesets", "sprites"], reason: "Gen 2 tilesets and sprites can be looked at, not changed yet." },
   workspaces: ["maps", "pokemon", "moves", "items", "global"],
   playFromHere: false,
 
@@ -400,10 +430,18 @@ export const gen2: GameAdapter = {
   },
 
   // Empty Lua tables arrive as []; the lists the view reads become arrays
+  // also drops what the engine never reads (World:resolveWarp and the
+  // connection code use destMap/destWarp and mapId/offset only), so edits
+  // don't leave the extractor's map-group numbers stale
   normalizeMap(map) {
     const m = map as Record<string, unknown>;
-    if (!m.connections || Array.isArray(m.connections)) m.connections = {};
+    const conns = !m.connections || Array.isArray(m.connections) ? {} : (m.connections as Record<string, { mapId?: string; offset?: number }>);
+    m.connections = Object.fromEntries(Object.entries(conns).filter(([, c]) => c?.mapId).map(([dir, c]) => [dir, { mapId: c.mapId, offset: c.offset ?? 0 }]));
     for (const key of ["warps", "objects", "bgEvents", "coordEvents"]) m[key] = asList(m[key]);
+    for (const w of m.warps as Record<string, unknown>[]) {
+      delete w.destGroup;
+      delete w.destMapNum;
+    }
     return map;
   },
 
@@ -415,8 +453,12 @@ export const gen2: GameAdapter = {
       singular: "Warp",
       color: "#b07cff",
       numbered: true,
-      fields: [{ kind: "warpTarget", label: "Destination", mapKey: "destMap", warpKey: "destWarp", specialMaps: [] }],
-      create: (_map, x, y) => ({ x, y, destMap: "", destWarp: 1 }),
+      fields: [{
+        kind: "warpTarget", label: "Destination", mapKey: "destMap", warpKey: "destWarp", specialMaps: [], backWarp: 255,
+        hint: "Back where the player came from: rooms reached from several doors (Pokémon Center 2F, elevators) lead back this way.",
+      }],
+      // a new door leads back the way the player came until it's connected
+      create: (map, x, y) => ({ x, y, destMap: map.id, destWarp: 255 }),
     },
     {
       key: "objects",
@@ -425,10 +467,28 @@ export const gen2: GameAdapter = {
       singular: "NPC / object",
       color: "#3cc8e6",
       fields: [
-        { kind: "select", key: "sprite", label: "Sprite", options: (ctx) => Object.keys(ctx.data.sprites).sort() },
-        { kind: "extras", label: "Other fields", hint: "movement, radius, hours, event flag, palette, script pointer (cart bytecode)" },
+        { kind: "select", key: "sprite", label: "Sprite", options: (ctx) => Object.keys(ctx.data.sprites).sort(), labels: (v) => (/^\d+$/.test(v) ? `Changes during the game (${v})` : undefined) },
+        { kind: "select", key: "movement", label: "Movement", numeric: true, options: () => Object.keys(MOVEMENTS), labels: (v) => MOVEMENTS[Number(v)] },
+        {
+          kind: "pair",
+          fields: [
+            { kind: "int", key: "radius.x", label: "Walk range ←→", min: 0, max: 15, hint: "Cells it may wander from its spot" },
+            { kind: "int", key: "radius.y", label: "Walk range ↑↓", min: 0, max: 15 },
+          ],
+        },
+        {
+          kind: "pair",
+          fields: [
+            { kind: "int", key: "hours.0", label: "From hour", min: -1, max: 23, hint: "-1 in both: there all day" },
+            { kind: "int", key: "hours.1", label: "To hour", min: -1, max: 23 },
+          ],
+        },
+        { kind: "int", key: "eventFlag", label: "Event flag", min: 0, max: 65535, hint: "Hidden while this event flag is set; 65535 = always there" },
+        { kind: "select", key: "palette", label: "Colors", numeric: true, options: () => ["0", ...OW_PALETTES.map((_, i) => String(8 + i))], labels: (v) => (v === "0" ? "The sprite's own" : OW_PALETTES[Number(v) - 8]?.toLowerCase()) },
+        scriptField("objects", "Talking to it", "What it says or does: one of the scripts of the people here (the game's scripts can't be written in the studio)."),
+        { kind: "extras", label: "Other fields", hint: "type, sight range, item, script number (cart data)" },
       ],
-      create: (_map, x, y) => ({ x, y, sprite: "SPRITE_CHRIS" }),
+      create: (_map, x, y) => ({ x, y, sprite: "SPRITE_YOUNGSTER", movement: 6, radius: { x: 0, y: 0 }, hours: [-1, -1], eventFlag: 0xffff, palette: 0 }),
       // a number is a variable sprite (shown as a new game starts it); the
       // Day-Care Pokémon ($E0/$E1) depend on the save: a marker
       sprite: (o, mapId) => {
@@ -450,7 +510,10 @@ export const gen2: GameAdapter = {
       label: "Signs",
       singular: "Sign",
       color: "#ffc828",
-      fields: [{ kind: "extras", label: "Fields", hint: "kind and script pointer (cart bytecode)" }],
+      fields: [
+        scriptField("bgEvents", "Reading it", "What it says: one of the scripts of the signs here."),
+        { kind: "extras", label: "Other fields", hint: "kind (cart data)" },
+      ],
       create: (_map, x, y) => ({ x, y, kind: 0 }),
     },
     {
@@ -459,13 +522,18 @@ export const gen2: GameAdapter = {
       label: "Step triggers",
       singular: "Step trigger",
       color: "#ff7a45",
-      fields: [{ kind: "extras", label: "Fields", hint: "scene and script pointer (cart bytecode)" }],
+      fields: [
+        { kind: "int", key: "sceneId", label: "Scene", min: 0, max: 255, hint: "Runs only while the map is in this scene" },
+        scriptField("coordEvents", "Stepping on it", "What happens: one of the scripts of the step triggers here."),
+        { kind: "extras", label: "Other fields" },
+      ],
       create: (_map, x, y) => ({ x, y, sceneId: 0 }),
     },
   ],
 
   mapFields: [
-    { kind: "text", key: "environment", label: "Environment", hint: "Picks the colors (TOWN, ROUTE, INDOOR, CAVE, ...)" },
+    { kind: "select", key: "environment", label: "Environment", options: () => ENVIRONMENTS, hint: "The colors, and what Fly, Dig and Escape Rope may do here" },
+    { kind: "int", key: "group", label: "Map group", min: 0, max: 26, hint: "Towns and routes: which roof tiles and roof colors it shows" },
   ],
 
   connections(map): ConnectionRef[] {
@@ -474,8 +542,12 @@ export const gen2: GameAdapter = {
     for (const [dir, c] of Object.entries(conns)) if (c?.mapId) out.push({ dir: dir as Direction, map: c.mapId, offset: c.offset ?? 0 });
     return out;
   },
-  setConnection() {
-    // view-only for now
+  // World.lua reads only mapId and offset
+  setConnection(draft, dir, target, offset) {
+    const conns = { ...((draft.connections ?? {}) as Record<string, unknown>) };
+    if (target) conns[dir] = { mapId: target, offset };
+    else delete conns[dir];
+    draft.connections = conns;
   },
 
   // gen1recomp src/world/gen2/Map.lua cellCollision: block 0 is a wall; a
@@ -486,7 +558,10 @@ export const gen2: GameAdapter = {
     const id = map.blocks[by * map.width + bx] ?? 0;
     const quad = (tileset?.collision as number[][] | undefined)?.[id];
     const coll = id === 0 || !quad ? 0xff : quad[(cy % 2) * 2 + (cx % 2)] ?? 0xff;
-    return { walkable: COLL_PERMISSIONS[coll % 256] === 0, label: `coll $${coll.toString(16).padStart(2, "0")}` };
+    // gen1recomp Permissions.isWarpCollision: COLL_PIT/$68 and the $7x row
+    // (doors, stairs, caves, warp mats); a warp elsewhere is never taken
+    const warp = coll === 0x60 || coll === 0x68 || coll >> 4 === 7;
+    return { walkable: COLL_PERMISSIONS[coll % 256] === 0, warp, label: `coll $${coll.toString(16).padStart(2, "0")}` };
   },
 
   // one key per environment and map group (the roof colors), day palettes
@@ -535,8 +610,19 @@ export const gen2: GameAdapter = {
     return pal ? [...pal].reverse().map((c) => [c[0], c[1], c[2]] as Rgb) : MONO;
   },
 
-  newMap() {
-    throw new Error("Gen 2 maps can't be made in the studio yet");
+  // outdoor tilesets start as a route, the rest indoors; map group 0 has no
+  // roof (set one in the map panel)
+  newMap({ id, tileset, width, height, fill, index }) {
+    const outdoor = tileset === "TILESET_JOHTO" || tileset === "TILESET_JOHTO_MODERN" || tileset === "TILESET_KANTO";
+    return {
+      id, label: id, index, tileset, width, height,
+      blocks: new Array(width * height).fill(fill),
+      borderBlock: fill,
+      environment: outdoor ? "ROUTE" : "INDOOR",
+      group: 0,
+      connections: {},
+      warps: [], objects: [], bgEvents: [], coordEvents: [],
+    } as MapDef;
   },
 
   content,

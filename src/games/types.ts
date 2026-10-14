@@ -418,6 +418,7 @@ interface FieldBase {
   label: string;
   hint?: string;
 }
+// a field's `key` may be a dotted path into the record ("radius.x", "hours.0")
 
 export type FieldSpec =
   | (FieldBase & { kind: "text"; key: string })
@@ -425,14 +426,21 @@ export type FieldSpec =
   | (FieldBase & {
       kind: "select";
       key: string;
-      options: (ctx: GameContext) => string[];
+      // the open map, for choices taken from it
+      options: (ctx: GameContext, map?: MapDef) => string[];
+      // stored as a number (the options are number strings)
+      numeric?: boolean;
+      // what an option shows (unset or undefined: the value itself)
+      labels?: (value: string, ctx: GameContext, map?: MapDef) => string | undefined;
       // offered as the first choice; picking it deletes the key
       // undefined from the function = no empty choice
       emptyLabel?: string | ((record: Record<string, unknown>, ctx: GameContext) => string | undefined);
     })
   // a warp's destination: map + warp on that map, with "go to" and a
   // reciprocity check
-  | (FieldBase & { kind: "warpTarget"; mapKey: string; warpKey: string; specialMaps: string[] })
+  // specialMaps: map ids that resolve at runtime (Gen 1 LAST_MAP); backWarp:
+  // a warp number that does (Gen 2's 255: back where the player came from)
+  | (FieldBase & { kind: "warpTarget"; mapKey: string; warpKey: string; specialMaps: string[]; backWarp?: number })
   // JSON for every key no other field (and not x/y) claims
   | (FieldBase & { kind: "extras" })
   // two fields side by side
@@ -544,6 +552,9 @@ export interface ImageSpec {
 
 export interface CellInfo {
   walkable: boolean;
+  // whether a warp here is taken (Gen 2: only on door/stairs/cave/mat/pit
+  // collision); unset = not known
+  warp?: boolean;
   tile?: number;
   label?: string;
 }

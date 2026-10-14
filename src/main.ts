@@ -16,13 +16,13 @@ import { createMod, ensurePlayEnv, listMods, openProject as loadProject, savePro
 import { PLAYTEST_ID, playtestMain, playtestManifest, playtestSavingOff, type PlayTarget } from "./lua/playRuntime.ts";
 import { exportZip, publishDialog, type ShareContext } from "./ui/share.ts";
 import { modPageDialog } from "./ui/modPage.ts";
-import { isTyping, MapView } from "./render/mapView.ts";
+import { isTyping, MapView, warpLayer } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { differencesMarkdown, mountChangesMenu } from "./ui/changesMenu.ts";
 import { Brush, DoorOpen, Footprints, Package, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
-import { $, clear, comboInput, dropdown, field, h, icon, numberInput, setComboLabels, toast, errorText } from "./ui/dom.ts";
-import { addEntity, connectDoor, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
+import { $, clear, dropdown, field, h, icon, numberInput, setComboLabels, toast, errorText } from "./ui/dom.ts";
+import { addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
 import { mountMapList } from "./ui/mapList.ts";
 import { nav, WORKSPACES, type GraphicsView, type WorkspaceId } from "./ui/nav.ts";
 import { mountEncounterPane } from "./ui/encounterPanel.ts";
@@ -798,17 +798,16 @@ function newMapDialog(): void {
     ),
     field("Fill block", fill, "Defaults to the selected palette block"),
   );
-  // where the copy's exit leads: picked on that map after creating it
-  let entrance = "";
   const copyFields = h(
     "div",
     { hidden: true },
     field("Copy of", source),
-    field("Its door is on", comboInput("", "dl-maps", mapIds, (v) => (entrance = v), "(connect later)"), "After creating it, click the door on that map: the copy's exit and that door are connected both ways."),
     h(
       "p",
       { class: "hint" },
-      "Copies the blocks, warps, NPCs, signs and their texts and roles (nurse, shop clerk, ...), the PC tiles, music and wild Pokémon. Not copied: connections to other maps, and any hand-written script the game runs on the original.",
+      store.adapter.towns
+        ? "Copies the blocks, NPCs, signs and their texts and roles (nurse, shop clerk, ...), the PC tiles, music and wild Pokémon. Not copied: warps (place the copy's doors yourself, then Connect to a door), connections to other maps, and any hand-written script the game runs on the original."
+        : "Copies the blocks, people, signs (they say what they say on the original), music and wild Pokémon. Not copied: warps (place the copy's doors yourself, then Connect to a door), connections to other maps, and the scripts the game runs on entering the original.",
     ),
   );
   from.addEventListener("change", () => {
@@ -827,14 +826,6 @@ function newMapDialog(): void {
         const src = store.maps[source.value];
         if (!src) return toast("Pick a map to copy", "error");
         copyMap(src, mapId, index);
-        if (entrance) {
-          // the copy's exit: its first warp out of the building (LAST_MAP), else warp 1
-          const warps = store.entities(store.maps[mapId], "warps");
-          const exit = Math.max(0, warps.findIndex((w) => w.destMap === "LAST_MAP"));
-          dialog.close();
-          nav.pickCell(entrance, (x, y) => connectDoor(mapId, exit, entrance, x, y));
-          return;
-        }
       } else {
         const block = Math.max(0, Math.trunc(Number(fill.value) || 0));
         store.createMap(store.adapter.newMap({ id: mapId, tileset: tileset.value, width, height, fill: block, index }));
@@ -854,8 +845,9 @@ function newMapDialog(): void {
 
 // A new map that starts as a copy of `src`. Its texts, NPC roles, PC tiles,
 // music and wild Pokémon are keyed by map id or label elsewhere, so they are
-// copied over to the new id/label too (one undo step). Connections stay
-// behind: they would point into the original's neighbours one way only.
+// copied over to the new id/label too (one undo step). Connections and warps
+// stay behind: they would lead into the original's neighbours and rooms,
+// which don't lead back; the copy's doors are placed and connected by hand.
 function copyMap(src: MapDef, mapId: string, index: number): void {
   const label = String(store.adapter.newMap({ id: mapId, tileset: src.tileset, width: 1, height: 1, fill: 0, index }).label ?? mapId);
   const map = clone(src);
@@ -863,6 +855,8 @@ function copyMap(src: MapDef, mapId: string, index: number): void {
   map.label = label;
   map.index = index;
   map.connections = {};
+  const warps = warpLayer(store.adapter);
+  if (warps) map[warps.layer.key] = [];
   const srcLabel = typeof src.label === "string" ? src.label : "";
   store.group(`New map ${mapId} (copy of ${src.id})`, () => {
     store.createMap(store.adapter.normalizeMap(map));
@@ -1108,7 +1102,8 @@ window.addEventListener("keydown", (e) => {
   if (mod || e.altKey || nav.workspace !== "maps") return;
   const key = e.key.toUpperCase();
   const tool = TOOLS.find((t) => t.key === key);
-  if (tool) return store.setTool(tool.id);
+  // a hidden tool (the tile brush while tilesets are view-only) has no key
+  if (tool) return void (!toolButtons.find((b) => b.dataset.tool === tool.id)?.hidden && store.setTool(tool.id));
   const overlay = OVERLAYS.find((o) => o.key === key);
   if (overlay) return store.toggleOverlay(overlay.id);
   switch (e.key) {
@@ -1162,6 +1157,10 @@ function applyAdapterLimits(adapter: NonNullable<ReturnType<typeof adapterFor>>)
   for (const b of workspaceTabs) b.hidden = !!shown && !shown.includes(b.dataset.ws!);
   if (shown && !shown.includes(nav.workspace)) setWorkspace(shown[0] as WorkspaceId);
   addGroup.hidden = !!adapter.viewOnly?.registries.includes("maps");
+  // the tile brush makes blocks, so it needs editable tilesets
+  const noTiles = !!adapter.viewOnly?.registries.includes("tilesets");
+  for (const b of toolButtons) if (b.dataset.tool === "tile") b.hidden = noTiles;
+  if (noTiles && store.tool === "tile") store.setTool("select");
   const here = adapter.playFromHere !== false;
   playBtn.setAttribute("aria-label", here ? "Play from here" : "Play");
   playBtn.title = here

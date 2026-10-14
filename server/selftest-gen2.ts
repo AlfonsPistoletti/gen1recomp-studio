@@ -60,7 +60,20 @@ edited.items = { POTION: { ...(clone(content.items.POTION) as Rec), price: 250 }
 edited.type_chart = { "FIRE>STEEL": { multiplier: 10 } };
 edited.map_songs = { NEW_BARK_TOWN: Object.values(content.map_songs).find((s) => s !== content.map_songs.NEW_BARK_TOWN) as string };
 
-const { calls } = contentCalls(adapter, { maps: base, ...content }, edited);
+// maps, the way the map tools edit them (through the adapter)
+type Ent = Record<string, unknown>;
+const newBark = clone(base.NEW_BARK_TOWN);
+newBark.blocks[0] = 1;
+(newBark.objects as Ent[])[0].x = Number((newBark.objects as Ent[])[0].x) + 1;
+(newBark.warps as Ent[]).push(adapter.layers.find((l) => l.kind === "warp")!.create(newBark, 2, 2, { data: project.data, maps: base, records: {} }));
+adapter.setConnection(newBark, "north", "ROUTE_29", 3);
+const fresh = adapter.newMap({ id: "STUDIO_TEST_MAP", tileset: "TILESET_JOHTO", width: 4, height: 3, fill: 1, index: 1000 });
+adapter.setConnection(fresh, "south", "NEW_BARK_TOWN", 0);
+const editedMaps: Record<string, Rec> = { NEW_BARK_TOWN: newBark as unknown as Rec, STUDIO_TEST_MAP: fresh as unknown as Rec };
+check("new warp leads back the way the player came", (newBark.warps as Ent[]).at(-1)!.destWarp === 255);
+check("vanilla warps carry no map-group numbers", !JSON.stringify(base).includes("destGroup"));
+
+const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: editedMaps, ...edited });
 const source = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
 const file = "mods/studio_selftest/studio_content.lua";
 const run = await runMod(new Map([[file, source]]), "studio_selftest", file, null);
@@ -68,6 +81,14 @@ check("generated Lua runs", run.errors.length === 0, run.errors.join("; "));
 check("no game paths written", !source.includes("assets/generated"));
 check("sparse held item written as [2]", source.includes('[2] = "BERRY"'));
 check("pokemon saved as a patch", source.includes('pokemon:patch("CHIKORITA"') && !source.includes("spriteFront"));
+
+{
+  const working = clone(base);
+  applyOps(working, run.ops, "maps");
+  for (const id of Object.keys(editedMaps)) check(`round-trip map ${id}`, deepEqual(adapter.normalizeMap(working[id]), adapter.normalizeMap(clone(editedMaps[id] as never))));
+  check("untouched map unchanged", deepEqual(working.ROUTE_30, base.ROUTE_30));
+  check("new map registered", source.includes('maps:register("STUDIO_TEST_MAP"'));
+}
 
 for (const [registry, records] of Object.entries(edited)) {
   const table = { ...content[registry] };

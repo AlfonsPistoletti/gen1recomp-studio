@@ -35,7 +35,12 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   Moves/Items the same way: `MoveSpec` battleDetails/effectChance/description (<NEXT> lines)/rawBytes (accuracyRaw and
   effectChanceRaw kept in sync: Gold's battle reads the bytes first)/newMoves; `ItemSpec` effects/newItems/pockets
   (pocketId synced)/description/heldEffects/machineOf (Gold TMs: `teaches` + `tmLabel`)/machineEdit. Gold's type chart
-  build takes the file's own type records (plain ids, PSYCHIC_TYPE) plus the Foresight rows as matchups. Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
+  build takes the file's own type records (plain ids, PSYCHIC_TYPE) plus the Foresight rows as matchups.
+  Gen 2 maps are editable (tilesets/sprites still view-only, so the tile brush is hidden): warps use
+  `warpTarget.backWarp` 255 ("back where the player came from", World:resolveWarp), connections are `{ mapId, offset }`,
+  `normalizeMap` drops the extractor's destGroup/destMapNum and connection extras (never read). NPC/sign/trigger
+  scripts are cart bytecode: the studio only lets an entity reuse a scriptKey of the same layer on that map. Inspector
+  field keys may be dotted paths (`radius.x`, `hours.0`); selects can be `numeric` with `labels`. Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
   tileset `tilePalettes[tile]` (1-based), roof slot colors from `roofs[group]` in TOWN/ROUTE; walls from per-block
   `collision` quads via gen1recomp's CollPermissions table (restated). The map panel shows music/roof/rules only when
   the game has those registries (`has()` in inspector.ts). Gen 3 shows as "coming soon".

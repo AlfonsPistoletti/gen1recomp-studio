@@ -13,6 +13,7 @@ import { idRow } from "./renameId.ts";
 import { promptNewRecord } from "./newRecord.ts";
 import { counterLabel, countersGiving, showCounter } from "./prizeEditor.ts";
 import { mountRecordList } from "./recordList.ts";
+import { sortMenu, type SortOption, type SortState } from "./sortMenu.ts";
 
 type Rec = Record<string, unknown>;
 
@@ -45,7 +46,8 @@ function moveLabel(move: string): string {
 // in constants.badges (Global > Badges)
 export const isBadgeId = (id: string) => id.includes("BADGE");
 
-const machineOf = (r: Rec | undefined) => r?.machine as { kind?: string; move?: string; number?: number } | undefined;
+const machineOf = (r: Rec | undefined) =>
+  r ? (spec()?.machineOf?.(r) ?? (r.machine as { kind?: string; move?: string; number?: number } | undefined)) : undefined;
 
 // regular items by bag index, then TMs and HMs, then new ones
 function ordered(): string[] {
@@ -56,6 +58,53 @@ function ordered(): string[] {
     return typeof all[id].index === "number" ? (all[id].index as number) : 5000;
   };
   return Object.keys(all).sort((a, b) => key(a) - key(b) || a.localeCompare(b));
+}
+
+// what kind of item it is, in bag order: regular, balls, key items, TMs/HMs, badges
+// (Gen 2's pocket; Gen 1 has key items and machines)
+function kindOf(r: Rec, id: string): [number, string] {
+  if (machineOf(r)?.move) return [3, "TM/HM"];
+  if (isBadgeId(id)) return [4, "badge"];
+  if (r.keyItem || r.pocket === "KEY_ITEM") return [2, "key"];
+  if (r.pocket === "BALL") return [1, "ball"];
+  return [0, "item"];
+}
+
+// the list's sort choices (game order first: the default)
+function sortOptions(): SortOption[] {
+  const pockets = store.project ? !!store.adapter.items?.pockets : false;
+  return [
+    { id: "index", label: "Game order", group: "Order" },
+    { id: "name", label: "Name", group: "Order" },
+    { id: "kind", label: pockets ? "Pocket" : "Kind (key items, TMs …)", group: "Order" },
+    { id: "price", label: "Price", group: "Numbers", desc: true },
+  ];
+}
+
+// item ids in the chosen order (ties: game order), and the right column
+// for each (null: the list's usual one)
+function sortedItems(sort: SortState): { ids: string[]; meta: ((id: string) => string) | null } {
+  const all = items();
+  const base = ordered();
+  const rank = new Map(base.map((id, i) => [id, i]));
+  let value: (id: string) => number | string = (id) => rank.get(id) ?? 9999;
+  let meta: ((id: string) => string) | null = null;
+  if (sort.id === "name") value = (id) => String(all[id].name ?? id);
+  else if (sort.id === "kind") {
+    value = (id) => kindOf(all[id], id)[0];
+    meta = (id) => kindOf(all[id], id)[1];
+  } else if (sort.id === "price") {
+    value = (id) => Number(all[id].price) || 0;
+    meta = (id) => String(Number(all[id].price) || 0);
+  }
+  const dir = sort.desc ? -1 : 1;
+  const ids = [...base].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    const c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+    return c * dir || (rank.get(a) ?? 0) - (rank.get(b) ?? 0);
+  });
+  return { ids, meta };
 }
 
 function isNewItem(id: string): boolean {
@@ -69,29 +118,31 @@ function itemEdited(id: string): boolean {
 
 export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
   let current: string | null = null;
-  const newBtn = h("button", { class: "btn small", title: "Add an item, starting as a copy of one", onclick: () => createItem() }, "+ New Item");
+  const newBtn = h("button", { class: "btn small", title: "Add an item, starting as a copy of one", onclick: () => createItem() }, "+ Item");
   const newMachine = h("button", { class: "btn small", title: "A new TM or HM that teaches a move", onclick: () => void createMachine() }, "+ TM/HM");
+  const sort = sortMenu("items", sortOptions, () => list.render());
   const list = mountRecordList(left, {
     title: "Items",
     folded: { label: "Used by the game", hint: "Not real items: elevator floor labels, Surf's hidden item and unused slots. Edit only if you know why." },
-    head: [newBtn, newMachine],
+    head: [newBtn, newMachine, sort.el],
     placeholder: "Search items…  (Ctrl+F)",
     searchId: "items-search",
     items: () => {
       const s = spec();
       if (!s) return [];
       const all = items();
-      return ordered().map((id) => {
+      const sorted = sortedItems(sort.state());
+      return sorted.ids.map((id) => {
         const r = all[id];
         const m = machineOf(r);
         return {
           id,
           label: String(r.name ?? id),
-          meta: m?.move ? moveLabel(m.move) : isBadgeId(id) ? "badge" : r.keyItem ? "key" : r.effect ? "custom" : "",
+          meta: sorted.meta ? sorted.meta(id) : m?.move ? moveLabel(m.move) : isBadgeId(id) ? "badge" : r.keyItem || r.pocket === "KEY_ITEM" ? "key" : r.pocket === "BALL" ? "ball" : r.effect ? "custom" : "",
           search: `${id} ${String(r.name ?? "")} ${m?.move ?? ""}`,
           edited: itemEdited(id),
           isNew: isNewItem(id),
-          folded: !!s.internal(id),
+          folded: !!s.internal(id, r),
         };
       });
     },
@@ -139,7 +190,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     const s = spec();
     if (!s) return;
     const all = items();
-    const sources = ordered().filter((id) => !s.special(id, all[id]) && !s.internal(id));
+    const sources = ordered().filter((id) => !s.special(id, all[id]) && !s.internal(id, all[id]));
     const res = await promptNewRecord({
       title: "New item",
       idPrefix: "",
@@ -221,6 +272,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     }
     const id = current;
     title.textContent = String(r.name ?? id);
+    newBtn.hidden = newMachine.hidden = s.newItems === false;
     const isNew = isNewItem(id);
     revert.textContent = isNew ? "Delete item" : "Revert to base";
     revert.hidden = !isNew && !itemEdited(id);
@@ -297,8 +349,23 @@ function itemForm(s: ItemSpec, id: string, r: Rec): HTMLElement[] {
       { class: "row three" },
       field("Price", numberInput(Number(r.price ?? 0), (v) => edit(id, "Item price", (d) => (d.price = Math.max(0, Math.min(s.maxPrice, v)))), 0, s.maxPrice), "Shops sell for this and buy back for half."),
     ),
-    check("Key item", keyItem, (v) => edit(id, "Key item", (d) => (v ? (d.keyItem = true) : delete d.keyItem)), "Can't be sold or tossed; plays the key-item jingle when received."),
+    s.pockets
+      ? null
+      : check("Key item", keyItem, (v) => edit(id, "Key item", (d) => (v ? (d.keyItem = true) : delete d.keyItem)), "Can't be sold or tossed; plays the key-item jingle when received."),
+    // a TM/HM shows its move's description in the bag
+    s.description && !machineOf(r)?.move ? descriptionField(s, id, r) : null,
   );
+  // a TM/HM stays in its pocket (the machine data decides what it is)
+  if (s.pockets && !machineOf(r)?.move) {
+    // pocketId: the pocket's number (list position + 1), kept in sync
+    const pockets = s.pockets.filter((p) => p !== "TM_HM");
+    const pocket = selectInput(String(r.pocket ?? ""), pockets, (v) => edit(id, "Bag pocket", (d) => {
+      d.pocket = v;
+      if ("pocketId" in d) d.pocketId = s.pockets!.indexOf(v) + 1;
+    }));
+    for (const o of pocket.options) o.textContent = POCKET_LABELS[o.value] ?? o.value;
+    basics.querySelector(".row.three")!.append(field("Pocket", pocket, "Where the bag keeps it."));
+  }
   if (isBadgeId(id)) {
     basics.append(h("div", { class: "notice" },
       h("strong", {}, "A badge"),
@@ -306,18 +373,75 @@ function itemForm(s: ItemSpec, id: string, r: Rec): HTMLElement[] {
       h("button", { class: "btn small", onclick: () => nav.openGlobal("badges") }, "Open Global > Badges"),
     ));
   }
-  const internal = s.internal(id);
+  const internal = s.internal(id, r);
   const out = internal
     ? [h("section", { class: "card warn-card" }, h("h4", {}, "Used by the game"), h("p", { class: "hint" }, internal), h("p", { class: "hint" }, "Changing it can break what relies on it.")), basics]
     : [basics];
   // not a real item: no effect, catching or shops
   if (internal) return out;
   const machine = machineOf(r);
-  if (machine?.move) out.push(machineCard(id, machine));
-  out.push(effectCard(s, id, r));
-  if (balls()[id] || effects()[String(r.effect ?? "")]?.steps.some((st) => st.act === "ball")) out.push(ballCard(s, id));
-  out.push(martCard(s, id, r));
+  if (machine?.move) out.push(s.machineEdit === false ? machineInfo(machine) : machineCard(id, machine));
+  if (s.heldEffects) out.push(heldCard(s, id, r));
+  if (s.effects !== false) {
+    out.push(effectCard(s, id, r));
+    if (balls()[id] || effects()[String(r.effect ?? "")]?.steps.some((st) => st.act === "ball")) out.push(ballCard(s, id));
+  }
+  if (s.marts(store.ctx).length) out.push(martCard(s, id, r));
   return out;
+}
+
+const POCKET_LABELS: Record<string, string> = { ITEM: "Items", BALL: "Balls", KEY_ITEM: "Key items", TM_HM: "TMs / HMs" };
+
+// the bag's text: one input per line, stored joined with <NEXT>
+function descriptionField(s: ItemSpec, id: string, r: Rec): HTMLElement {
+  const spec = s.description!;
+  const lines = String(r.description ?? "").split("<NEXT>");
+  const inputs = Array.from({ length: spec.lines }, (_, i) => {
+    const input = h("input", { type: "text", value: lines[i] ?? "", maxLength: spec.lineMax, spellcheck: false, class: "mono" });
+    input.addEventListener("change", () =>
+      edit(id, "Item description", (d) => {
+        const next = inputs.map((x) => x.value);
+        while (next.length > 1 && !next[next.length - 1]) next.pop();
+        d.description = next.join("<NEXT>");
+      }));
+    return input;
+  });
+  return field("Description", h("div", { class: "desc-lines" }, ...inputs), `${spec.lines} lines of up to ${spec.lineMax} characters, shown in the bag.`);
+}
+
+// what it does when a Pokémon holds it: the engine's held effect, and its
+// number where that effect reads one (heal amount, boost %, chance ...)
+function heldCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
+  const held = s.heldEffects!;
+  const effect = String(r.heldEffect ?? "HELD_NONE");
+  const sel = selectInput(effect, held.ids, (v) => edit(id, "Held effect", (d) => (d.heldEffect = v)));
+  for (const o of sel.options) o.textContent = o.value === "HELD_NONE" ? "Nothing" : o.value.replace(/^HELD_/, "").replace(/_/g, " ").toLowerCase();
+  const info = held.info(effect);
+  const amount = info.amount;
+  return h(
+    "section",
+    { class: "card" },
+    h("h4", {}, "When held"),
+    h(
+      "div",
+      { class: "row three" },
+      field("Held effect", sel, info.note),
+      amount
+        ? field(amount.label, numberInput(Number(r.heldParameter ?? 0), (v) => edit(id, amount.label, (d) => (d.heldParameter = Math.max(0, Math.min(amount.max, v)))), 0, amount.max), amount.hint)
+        : h("span", {}),
+    ),
+  );
+}
+
+// a TM/HM the studio shows but doesn't change (Gen 2), and who learns it
+function machineInfo(m: { kind?: string; move?: string; number?: number }): HTMLElement {
+  return h(
+    "section",
+    { class: "card" },
+    h("h4", {}, "TM / HM"),
+    h("p", {}, `${m.kind ?? "TM"}${String(m.number ?? 0).padStart(2, "0")} teaches `, h("strong", {}, moveLabel(m.move ?? ""))),
+    m.move ? learnersCard(m.move) : null,
+  );
 }
 
 // the next unused number for a TM or an HM
@@ -818,8 +942,9 @@ interface Use {
 function usesOf(id: string): Use[] {
   const out: Use[] = [];
   for (const [pid, m] of Object.entries(store.table("pokemon") as Record<string, Rec>)) {
-    const evos = (m.evolutions as { method?: string; item?: string; species?: string }[] | undefined) ?? [];
-    for (const e of evos) if (e.item === id) out.push({ label: `${String(m.name ?? pid)} → ${e.species ?? "?"}`, open: () => nav.openPokemon(pid) });
+    const into = store.adapter.pokemon?.keys?.evolveInto ?? "species";
+    const evos = (m.evolutions as Record<string, string | undefined>[] | undefined) ?? [];
+    for (const e of evos) if (e.item === id) out.push({ label: `${String(m.name ?? pid)} → ${e[into] ?? "?"}`, open: () => nav.openPokemon(pid) });
   }
   for (const [cls, a] of Object.entries(store.table("ai_classes") as Record<string, Rec>)) {
     if (a.item === id) out.push({ label: `Trainer AI: ${cls}`, open: () => nav.openTrainer(cls) });

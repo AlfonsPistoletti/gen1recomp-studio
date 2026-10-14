@@ -17,10 +17,11 @@ import { nav } from "./nav.ts";
 import { idRow } from "./renameId.ts";
 import { cryCard, cryFor } from "./cryCard.ts";
 import { mountRecordList } from "./recordList.ts";
+import { sortMenu, type SortOption, type SortState } from "./sortMenu.ts";
 import { textEditor } from "./textField.ts";
 
 type Rec = Record<string, unknown>;
-type Evolution = { method?: string; level?: number; item?: string; species?: string; [k: string]: unknown };
+type Evolution = { method?: string; level?: number; item?: string; [k: string]: unknown };
 type LearnEntry = { level: number; move: string };
 
 const REG = "pokemon";
@@ -37,8 +38,22 @@ let view: string | null = null;
 
 // the colors a species' battle pics are shown in (lightest first; null: as drawn)
 function monColors(id: string, r: Rec): Rgb[] | null {
+  const own = store.adapter.pokemon?.monColors;
+  if (own) return r.trueColor === true ? null : own(store.ctx, id);
   return picColors(view ?? defaultView(), (redpp) => monPaletteName(id, r, redpp), r.trueColor === true);
 }
+
+// record keys that differ by generation (PokemonSpec.keys)
+function keys(spec: PokemonSpec | undefined) {
+  const k = spec?.keys;
+  return {
+    levelMoves: k?.levelMoves ?? "learnset",
+    startMoves: k?.startMoves === undefined ? "level1Moves" : k.startMoves,
+    into: k?.evolveInto ?? "species",
+    picSize: k?.picSize ?? "frontSize",
+  };
+}
+const lacks = (spec: PokemonSpec | undefined, what: NonNullable<PokemonSpec["without"]>[number]) => !!spec?.without?.includes(what);
 
 // a battle pic in the chosen colors
 function pic(path: string | undefined, pal: Rgb[] | null, attrs: Record<string, unknown>): HTMLImageElement {
@@ -54,24 +69,81 @@ function dexOrder(): string[] {
   return Object.keys(all).sort((a, b) => ((all[a].dex as number) ?? 999) - ((all[b].dex as number) ?? 999) || a.localeCompare(b));
 }
 
+// the list's sort choices: dex orders, name, type, each base stat and the total
+function sortOptions(): SortOption[] {
+  // also asked before a project is open (the button is built at start)
+  const spec = store.project ? store.adapter.pokemon : undefined;
+  const regional = spec?.regionalDex;
+  return [
+    { id: "dex", label: regional ? "National dex" : "Dex number", group: "Order" },
+    ...(regional ? [{ id: "regional", label: regional.label, group: "Order" }] : []),
+    { id: "name", label: "Name", group: "Order" },
+    { id: "type", label: "Type", group: "Order" },
+    ...(spec?.stats ?? []).map((st) => ({ id: `stat:${st.key}`, label: st.label, group: "Base stats", desc: true })),
+    { id: "total", label: "Total", group: "Base stats", desc: true },
+  ];
+}
+
+const statOf = (r: Rec, key: string) => Number((r.baseStats as Rec | undefined)?.[key]) || 0;
+const totalOf = (r: Rec) => (store.adapter?.pokemon?.stats ?? []).reduce((n, st) => n + statOf(r, st.key), 0);
+
+// species ids in the chosen order (ties: dex order), and what the list's
+// right column shows for each
+function sortedSpecies(sort: SortState): { ids: string[]; meta(id: string): string } {
+  const all = species();
+  const dex = dexOrder();
+  const rank = new Map(dex.map((id, i) => [id, i]));
+  const dexMeta = (id: string) => `#${String(all[id].dex ?? "?").padStart(3, "0")}`;
+  let value: (id: string) => number | string;
+  let meta = dexMeta;
+  if (sort.id === "regional") {
+    const order = store.adapter.pokemon?.regionalDex?.order(store.ctx) ?? [];
+    const at = new Map(order.map((id, i) => [id, i]));
+    value = (id) => at.get(id) ?? 9999;
+    meta = (id) => (at.has(id) ? `#${String(at.get(id)! + 1).padStart(3, "0")}` : "—");
+  } else if (sort.id === "name") value = (id) => String(all[id].name ?? id);
+  else if (sort.id === "type") {
+    const types = (id: string) => [...new Set((all[id].types as string[] | undefined) ?? [])];
+    value = (id) => types(id).join(" ");
+    meta = (id) => types(id).map((t) => t.replace(/_TYPE$/, "").slice(0, 3)).join("/");
+  } else if (sort.id === "total") {
+    value = (id) => totalOf(all[id]);
+    meta = (id) => String(totalOf(all[id]));
+  } else if (sort.id.startsWith("stat:")) {
+    const key = sort.id.slice(5);
+    value = (id) => statOf(all[id], key);
+    meta = (id) => String(statOf(all[id], key));
+  } else value = (id) => rank.get(id) ?? 9999;
+  const dir = sort.desc ? -1 : 1;
+  const ids = [...dex].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    const c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+    return c * dir || (rank.get(a) ?? 0) - (rank.get(b) ?? 0);
+  });
+  return { ids, meta };
+}
+
 export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
   let current: string | null = null;
+  const sort = sortMenu("pokemon", sortOptions, () => list.render());
 
   const newBtn = h("button", { class: "btn small", title: "Add a Pokémon, starting as a copy of one", onclick: () => createSpecies() }, "+ New");
   const list = mountRecordList(left, {
     title: "Pokémon",
-    head: [newBtn],
+    head: [newBtn, sort.el],
     placeholder: "Search Pokémon…  (Ctrl+F)",
     searchId: "pokemon-search",
     items: () => {
       const spec = store.adapter.pokemon;
       const all = species();
-      return dexOrder().map((id) => {
+      const { ids, meta } = sortedSpecies(sort.state());
+      return ids.map((id) => {
         const r = all[id];
         return {
           id,
           label: String(r.name ?? id),
-          meta: `#${String(r.dex ?? "?").padStart(3, "0")}`,
+          meta: meta(id),
           search: ((r.types as string[]) ?? []).join(" "),
           icon: spec ? spriteUrl(spec.frontSprite(r)) : undefined,
           edited: store.isRecordEdited(REG, id),
@@ -97,7 +169,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
   }, "Revert to base");
   const colors = h("span", {});
   center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, colors, revert)), main);
-  right.append(h("div", { class: "panel-head" }, h("span", {}, "Pokédex & cry")), side);
+  const sideTitle = h("span", {}, "Pokédex & cry");
+  right.append(h("div", { class: "panel-head" }, sideTitle), side);
 
   const open = (id: string) => {
     if (!species()[id]) return;
@@ -126,12 +199,14 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
     const id = current;
     rerender(main, () => mainForm(id, rec, spec));
-    rerender(side, () => sideForm(id, rec));
+    rerender(side, () => sideForm(id, rec, spec));
+    sideTitle.textContent = lacks(spec, "dexEntry") && lacks(spec, "cry") ? "Pokédex" : "Pokédex & cry";
     title.textContent = `#${String(rec.dex ?? "?").padStart(3, "0")} ${String(rec.name ?? current)}`;
-    colors.replaceChildren(colorSelect(view ?? defaultView(), monPaletteName(id, rec, false), rec.trueColor === true, (v) => {
+    colors.replaceChildren(spec.monColors ? "" : colorSelect(view ?? defaultView(), monPaletteName(id, rec, false), rec.trueColor === true, (v) => {
       view = v;
       renderNow();
     }));
+    newBtn.hidden = lacks(spec, "newSpecies");
     const isNew = store.baseTable(REG)[current] === undefined;
     revert.textContent = isNew ? "Delete Pokémon" : "Revert to base";
     revert.hidden = !isNew && !store.isRecordEdited(REG, current);
@@ -207,7 +282,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     for (const [mapId, wild] of Object.entries(store.table("encounters") as Record<string, Rec>)) {
       for (const t of Object.values(wild)) if ((t as { slots?: { species: string }[] })?.slots?.some((s) => s.species === id)) uses.push(`wild Pokémon on ${mapId}`);
     }
-    for (const [mid, m] of Object.entries(species())) if ((m.evolutions as { species?: string }[] | undefined)?.some((e) => e.species === id)) uses.push(`evolution of ${mid}`);
+    const into = keys(store.adapter.pokemon).into;
+    for (const [mid, m] of Object.entries(species())) if ((m.evolutions as Evolution[] | undefined)?.some((e) => e[into] === id)) uses.push(`evolution of ${mid}`);
     for (const [tid, t] of Object.entries(store.table("trainers") as Record<string, Rec>)) {
       if ((t.parties as { species: string }[][] | undefined)?.some((p) => p.some((s) => s.species === id))) uses.push(`team of ${tid}`);
     }
@@ -255,11 +331,12 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
   const typeNames = spec.typeNames(ctx);
   const setType = (slot: number, value: string) =>
     edit(id, "Types", (d) => {
-      const next = [...((d.types as string[]) ?? [])];
+      const next = [...new Set((d.types as string[]) ?? [])];
       if (value) next[slot] = value;
       else next.splice(slot, 1);
       // a dual type of the same type twice is a single type
-      d.types = next.filter((t, i) => t && next.indexOf(t) === i);
+      const single = next.filter((t, i) => t && next.indexOf(t) === i);
+      d.types = spec.typesTwice && single.length === 1 ? [single[0], single[0]] : single;
     });
 
   const name = h("input", { type: "text", value: String(r.name ?? ""), maxLength: 10, spellcheck: false });
@@ -283,7 +360,7 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
         "div",
         { class: "row two" },
         field("Type 1", selectInput(types[0] ?? "", typeNames, (v) => setType(0, v))),
-        field("Type 2", selectInput(types[1] ?? "", typeNames.filter((t) => t !== types[0]), (v) => setType(1, v), "—")),
+        field("Type 2", selectInput(types[1] === types[0] ? "" : types[1] ?? "", typeNames.filter((t) => t !== types[0]), (v) => setType(1, v), "—")),
       ),
     ),
   );
@@ -313,11 +390,13 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
         field("Base EXP", numberInput(r.baseExp as number, (n) => edit(id, "Base EXP", (d) => (d.baseExp = clampInt(n, 0, 255))), 0, 255), "EXP yield when defeated"),
         field("Growth rate", growth),
       ),
+      spec.heldItems ? heldItemsRow(id, r, spec) : null,
     ),
+    spec.breeding ? breedingCard(id, r, spec) : null,
     evolutionsCard(id, r, spec),
     // level-up moves and machines side by side (stacked when narrow)
     h("div", { class: "moves-cols" }, learnsetCard(id, r, spec), tmCard(id, r, spec)),
-  ];
+  ].filter((x): x is HTMLElement => !!x);
 }
 
 // ------------------------------------------------------------------ art
@@ -341,7 +420,8 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   const mod = store.project.mod;
   const all = species();
   const trueColor = r.trueColor === true;
-  const frontSize = Number(r.frontSize ?? 7);
+  const picKey = keys(spec).picSize;
+  const frontSize = Number(r[picKey] ?? 7);
   const maxFront = Math.max(...spec.frontSizes) * 8;
   const scales = spec.battleScale;
   const frontScale = typeof r.battleScaleFront === "number" ? r.battleScaleFront : scales.front;
@@ -374,11 +454,11 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
     edit(id, `Import ${kind} art`, (d) => {
       if (kind === "front") {
         d.spriteFront = path;
-        d.frontSize = res.size / 8;
+        d[picKey] = res.size / 8;
       } else if (kind === "back") {
         d.spriteBack = path;
         // 32×32 is drawn doubled like the game; bigger art is drawn 1:1
-        if (res.size === spec.backSize) delete d.battleScaleBack;
+        if (res.size === spec.backSize || scales.back === 1) delete d.battleScaleBack;
         else d.battleScaleBack = 1;
       }
       else d.icon = { image: path, frames: spec.icon.frames, ...(res.trueColor ? { trueColor: true } : {}) };
@@ -400,7 +480,7 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       if (!path) return;
       edit(id, `Use ${String(src.name ?? v)}'s ${kind} art`, (d) => {
         d[key] = path;
-        if (kind === "front") d.frontSize = src.frontSize;
+        if (kind === "front") d[picKey] = src[picKey];
         // the art's battle scale goes with it
         const scaleKey = kind === "front" ? "battleScaleFront" : "battleScaleBack";
         if (src[scaleKey] !== undefined) d[scaleKey] = src[scaleKey];
@@ -488,16 +568,16 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
         "Back",
         [h("button", { class: "btn small", onclick: () => importTo("back") }, "Import…"), borrow("back"), scaleSelect("battleScaleBack", backScale, scales.back)],
         back ? pic(back, pal, {}) : null,
-        backScale === scales.back ? `${spec.backSize}×${spec.backSize}, drawn doubled like the game` : "Full resolution",
+        backScale === scales.back && scales.back !== 1 ? `${spec.backSize}×${spec.backSize}, drawn doubled like the game` : "Full resolution",
       ),
       slot(
         "Menu icon",
-        [h("button", { class: "btn small", onclick: () => importTo("icon") }, "Import…"), iconSel],
+        lacks(spec, "iconImport") ? [h("span", { class: "muted" }, icon.name ?? "—")] : [h("button", { class: "btn small", onclick: () => importTo("icon") }, "Import…"), iconSel],
         iconPath ? h("div", { class: "icon-frame", style: `background-image:url("${spriteUrl(iconPath)}")` }) : null,
         icon.image ? "Own image, 2 frames" : "Game icon shape",
       ),
     ),
-    field(
+    spec.monColors ? null : field(
       "Battle palette",
       paletteField(r.palette, monPaletteName(id, undefined, false), (v) => edit(id, "Battle palette", (d) => (v ? (d.palette = v) : delete d.palette))),
       "The colors of its battle pictures. In RED++ mode the game uses RED++'s colors for the same palette name.",
@@ -509,6 +589,7 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
 
 function evolutionsCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   const ctx = store.ctx;
+  const into = keys(spec).into;
   const evos = (r.evolutions as Evolution[] | undefined) ?? [];
   const speciesIds = dexOrder();
   const items = spec.itemNames(ctx);
@@ -525,50 +606,81 @@ function evolutionsCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       editEvo(i, "Evolution method", (x) => {
         x.method = v;
         const m = spec.evolutionMethods.find((mm) => mm.id === v);
-        if (m?.item && !x.item) x.item = items.find((it) => it.endsWith("_STONE")) ?? items[0];
+        if (m?.item === true && !x.item) x.item = items.find((it) => it.endsWith("_STONE")) ?? items[0];
         if (!m?.item) delete x.item;
-        // the importer writes level 1 for non-level methods; keep the shape
-        if (typeof x.level !== "number" || !m?.level) x.level = m?.level ? Math.max(2, Number(x.level) || 16) : 1;
+        if (m?.time) x.time ??= m.time[0];
+        else delete x.time;
+        if (m?.comparison) x.comparison ??= m.comparison[0].id;
+        else delete x.comparison;
+        if (spec.evolutionLevelAlways) {
+          // the importer writes level 1 for non-level methods; keep the shape
+          if (typeof x.level !== "number" || !m?.level) x.level = m?.level ? Math.max(2, Number(x.level) || 16) : 1;
+        } else if (m?.level) x.level = Math.max(2, Number(x.level) || 16);
+        else delete x.level;
       }),
     );
-    const level = method?.level ? numberInput(e.level, (n) => editEvo(i, "Evolution level", (x) => (x.level = clampInt(n, 1, 100))), 1, 100) : null;
-    const item = method?.item ? comboInput(String(e.item ?? ""), "dl-items", items, (v) => editEvo(i, "Evolution item", (x) => (x.item = v))) : null;
-    const target = comboInput(String(e.species ?? ""), "dl-species", speciesIds, (v) => editEvo(i, "Evolves into", (x) => (x.species = v)));
-    const goto = e.species && species()[e.species] ? h("button", { class: "btn small ghost", title: `Open ${e.species}`, onclick: () => nav.openPokemon(e.species!) }, "→") : null;
+    for (const o of methodSelect.options) o.textContent = spec.evolutionMethods.find((m) => m.id === o.value)?.label ?? o.value;
+    const params: HTMLElement[] = [];
+    if (method?.level) params.push(numberInput(e.level, (n) => editEvo(i, "Evolution level", (x) => (x.level = clampInt(n, 1, 100))), 1, 100));
+    if (method?.item) {
+      params.push(method.item === "optional"
+        ? selectInput(String(e.item ?? ""), items, (v) => editEvo(i, "Trade item", (x) => (v ? (x.item = v) : delete x.item)), "no held item")
+        : comboInput(String(e.item ?? ""), "dl-items", items, (v) => editEvo(i, "Evolution item", (x) => (x.item = v))));
+    }
+    if (method?.time) {
+      const sel = selectInput(String(e.time ?? method.time[0]), method.time, (v) => editEvo(i, "Evolution time", (x) => (x.time = v)));
+      for (const o of sel.options) o.textContent = ({ ANYTIME: "any time", MORNDAY: "morning/day", NITE: "night" } as Record<string, string>)[o.value] ?? o.value;
+      params.push(sel);
+    }
+    if (method?.comparison) {
+      const choices = method.comparison;
+      const sel = selectInput(String(e.comparison ?? choices[0].id), choices.map((c) => c.id), (v) => editEvo(i, "Evolution stats", (x) => (x.comparison = v)));
+      for (const o of sel.options) o.textContent = choices.find((c) => c.id === o.value)?.label ?? o.value;
+      params.push(sel);
+    }
+    const targetId = typeof e[into] === "string" ? (e[into] as string) : "";
+    const target = comboInput(targetId, "dl-species", speciesIds, (v) => editEvo(i, "Evolves into", (x) => (x[into] = v)));
+    target.classList.add("evo-target");
+    const goto = targetId && species()[targetId] ? h("button", { class: "btn small ghost", title: `Open ${targetId}`, onclick: () => nav.openPokemon(targetId) }, "→") : null;
     const remove = h("button", { class: "btn small ghost", title: "Remove", onclick: () => edit(id, "Remove evolution", (d) => (d.evolutions = evos.filter((_, j) => j !== i))) }, "✕");
-    return h("div", { class: "evo-row" }, methodSelect, level ?? item ?? h("span", { class: "muted" }, "—"), h("span", { class: "muted" }, "→"), target, goto, remove);
+    return h("div", { class: "evo-row" }, methodSelect, ...(params.length ? params : [h("span", { class: "muted" }, "—")]), h("span", { class: "muted" }, "→"), target, goto, remove);
   });
+  const first = spec.evolutionMethods[0];
   const add = h(
     "button",
     {
       class: "btn small",
-      onclick: () => edit(id, "Add evolution", (d) => (d.evolutions = [...evos, { level: 16, method: spec.evolutionMethods[0]?.id ?? "LEVEL", species: id }])),
+      onclick: () => edit(id, "Add evolution", (d) => (d.evolutions = [...evos, { method: first?.id ?? "LEVEL", level: 16, [into]: id }])),
     },
     "+ Evolution",
   );
   return card("Evolutions", ...(rows.length ? rows : [h("p", { class: "hint" }, "Does not evolve.")]), h("div", { class: "row" }, add));
 }
 
-function learnsetCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
-  const moves = spec.moveNames(store.ctx);
-  const firstMoves = (r.level1Moves as string[] | undefined) ?? [];
-  const learnset = (r.learnset as LearnEntry[] | undefined) ?? [];
-
-  const firstRow = h(
+// a list of moves as chips (starting moves, egg moves)
+function moveChips(id: string, list: string[], max: number, what: string, moves: string[], set: (d: Rec, next: string[]) => void): HTMLElement {
+  return h(
     "div",
     { class: "row" },
-    ...firstMoves.map((m, i) =>
+    ...list.map((m, i) =>
       h(
         "span",
         { class: "move-chip" },
-        comboInput(m, "dl-moves", moves, (v) => edit(id, "Starting move", (d) => (d.level1Moves = firstMoves.map((x, j) => (j === i ? v : x))))),
-        h("button", { class: "btn small ghost", title: "Remove", onclick: () => edit(id, "Remove starting move", (d) => (d.level1Moves = firstMoves.filter((_, j) => j !== i))) }, "✕"),
+        comboInput(m, "dl-moves", moves, (v) => edit(id, what, (d) => set(d, list.map((x, j) => (j === i ? v : x))))),
+        h("button", { class: "btn small ghost", title: "Remove", onclick: () => edit(id, `Remove ${what.toLowerCase()}`, (d) => set(d, list.filter((_, j) => j !== i))) }, "✕"),
       ),
     ),
-    firstMoves.length < 4
-      ? h("button", { class: "btn small", onclick: () => edit(id, "Add starting move", (d) => (d.level1Moves = [...firstMoves, moves.includes("TACKLE") ? "TACKLE" : moves[0]])) }, "+ Move")
+    list.length < max
+      ? h("button", { class: "btn small", onclick: () => edit(id, `Add ${what.toLowerCase()}`, (d) => set(d, [...list, moves.includes("TACKLE") ? "TACKLE" : moves[0]])) }, "+ Move")
       : null,
   );
+}
+
+function learnsetCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
+  const moves = spec.moveNames(store.ctx);
+  const { levelMoves: lvKey, startMoves: startKey } = keys(spec);
+  const firstMoves = startKey ? ((r[startKey] as string[] | undefined) ?? []) : [];
+  const learnset = (r[lvKey] as LearnEntry[] | undefined) ?? [];
 
   // the game teaches in list order; keep it sorted by level
   const sorted = (list: LearnEntry[]) => [...list].sort((a, b) => a.level - b.level);
@@ -577,9 +689,9 @@ function learnsetCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       "div",
       { class: "learn-row" },
       h("span", { class: "muted" }, "Lv"),
-      numberInput(e.level, (n) => edit(id, "Learn level", (d) => (d.learnset = sorted(learnset.map((x, j) => (j === i ? { ...x, level: clampInt(n, 1, 100) } : x))))), 1, 100),
-      comboInput(e.move, "dl-moves", moves, (v) => edit(id, "Learned move", (d) => (d.learnset = learnset.map((x, j) => (j === i ? { ...x, move: v } : x))))),
-      h("button", { class: "btn small ghost", title: "Remove", onclick: () => edit(id, "Remove learned move", (d) => (d.learnset = learnset.filter((_, j) => j !== i))) }, "✕"),
+      numberInput(e.level, (n) => edit(id, "Learn level", (d) => (d[lvKey] = sorted(learnset.map((x, j) => (j === i ? { ...x, level: clampInt(n, 1, 100) } : x))))), 1, 100),
+      comboInput(e.move, "dl-moves", moves, (v) => edit(id, "Learned move", (d) => (d[lvKey] = learnset.map((x, j) => (j === i ? { ...x, move: v } : x))))),
+      h("button", { class: "btn small ghost", title: "Remove", onclick: () => edit(id, "Remove learned move", (d) => (d[lvKey] = learnset.filter((_, j) => j !== i))) }, "✕"),
     ),
   );
   const add = h(
@@ -589,18 +701,88 @@ function learnsetCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       onclick: () =>
         edit(id, "Add learned move", (d) => {
           const level = Math.min(100, (learnset[learnset.length - 1]?.level ?? 1) + 1);
-          d.learnset = sorted([...learnset, { level, move: moves.includes("TACKLE") ? "TACKLE" : moves[0] }]);
+          d[lvKey] = sorted([...learnset, { level, move: moves.includes("TACKLE") ? "TACKLE" : moves[0] }]);
         }),
     },
     "+ Learned move",
   );
   return card(
     "Moves",
-    h("span", { class: "field-label" }, "Known at level 1 (up to 4)"),
-    firstRow,
-    h("span", { class: "field-label" }, "Learned by level-up"),
+    ...(startKey
+      ? [
+          h("span", { class: "field-label" }, "Known at level 1 (up to 4)"),
+          moveChips(id, firstMoves, 4, "Starting move", moves, (d, next) => (d[startKey] = next)),
+        ]
+      : []),
+    h("span", { class: "field-label" }, startKey ? "Learned by level-up" : "Learned by level-up (level 1: known from the start)"),
     ...rows,
     h("div", { class: "row" }, add),
+  );
+}
+
+// the two items wild ones may hold: gen1recomp Mon.wildItem gives items[1]
+// (common) or, rarely, items[2]. A table with only [2] loads as { "2": id }
+// and is written back the same way ([2] = id)
+function heldItemsRow(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
+  const items = spec.itemNames(store.ctx);
+  const raw = r.items;
+  const slot = (n: 1 | 2): string => {
+    const v = Array.isArray(raw) ? raw[n - 1] : (raw as Record<string, unknown> | undefined)?.[String(n)];
+    return typeof v === "string" ? v : "";
+  };
+  const set = (n: 1 | 2, v: string) =>
+    edit(id, "Held item", (d) => {
+      const common = n === 1 ? v : slot(1);
+      const rare = n === 2 ? v : slot(2);
+      d.items = common ? (rare ? [common, rare] : [common]) : rare ? { 2: rare } : [];
+    });
+  return h(
+    "div",
+    { class: "row two" },
+    field("Held item (common)", selectInput(slot(1), items, (v) => set(1, v), "none"), "Wild ones hold it about 1 in 4 times"),
+    field("Held item (rare)", selectInput(slot(2), items, (v) => set(2, v), "none"), "About 1 in 50"),
+  );
+}
+
+// constants/pokemon_data_constants.asm GENDER_* (chance of female, out of 256)
+const GENDERS: [number, string][] = [
+  [0, "Always male"], [31, "1 in 8 female"], [63, "1 in 4 female"], [127, "Half female"],
+  [191, "3 in 4 female"], [254, "Always female"], [255, "Genderless"],
+];
+
+function breedingCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
+  const groups = spec.breeding!.eggGroups;
+  const own = (r.eggGroups as string[] | undefined) ?? [];
+  const setGroup = (slot: number, v: string) =>
+    edit(id, "Egg group", (d) => {
+      const next = [own[0] ?? v, own[1] ?? own[0] ?? v];
+      next[slot] = v;
+      d.eggGroups = next;
+      // the engine compares the raw byte (Breeding.isNoEggs): high nibble first
+      d.eggGroupsRaw = ((groups.indexOf(next[0]) + 1) << 4) | (groups.indexOf(next[1]) + 1);
+    });
+  const groupSelect = (slot: number) => {
+    const sel = selectInput(own[slot] ?? "", groups, (v) => setGroup(slot, v));
+    for (const o of sel.options) o.textContent = o.value === "EGG_NONE" ? "no eggs" : o.value.replace(/^EGG_/, "").replace(/_/g, " ").toLowerCase();
+    return sel;
+  };
+  const ratio = Number(r.genderRatio ?? 127);
+  const gender = selectInput(String(ratio), GENDERS.map(([n]) => String(n)), (v) => edit(id, "Gender ratio", (d) => (d.genderRatio = Number(v))));
+  for (const o of gender.options) o.textContent = GENDERS.find(([n]) => String(n) === o.value)?.[1] ?? `${o.value} / 256 female`;
+  const moves = spec.moveNames(store.ctx);
+  const eggMoves = (r.eggMoves as string[] | undefined) ?? [];
+  return card(
+    "Breeding",
+    h(
+      "div",
+      { class: "row three" },
+      field("Egg group 1", groupSelect(0)),
+      field("Egg group 2", groupSelect(1), "The same group twice: only that one"),
+      field("Gender", gender),
+    ),
+    field("Egg cycles", numberInput(r.eggSteps as number, (n) => edit(id, "Egg cycles", (d) => (d.eggSteps = clampInt(n, 1, 255))), 1, 255), `Hatches after about ${(Number(r.eggSteps) || 0) * 256} steps`),
+    h("span", { class: "field-label" }, "Egg moves (a father can pass them on)"),
+    moveChips(id, eggMoves, 99, "Egg move", moves, (d, next) => (d.eggMoves = next)),
   );
 }
 
@@ -626,7 +808,10 @@ function tmCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   return card(`TM / HM (${has.size})`, grid);
 }
 
-function sideForm(id: string, r: Rec): HTMLElement[] {
+function sideForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
+  if (lacks(spec, "dexEntry")) {
+    return [card("Pokédex entry", h("p", { class: "hint" }, "Mods can't change this game's Pokédex entries yet: the engine has no way for them (reported to gen1recomp).")), ...(lacks(spec, "cry") ? [] : [cryCard(id)])];
+  }
   const dex = r.dexEntry as Rec | undefined;
   const dexFields: HTMLElement[] = [];
   if (dex) {
@@ -648,8 +833,8 @@ function sideForm(id: string, r: Rec): HTMLElement[] {
 
   return [
     dex ? card("Pokédex entry", ...dexFields) : card("Pokédex entry", h("p", { class: "hint" }, "No Pokédex entry.")),
-    cryCard(id),
-  ];
+    lacks(spec, "cry") ? null : cryCard(id),
+  ].filter((x): x is HTMLElement => !!x);
 }
 
 function clampInt(n: number, min: number, max: number): number {

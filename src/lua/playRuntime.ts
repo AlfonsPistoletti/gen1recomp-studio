@@ -15,7 +15,9 @@ export interface PlayTarget {
   y: number;
 }
 
-export function playtestManifest(game: string): string {
+// `place`: false for a game the helper can't move the player in (Gen 2): it
+// then only turns saving off, and needs no engine internals
+export function playtestManifest(game: string, place = true): string {
   const manifest = {
     id: PLAYTEST_ID,
     name: "Studio play test",
@@ -33,10 +35,30 @@ export function playtestManifest(game: string): string {
     experimental: true,
     force_enable_env: PLAY_ENV,
     // SaveData.load (the title screen's CONTINUE) is engine code
-    permissions: ["engine_internals"],
-    description: "Written by G1R Studio for Play from here: starts on the picked cell, saving off. Only active when the studio starts the game.",
+    permissions: place ? ["engine_internals"] : [],
+    description: place
+      ? "Written by G1R Studio for Play from here: starts on the picked cell, saving off. Only active when the studio starts the game."
+      : "Written by G1R Studio for Play: saving off. Only active when the studio starts the game.",
   };
   return JSON.stringify(manifest, null, 2) + "\n";
+}
+
+// a test run that starts the game as usual, with saving off
+export function playtestSavingOff(): string {
+  return `-- Written by G1R Studio for "Play", rewritten on every launch. Only
+-- active when the studio starts the game (force_enable_env).
+return function(mod)
+  -- a test run never writes the player's save
+  local told = false
+  mod.hooks:wrap("save.write", function()
+    if not told then
+      told = true
+      mod.log:info("test run: saving is off")
+    end
+    return false
+  end)
+end
+`;
 }
 
 export function playtestMain(t: PlayTarget): string {

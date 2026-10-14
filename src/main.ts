@@ -13,7 +13,7 @@ import { checkForUpdates } from "./ui/updates.ts";
 import type { HostInfo } from "./host/types.ts";
 import { configureLua } from "./lua/vm.ts";
 import { createMod, ensurePlayEnv, listMods, openProject as loadProject, saveProject, validateMod, wireUp } from "./project/project.ts";
-import { PLAYTEST_ID, playtestMain, playtestManifest } from "./lua/playRuntime.ts";
+import { PLAYTEST_ID, playtestMain, playtestManifest, playtestSavingOff, type PlayTarget } from "./lua/playRuntime.ts";
 import { exportZip, publishDialog, type ShareContext } from "./ui/share.ts";
 import { modPageDialog } from "./ui/modPage.ts";
 import { isTyping, MapView } from "./render/mapView.ts";
@@ -72,7 +72,7 @@ const modMenu = dropdown(modMenuBtn, modMenuPanel);
 const menuRow = (label: string, run: () => void) =>
   h("button", { class: "menu-row", onclick: () => (modMenu.close(), run()) }, label);
 // the mod's name, description, version, ... (manifest.json)
-const modDetailsBtn = menuRow("Mod details…", () => currentMod && void modDetailsDialog(host, currentMod, () => void refreshMods(), allMods.map((m) => m.id)));
+const modDetailsBtn = menuRow("Mod details…", () => currentMod && void modDetailsDialog(host, currentMod, store.adapter.id, () => void refreshMods(), allMods.map((m) => m.id)));
 modDetailsBtn.title = "Name, description, version, category";
 const modPageBtn = menuRow("Mod page…", () => currentMod && void modPageDialog(host, currentMod));
 modPageBtn.title = "README.md: the page people see on the mod's GitHub repository";
@@ -111,6 +111,7 @@ const playBtn = h("button", {
   "aria-label": "Play from here",
   title: "Play from here: click a cell on the map, and the game starts there with this mod, from your active save. Saving is off in test runs.",
   onclick: () => {
+    if (store.adapter.playFromHere === false) return void launch(null);
     setWorkspace("maps");
     playFromHere();
   },
@@ -208,17 +209,19 @@ function renderVersionSelect(): void {
     // picking one can explain how to get its data
     if (!v.available && !ready) continue;
     const game = GAME_OF_VERSION[v.version];
-    const viewOnly = !!adapterFor(v.version)?.readOnly;
-    const label = `${v.version[0].toUpperCase()}${v.version.slice(1)} · ${GAME_NAMES[game]}${!ready ? " (coming soon)" : !v.available ? " (not imported)" : viewOnly ? " (view only)" : ""}`;
+    const label = `${v.version[0].toUpperCase()}${v.version.slice(1)} · ${GAME_NAMES[game]}${!ready ? " (coming soon)" : !v.available ? " (not imported)" : ""}`;
     versionSelect.append(h("option", { value: v.version, selected: v.version === currentVersion, disabled: !ready }, label));
   }
 }
 
-// mods that declare this game (or no game at all) in their manifest
+// mods that declare this game in their manifest (gen1recomp ModTargets: no
+// "games" = every Gen 1 game)
 function filterMods(): void {
-  const adapter = adapterFor(currentVersion);
-  const game = adapter?.manifestGame ?? "";
-  mods = allMods.filter((m) => !m.games.length || m.games.includes(game) || m.games.includes(currentVersion) || m.games.includes("all"));
+  const game = adapterFor(currentVersion)?.manifestGame ?? "";
+  mods = allMods.filter((m) => (m.games.length ? m.games : ["gen1"]).some((g) => {
+    const t = g.toLowerCase().replace(/\s+/g, "");
+    return t === game || t === currentVersion || t === "all";
+  }));
 }
 
 function renderModSelect(): void {
@@ -242,7 +245,7 @@ function refreshTopbar(): void {
   exportBtn.disabled = publishBtn.disabled = modPageBtn.disabled = !currentMod;
   folderBtn.textContent = currentMod ? "Open mod folder" : "Open mods folder";
   folderBtn.title = hostInfo ? `${hostInfo.modsDir}${currentMod ? `\\${currentMod}` : ""}` : "";
-  playBtn.disabled = !store.project || !!store.adapter?.readOnly;
+  playBtn.disabled = !store.project;
   packBtn.disabled = validateBtn.disabled;
   packBtn.title = validateBtn.disabled && hostInfo && !hostInfo.modkit ? "Packing needs a gen1recomp source checkout (tools/modkit.py)" : "Make the .modpkg file players install (runs validate --strict first)";
   validateBtn.title = hostInfo && !hostInfo.modkit
@@ -299,7 +302,14 @@ function updateColorButton(): void {
 }
 store.on((reason) => {
   if (reason === "project" || reason === "colors") updateColorButton();
+  // an edit of a registry this game only shows (Gen 2 maps), once per gesture
+  if (reason === "viewonly" && !viewOnlyShown) {
+    viewOnlyShown = true;
+    toast(store.adapter.viewOnly?.reason ?? "This can't be changed here yet", "info");
+    setTimeout(() => (viewOnlyShown = false), 3000);
+  }
 });
+let viewOnlyShown = false;
 
 // one "+" button per entity layer of the current game (the map markers' icons)
 const ADD_ICONS: Partial<Record<string, IconNode>> = { warp: DoorOpen, npc: UserRound, sign: Signpost, item: Package };
@@ -336,7 +346,7 @@ function playFromHere(): void {
   const mapId = store.currentMap;
   if (!mapId) return;
   if (view.picking) return view.cancelPick();
-  pickOnMap("Play from here: click the cell where the game should start", (cx, cy) => void launchAt(mapId, cx, cy));
+  pickOnMap("Play from here: click the cell where the game should start", (cx, cy) => void launch({ map: mapId, x: cx, y: cy }));
 }
 
 // One cell to pick on the open map (Play from here, Pick on map): a banner
@@ -362,10 +372,12 @@ function pickOnMap(message: string, onPick: (cx: number, cy: number) => void): v
   });
 }
 
-async function launchAt(mapId: string, cx: number, cy: number): Promise<void> {
-  const map = store.maps[mapId];
-  if (!map || !store.adapter.cell(map, liveTileset(map.tileset), cx, cy).walkable) {
-    toast(`${mapId} (${cx}, ${cy}) is not a walkable cell: pick one the player can stand on`, "error");
+// starts the game with the mod and the studio's helper: on a picked cell, or
+// (null) as usual, from the title screen
+async function launch(at: PlayTarget | null): Promise<void> {
+  const map = at && store.maps[at.map];
+  if (at && (!map || !store.adapter.cell(map, liveTileset(map.tileset), at.x, at.y).walkable)) {
+    toast(`${at.map} (${at.x}, ${at.y}) is not a walkable cell: pick one the player can stand on`, "error");
     return;
   }
   // the game runs what is on disk
@@ -374,13 +386,13 @@ async function launchAt(mapId: string, cx: number, cy: number): Promise<void> {
     if (store.unsaved) return;
   }
   try {
-    await host.writeText(`mods/${PLAYTEST_ID}/manifest.json`, playtestManifest(store.adapter.manifestGame));
-    await host.writeText(`mods/${PLAYTEST_ID}/main.lua`, playtestMain({ map: mapId, x: cx, y: cy }));
+    await host.writeText(`mods/${PLAYTEST_ID}/manifest.json`, playtestManifest(store.adapter.manifestGame, !!at));
+    await host.writeText(`mods/${PLAYTEST_ID}/main.lua`, at ? playtestMain(at) : playtestSavingOff());
     if (currentMod && (await ensurePlayEnv(host, currentMod))) {
       toast(`mods/${currentMod}/manifest.json now names force_enable_env, so test runs include the mod even when it is switched off in the game`, "info");
     }
     await host.play(store.project.version);
-    toast(`Starting ${store.project.version} at ${mapId} (${cx}, ${cy}): saving is off in this run`, "ok");
+    toast(`Starting ${store.project.version}${at ? ` at ${at.map} (${at.x}, ${at.y})` : ""}: saving is off in this run`, "ok");
   } catch (err) {
     toast(`Can't start the game: ${errorText(err)}`, "error");
   }
@@ -873,7 +885,6 @@ function copyMap(src: MapDef, mapId: string, index: number): void {
 // ---------------------------------------------------------------- save / validate
 
 async function save(): Promise<void> {
-  if (adapterFor(currentVersion)?.readOnly) return;
   if (!currentMod) {
     toast("Choose a mod to save into, or create one", "error");
     modSelect.focus();
@@ -1145,17 +1156,17 @@ async function refreshMods(): Promise<void> {
 }
 
 // what a generation the studio only partly supports hides: workspaces it
-// has no editors for; while it is view-only, saving and the mod picker
+// has no editors for, and the map toolbar's add icons while maps are view-only
 function applyAdapterLimits(adapter: NonNullable<ReturnType<typeof adapterFor>>): void {
   const shown = adapter.workspaces;
   for (const b of workspaceTabs) b.hidden = !!shown && !shown.includes(b.dataset.ws!);
   if (shown && !shown.includes(nav.workspace)) setWorkspace(shown[0] as WorkspaceId);
-  const ro = adapter.readOnly;
-  modSelect.disabled = !!ro;
-  saveBtn.disabled = playBtn.disabled = !!ro;
-  addGroup.hidden = !!ro;
-  saveBtn.title = ro ?? "Save into the mod (Ctrl+S)";
-  if (ro) toast(ro, "info");
+  addGroup.hidden = !!adapter.viewOnly?.registries.includes("maps");
+  const here = adapter.playFromHere !== false;
+  playBtn.setAttribute("aria-label", here ? "Play from here" : "Play");
+  playBtn.title = here
+    ? "Play from here: click a cell on the map, and the game starts there with this mod, from your active save. Saving is off in test runs."
+    : "Play: starts the game with this mod (continue your save from the title screen). Saving is off in test runs.";
 }
 
 async function openProject(mod: string | null): Promise<void> {

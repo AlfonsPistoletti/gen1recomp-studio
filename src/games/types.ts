@@ -102,6 +102,17 @@ export interface MoveSpec {
   // effect ids moves may use (behaviour lives in the engine)
   effects(ctx: GameContext): string[];
   categories: string[];
+  // false: the moves have no priority / damage category / high-crit fields
+  // (Gen 2 keeps those in the effect)
+  battleDetails?: boolean;
+  // the secondary effect's chance in % (effectChance)
+  effectChance?: boolean;
+  // the move screen's description: lines joined with <NEXT>
+  description?: { lines: number; lineMax: number };
+  // percent fields the engine reads as a byte (0-255) too: kept in sync
+  rawBytes?: Record<string, string>;
+  // false: no "+ New" (a new move needs data the studio doesn't make yet)
+  newMoves?: boolean;
   // battle animations as references to another move's ({ __ref })
   animRegistry?: string;
   // custom effects built from blocks
@@ -179,10 +190,25 @@ export interface ItemSpec {
   // items whose built-in behaviour blocks can't rebuild (bicycle, rods, ...)
   special(id: string, item: Record<string, unknown>): boolean;
   // items the game uses for something else (elevator floors, ...): why
-  internal(id: string): string | null;
+  internal(id: string, item?: Record<string, unknown>): string | null;
   // which ids the engine gives a move picker (Ether-style)
   picksMove(id: string): boolean;
   marts(ctx: GameContext): MartRef[];
+  // false: no custom effects or ball numbers (Gen 2 items act by id and held effect)
+  effects?: boolean;
+  // false: no "+ New Item" / "+ TM/HM"
+  newItems?: boolean;
+  // bag pockets (replaces the Key item switch)
+  pockets?: string[];
+  // the bag's description: lines joined with <NEXT>
+  description?: { lines: number; lineMax: number };
+  // what the item does when held (heldEffect), and what its number
+  // (heldParameter) means for an effect: unset amount = the engine ignores it
+  heldEffects?: { ids: string[]; info(effect: string): { note?: string; amount?: { label: string; hint: string; max: number } } };
+  // a TM/HM's kind, move and number (unset: the item's `machine` record);
+  // machineEdit false: shown, not changed
+  machineOf?(item: Record<string, unknown>): { kind?: string; move?: string; number?: number } | undefined;
+  machineEdit?: boolean;
 }
 
 // ------------------------------------------------------------------ ids
@@ -310,10 +336,30 @@ export interface StatSpec {
 export interface PokemonSpec {
   stats: StatSpec[];
   maxTypes: number;
+  // a single type is stored twice ([GRASS, GRASS], Gen 2's base data)
+  typesTwice?: boolean;
   typeNames(ctx: GameContext): string[];
   growthRates(ctx: GameContext): string[];
-  // evolution methods and which extra fields each one uses
-  evolutionMethods: { id: string; label: string; level?: boolean; item?: boolean }[];
+  // record keys that differ by generation (unset: Gen 1's learnset,
+  // level1Moves, evolutions[].species, frontSize); startMoves null: none
+  keys?: { levelMoves?: string; startMoves?: string | null; evolveInto?: string; picSize?: string };
+  // evolution methods and which extra fields each one uses (item "optional":
+  // a trade with or without a held item; time/comparison: the choices)
+  evolutionMethods: { id: string; label: string; level?: boolean; item?: boolean | "optional"; time?: string[]; comparison?: { id: string; label: string }[] }[];
+  // Gen 1's importer writes level 1 for evolutions without a level: keep that shape
+  evolutionLevelAlways?: boolean;
+  // breeding block (Gen 2): egg groups in nibble order (index + 1), written
+  // with the raw byte the engine compares (eggGroupsRaw)
+  breeding?: { eggGroups: string[] };
+  // the two wild held items (`items`: rare, common)
+  heldItems?: boolean;
+  // battle pic colors from the game's per-species palettes (lightest first);
+  // unset: the palettes registry and the Colors choice
+  monColors?(ctx: GameContext, id: string): Rgb[] | null;
+  // a regional Pokédex besides the national one (Gen 2: Johto), species in order
+  regionalDex?: { label: string; order(ctx: GameContext): string[] };
+  // what this generation can't edit yet
+  without?: ("newSpecies" | "dexEntry" | "cry" | "iconImport")[];
   // TM/HM moves in machine order, labelled "TM01 MEGA_PUNCH"
   machines(ctx: GameContext): { move: string; label: string }[];
   moveNames(ctx: GameContext): string[];
@@ -509,10 +555,13 @@ export interface GameAdapter {
   manifestGame: string;
   // the map the studio opens first (the player's home town)
   startMap: string;
-  // set while the studio can only show this generation: why (no saving)
-  readOnly?: string;
+  // registries the studio only shows for this generation (no edits), and why
+  viewOnly?: { registries: string[]; reason: string };
   // the workspaces this generation has; unset = all of them
   workspaces?: string[];
+  // false: Play starts the game as usual (the studio can't put the player on
+  // a picked cell in this generation yet)
+  playFromHere?: boolean;
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;

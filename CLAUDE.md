@@ -25,8 +25,17 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
 - `src/games/`: one `GameAdapter` per generation (data files, entity layers +
   declarative inspector fields, connections, collision, colors, new-map defaults,
   `content` registries, `pokemon`/`encounters` specs). `gen1` is complete; `gen2`
-  (`src/games/gen2`) is a view-only map viewer (`readOnly`: no saving, no mod picker; `workspaces: ["maps"]`
-  hides the rest). Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
+  (`src/games/gen2`) is in progress: maps/tilesets/sprites are `viewOnly` (store.record refuses those edits and
+  emits "viewonly"), content registries Gold shares with Red save into mods with `"games": ["gen2"]`;
+  `workspaces` lists the editors done so far. Play on Gen 2 (`playFromHere: false`) starts the game as usual
+  with a saving-off helper (`playtestSavingOff`). `npm run selftest:gen2` round-trips a Gold dataset.
+  The Pokémon editor reads shape differences from `PokemonSpec` (`keys`: levelMoves/startMoves/evolveInto/picSize,
+  `typesTwice`, `breeding` (eggGroupsRaw kept in sync: the engine compares the byte), `heldItems` (`items[1]` common,
+  `[2]` rare; a rare-only list loads as `{ "2": id }` and is written `[2] = id`), `monColors`, `without`).
+  Moves/Items the same way: `MoveSpec` battleDetails/effectChance/description (<NEXT> lines)/rawBytes (accuracyRaw and
+  effectChanceRaw kept in sync: Gold's battle reads the bytes first)/newMoves; `ItemSpec` effects/newItems/pockets
+  (pocketId synced)/description/heldEffects/machineOf (Gold TMs: `teaches` + `tmLabel`)/machineEdit. Gold's type chart
+  build takes the file's own type records (plain ids, PSYCHIC_TYPE) plus the Foresight rows as matchups. Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
   tileset `tilePalettes[tile]` (1-based), roof slot colors from `roofs[group]` in TOWN/ROUTE; walls from per-block
   `collision` quads via gen1recomp's CollPermissions table (restated). The map panel shows music/roof/rules only when
   the game has those registries (`has()` in inspector.ts). Gen 3 shows as "coming soon".

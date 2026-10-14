@@ -635,9 +635,11 @@ input.combo { width: 100%; min-width: 0; }
 /* ---------------------------------------------------------- pokémon */
 
 .mon-header { display: flex; gap: 16px; align-items: flex-start; }
-.mon-sprites { display: flex; gap: 6px; align-items: flex-end; padding: 8px; background: #f4f4ec; border-radius: 8px; flex: none; }
-.mon-sprite { width: 112px; height: 112px; image-rendering: pixelated; object-fit: contain; }
-.mon-sprite.back { width: 64px; height: 64px; opacity: 0.85; }
+/* every pic at its own size, 2 screen px per pixel, so sizes compare (a 40 px
+   Metapod stays smaller than a 56 px Butterfree); the box fits the biggest */
+.mon-sprites { display: flex; gap: 8px; align-items: flex-end; justify-content: center; padding: 8px; min-width: 248px; min-height: 128px; box-sizing: border-box; background: #f4f4ec; border-radius: 8px; flex: none; }
+.mon-sprite { zoom: 2; image-rendering: pixelated; }
+.mon-sprite.back { opacity: 0.85; }
 .mon-ident { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .mon-ident input[type="text"] { width: 100%; }
 
@@ -648,11 +650,14 @@ input.combo { width: 100%; min-width: 0; }
 .stat-fill { height: 100%; border-radius: 4px; }
 
 .evo-row {
-  display: grid;
-  grid-template-columns: 110px 140px 16px minmax(0, 1fr) 28px 28px;
+  display: flex;
   gap: 6px;
   align-items: center;
 }
+.evo-row > select:first-child { flex: 0 0 120px; }
+.evo-row > input, .evo-row > select { flex: 0 0 120px; min-width: 0; }
+.evo-row > .evo-target { flex: 1 1 140px; }
+.evo-row > button { flex: 0 0 28px; }
 .evo-row input[type="number"] { width: 100%; }
 .learn-row { display: grid; grid-template-columns: 20px 64px minmax(0, 1fr) 28px; gap: 6px; align-items: center; max-width: 420px; }
 .learn-row input[type="number"] { width: 100%; }
@@ -973,3 +978,10 @@ dialog.modal { min-width: 420px; }
 .sound-row:last-child { border-bottom: 0; }
 .sound-name { min-width: 160px; font-weight: 600; }
 .sound-row > .hint { flex: 1; min-width: 120px; }
+.desc-lines { display: flex; flex-direction: column; gap: 4px; max-width: 240px; }
+/* list sort button (src/ui/sortMenu.ts): highlighted while not in the default order */
+.sort-btn { display: inline-flex; align-items: center; justify-content: center; }
+.sort-btn.active { color: var(--accent); border-color: var(--accent); }
+.menu-row.active { font-weight: 600; color: var(--accent); }
+/* opens leftwards from the button, inside the narrow list panel */
+.menu.sort-menu { width: 200px; }

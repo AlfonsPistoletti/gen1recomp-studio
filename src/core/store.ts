@@ -313,6 +313,10 @@ export class Store {
   private grouping: Command | null = null;
 
   private record(label: string, change: Change, merge: boolean): void {
+    if (this.adapter.viewOnly?.registries.includes(change.registry)) {
+      this.emit("viewonly", change.id, change.registry);
+      return;
+    }
     const target = this.grouping ?? this.undoStack[this.undoStack.length - 1];
     const sameGesture = this.grouping || (merge && target && !target.sealed && target.label === label);
     const existing = sameGesture

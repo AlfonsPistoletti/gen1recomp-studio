@@ -1,4 +1,4 @@
-# Gen1Recomp Studio
+# G1R Studio
 
 A visual editor for making mods for [gen1recomp](https://github.com/bryanthaboi/gen1recomp), the
 Pokémon Red, Blue and Yellow recompilation. Paint maps, place people and signs, change Pokémon,

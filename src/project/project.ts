@@ -480,7 +480,7 @@ export async function createMod(host: Host, modId: string, game: string, useModk
     `mods/${modId}/main.lua`,
     [
       `-- ${modId}: a content-profile mod (api 2).`,
-      "-- Map edits live in studio_content.lua, written by gen1recomp-studio.",
+      "-- Map edits live in studio_content.lua, written by G1R Studio (https://github.com/AlfonsPistoletti/gen1recomp-studio).",
       "return function(mod)",
       `  ${requireLine(modId)}`,
       "end",

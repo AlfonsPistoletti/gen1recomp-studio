@@ -189,7 +189,7 @@ export function differencesMarkdown(modName: string): string {
   const lines = [
     `# ${modName}: what it changes`,
     "",
-    "Everything this mod adds or changes compared with the original game. Written by Gen1Recomp Studio on every save.",
+    "Everything this mod adds or changes compared with the original game. Written by G1R Studio on every save.",
     "",
   ];
   const groups = grouped();

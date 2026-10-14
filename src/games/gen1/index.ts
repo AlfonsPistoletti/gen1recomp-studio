@@ -751,6 +751,7 @@ export const gen1: GameAdapter = {
   id: "gen1",
   name: "Gen 1",
   manifestGame: "gen1",
+  startMap: "PALLET_TOWN",
 
   async load(read, version): Promise<Dataset> {
     const [maps, tilesets, sprites, pal, fieldData, icons, ...tables] = await Promise.all([

@@ -34,13 +34,13 @@ export function playtestManifest(game: string): string {
     force_enable_env: PLAY_ENV,
     // SaveData.load (the title screen's CONTINUE) is engine code
     permissions: ["engine_internals"],
-    description: "Written by gen1recomp-studio for Play from here: starts on the picked cell, saving off. Only active when the studio starts the game.",
+    description: "Written by G1R Studio for Play from here: starts on the picked cell, saving off. Only active when the studio starts the game.",
   };
   return JSON.stringify(manifest, null, 2) + "\n";
 }
 
 export function playtestMain(t: PlayTarget): string {
-  return `-- Written by gen1recomp-studio for "Play from here", rewritten on every
+  return `-- Written by G1R Studio for "Play from here", rewritten on every
 -- launch. Only active when the studio starts the game (force_enable_env).
 local TARGET = { map = ${JSON.stringify(t.map)}, x = ${t.x}, y = ${t.y}, facing = "down" }
 

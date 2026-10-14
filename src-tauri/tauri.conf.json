@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Gen1Recomp Studio",
+  "productName": "G1R Studio",
   "version": "0.2.0",
-  "identifier": "dev.gen1recomp.studio",
+  "identifier": "dev.g1r.studio",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5178",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Gen1Recomp Studio",
+        "title": "G1R Studio",
         "width": 1500,
         "height": 900,
         "minWidth": 1000,

@@ -13,7 +13,8 @@ import { gbcColorsFor, gbcKey, isGbcKey, spriteGbcColors } from "../core/gbc.ts"
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
 import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
-import { animationFrames, atlasRect, blockAtlas, clearColorCaches, BLOCK, CELL, markerIcon, spriteFrame, TILE, type BlockAtlas } from "./graphics.ts";
+import { animationFrames, atlasRect, blockAtlas, clearColorCaches, BLOCK, CELL, loadImage, markerIcon, spriteFrame, TILE, type BlockAtlas } from "./graphics.ts";
+import { assetUrl } from "../core/assets.ts";
 
 interface CachedMap {
   map: MapDef;
@@ -271,12 +272,46 @@ export class MapView {
     return hit ?? null; // stale canvas while the atlas loads
   }
 
+  // the tileset's sheet, with the tiles the game swaps in for this palette
+  // key drawn over it (Gen 2 roofs: gen1recomp World.applyRoofOverlay)
+  private overlaid = new Map<string, Promise<string>>();
+  private async sheetUrl(tilesetId: string, palette: string): Promise<string> {
+    const base = await tilesetUrl(tilesetId);
+    const over = store.adapter.sheetOverlay?.(store.ctx, tilesetId, palette);
+    if (!over) return base;
+    const ts = liveTileset(tilesetId);
+    const per = ts ? perRow(ts) : 16;
+    const key = `${base}|${over.image}|${over.first}`;
+    let p = this.overlaid.get(key);
+    if (!p) {
+      p = (async () => {
+        const [sheet, roof] = await Promise.all([loadImage(base), loadImage(assetUrl(store.project.host, store.project.version, over.image))]);
+        if (!sheet || !roof) return base;
+        const c = document.createElement("canvas");
+        c.width = sheet.width;
+        c.height = sheet.height;
+        const ctx = c.getContext("2d")!;
+        ctx.drawImage(sheet, 0, 0);
+        for (let t = 0; t < over.count; t++) {
+          const id = over.first + t;
+          const x = (id % per) * TILE;
+          const y = Math.floor(id / per) * TILE;
+          ctx.clearRect(x, y, TILE, TILE);
+          ctx.drawImage(roof, t * TILE, 0, TILE, TILE, x, y, TILE, TILE);
+        }
+        return c.toDataURL("image/png");
+      })();
+      this.overlaid.set(key, p);
+    }
+    return p;
+  }
+
   async atlasFor(tilesetId: string, palette: string): Promise<BlockAtlas | null> {
     const ts = liveTileset(tilesetId);
     if (!ts) return null;
     const version = tilesetKey(tilesetId);
     const colorsFor = isGbcKey(palette) ? gbcColorsFor(tilesetId, palette) : store.adapter.tileColors(store.ctx, ts, palette);
-    const atlas = await blockAtlas(ts, await tilesetUrl(tilesetId), palette, colorsFor, version);
+    const atlas = await blockAtlas(ts, await this.sheetUrl(tilesetId, palette), palette, colorsFor, version);
     // an edit made while this one was drawing wins
     if (tilesetKey(tilesetId) === version) this.atlases.set(`${tilesetId}|${palette}`, atlas);
     return atlas;
@@ -655,15 +690,16 @@ export class MapView {
 
   private drawNpc(layer: EntityLayer, o: EntityRecord): void {
     const ctx = this.ctx;
-    const ref = layer.sprite?.(o) ?? null;
+    const ref = layer.sprite?.(o, store.currentMap) ?? null;
     // the map's Game Boy palette, or in RED++ the sprite's own palette
     const palette = store.palettes[store.currentMap] || "ROUTE";
     const def = ref ? liveSprite(ref.sprite) : undefined;
     const seed = o.index === undefined ? "player" : `${store.currentMap}_obj_${String(o.index)}`;
     const gbc = store.colorMode === "redpp" && def ? spriteGbcColors(def, seed, /yellow/i.test(store.project.version)) : null;
+    // a game that colors each sprite on its own gets the sprite and the object
+    const colors = gbc ? gbc.colors : store.adapter.spriteColors(store.ctx, palette, def, o);
     const img = ref
-      ? spriteFrame(def, spriteUrl(ref.sprite),
-          gbc ? gbc.colors : store.adapter.spriteColors(store.ctx, palette), gbc ? gbc.key : palette, ref.facing, () => this.invalidate())
+      ? spriteFrame(def, spriteUrl(ref.sprite), colors, gbc ? gbc.key : `${palette}|${colors.flat().join(",")}`, ref.facing, () => this.invalidate())
       : null;
     if (img) {
       // ghosts only appear through scripts
@@ -1125,7 +1161,7 @@ export class MapView {
     const per = perRow(ts);
     const colorsFor = isGbcKey(palette) ? gbcColorsFor(tilesetId, palette) : store.adapter.tileColors(store.ctx, ts, palette);
     const single = { ...ts, id: `${tilesetId}#tiles`, blocks: Array.from({ length: count }, (_, t) => [t]) };
-    const atlas = await blockAtlas(single, await tilesetUrl(tilesetId), palette, colorsFor, tilesetKey(tilesetId));
+    const atlas = await blockAtlas(single, await this.sheetUrl(tilesetId, palette), palette, colorsFor, tilesetKey(tilesetId));
     const canvas = document.createElement("canvas");
     canvas.width = per * TILE;
     canvas.height = Math.max(1, Math.ceil(count / per)) * TILE;

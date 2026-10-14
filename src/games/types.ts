@@ -475,7 +475,7 @@ export interface EntityLayer {
   duplicate?(map: MapDef, copy: EntityRecord): void;
   // ready-made kinds of this layer with their own add button (an item ball)
   variants?: { id: string; label: string; create(map: MapDef, cx: number, cy: number, ctx: GameContext): EntityRecord }[];
-  sprite?(record: EntityRecord): SpriteRef | null;
+  sprite?(record: EntityRecord, mapId: string): SpriteRef | null;
 }
 
 // ------------------------------------------------------------------ adapter
@@ -507,6 +507,8 @@ export interface GameAdapter {
   name: string;
   // the manifest "games" value mods for this generation declare
   manifestGame: string;
+  // the map the studio opens first (the player's home town)
+  startMap: string;
   // set while the studio can only show this generation: why (no saving)
   readOnly?: string;
   // the workspaces this generation has; unset = all of them
@@ -530,9 +532,13 @@ export interface GameAdapter {
 
   // palette key per map (what an atlas is colored with)
   paletteKeys(ctx: GameContext): Record<string, string>;
+  // tiles a map draws from another image than its tileset's sheet (Gen 2's
+  // roof tiles per map group): copied over `first`.. of the sheet
+  sheetOverlay?(ctx: GameContext, tilesetId: string, paletteKey: string): { image: string; first: number; count: number } | null;
   // 4 colors, darkest first, for one 8x8 tile of a tileset under a palette key
   tileColors(ctx: GameContext, tileset: TilesetDef, paletteKey: string): (tile: number) => Rgb[];
-  spriteColors(ctx: GameContext, paletteKey: string): Rgb[];
+  // the sprite and the map object it stands for, when the game colors sprites one by one (Gen 2)
+  spriteColors(ctx: GameContext, paletteKey: string, sprite?: SpriteDef, entity?: EntityRecord): Rgb[];
 
   newMap(init: { id: string; tileset: string; width: number; height: number; fill: number; index: number }): MapDef;
 

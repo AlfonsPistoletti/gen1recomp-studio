@@ -56,7 +56,7 @@ jobs:
         with:
           includeUpdaterJson: true
           tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: Gen1Recomp Studio ${{ github.ref_name }}
+          releaseName: G1R Studio ${{ github.ref_name }}
           releaseBody: See the changes since the previous release below.
           releaseDraft: true
           uploadWorkflowArtifacts: true

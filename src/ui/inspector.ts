@@ -101,7 +101,9 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
       return field(spec.label, numberInput(record[spec.key] as number | undefined, (v) => edit(spec.label, (r) => (r[spec.key] = v)), spec.min, spec.max), spec.hint);
     case "select": {
       const empty = typeof spec.emptyLabel === "function" ? spec.emptyLabel(record, store.ctx) : spec.emptyLabel;
-      const value = typeof record[spec.key] === "string" ? (record[spec.key] as string) : "";
+      // a number (Gen 2's variable sprites) shows as its own entry, not as the list's first
+      const raw = record[spec.key];
+      const value = typeof raw === "string" || typeof raw === "number" ? String(raw) : "";
       return field(
         spec.label,
         selectInput(value, spec.options(store.ctx), (v) =>

@@ -3,7 +3,8 @@
 // Sets the version in package.json (+ lock), src-tauri/tauri.conf.json and
 // src-tauri/Cargo.toml (+ lock), runs the checks, commits "Release v0.2.0" and
 // tags v0.2.0. Pushing is left to you:
-//   git push && git push origin v0.2.0
+//   git push
+//   git push origin v0.2.0
 // The tag push starts .github/workflows/release.yml (draft release with the
 // Windows installers).
 
@@ -48,5 +49,5 @@ run("npm run typecheck");
 run("npm run selftest");
 run("git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock");
 run(`git commit -m "Release ${tag}"`);
-run(`git tag -a ${tag} -m "Gen1Recomp Studio ${tag}"`);
-console.log(`\nTagged ${tag}. Publish it with:\n  git push && git push origin ${tag}\n`);
+run(`git tag -a ${tag} -m "G1R Studio ${tag}"`);
+console.log(`\nTagged ${tag}. Publish it with:\n  git push\n  git push origin ${tag}\n`);

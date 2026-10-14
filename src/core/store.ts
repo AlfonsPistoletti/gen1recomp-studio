@@ -89,6 +89,8 @@ export class Store {
   }
 
   load(project: Project): void {
+    // another game: open its start map (a mod switch keeps the open map)
+    const newGame = this.project?.version !== project.version;
     this.project = project;
     this.baseRecords = { maps: project.data.maps, ...project.data.content };
     this.records = {};
@@ -107,7 +109,7 @@ export class Store {
     this.redoStack = [];
     this.selection = null;
     this.refreshPalettes();
-    if (!this.maps[this.currentMap]) this.currentMap = this.fallbackMap();
+    if (newGame || !this.maps[this.currentMap]) this.currentMap = this.fallbackMap();
     this.emit("project");
   }
 
@@ -118,7 +120,8 @@ export class Store {
   }
 
   private fallbackMap(): string {
-    return this.maps.PALLET_TOWN ? "PALLET_TOWN" : Object.keys(this.maps)[0];
+    const start = this.project.adapter.startMap;
+    return this.maps[start] ? start : Object.keys(this.maps)[0];
   }
 
   get adapter(): GameAdapter {
@@ -272,7 +275,7 @@ export class Store {
 
   deleteMap(id: string): void {
     if (!this.maps[id]) return;
-    if (id === this.currentMap) this.openMap(this.maps.PALLET_TOWN ? "PALLET_TOWN" : Object.keys(this.base)[0]);
+    if (id === this.currentMap) this.openMap(this.fallbackMap());
     this.record(`Delete ${id}`, { registry: "maps", id, before: this.maps[id], after: undefined }, false);
     this.seal();
   }

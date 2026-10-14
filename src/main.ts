@@ -248,7 +248,7 @@ function refreshTopbar(): void {
   validateBtn.title = hostInfo && !hostInfo.modkit
     ? "Validate needs a source checkout of gen1recomp (tools/modkit.py); release builds do not ship it"
     : "Run modkit validate --strict and lint";
-  document.title = `${store.unsaved ? "• " : ""}${currentMod ?? "Gen1Recomp"} — Gen1Recomp Studio`;
+  document.title = `${store.unsaved ? "• " : ""}${currentMod ? `${currentMod} — ` : ""}G1R Studio`;
 }
 
 // ---------------------------------------------------------------- toolbar
@@ -1167,7 +1167,8 @@ async function openProject(mod: string | null): Promise<void> {
   document.body.classList.add("loading");
   try {
     const project = await loadProject(host, currentVersion, adapter, mod);
-    const gbc = await loadGbc(host, currentVersion);
+    // RED++ (pokered-gbc colors) is Gen 1 only
+    const gbc = adapter.id === "gen1" ? await loadGbc(host, currentVersion) : null;
     setGbc(gbc);
     store.colorMode = gbc && recall(COLORS_KEY) === "redpp" ? "redpp" : "sgb";
     currentMod = mod;

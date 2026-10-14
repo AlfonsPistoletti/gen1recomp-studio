@@ -1,4 +1,4 @@
-// Desktop shell for Gen1Recomp Studio. The editor itself is the web front
+// Desktop shell for G1R Studio. The editor itself is the web front
 // end; this only implements its Host interface (src/host/types.ts) as Tauri
 // commands, plus a studio:// protocol that serves images.
 
@@ -295,8 +295,10 @@ fn open_folder(app: AppHandle, state: State<Studio>, mod_id: String) -> CmdResul
     if !dir.is_dir() {
         return Err(format!("{} not found", display(&dir)));
     }
+    // Explorer opens Documents instead when the path has forward slashes
+    // (a game root saved as "C:/Users/..."), so give it backslashes
     #[cfg(target_os = "windows")]
-    let result = Command::new("explorer").arg(&dir).spawn();
+    let result = Command::new("explorer").arg(dir.to_string_lossy().replace('/', "\\")).spawn();
     #[cfg(target_os = "macos")]
     let result = Command::new("open").arg(&dir).spawn();
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -425,5 +427,5 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![host_info, set_game_root, read_text, write_text, write_binary, delete_file, open_url, list_dir, modkit, play_game, save_export, git, open_folder])
         .run(tauri::generate_context!())
-        .expect("error while running Gen1Recomp Studio");
+        .expect("error while running G1R Studio");
 }

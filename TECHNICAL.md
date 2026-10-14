@@ -1,4 +1,4 @@
-# Gen1Recomp Studio: technical notes
+# G1R Studio: technical notes
 
 For people building or changing the studio. User documentation is in [README.md](README.md);
 the detailed engine-facing rules the code follows are in [CLAUDE.md](CLAUDE.md).
@@ -247,7 +247,8 @@ Two GitHub Actions workflows (`.github/workflows/`):
 
 ```sh
 npm run release -- 0.2.0   # sets the version everywhere, runs typecheck + selftest, commits, tags v0.2.0
-git push && git push origin v0.2.0
+git push
+git push origin v0.2.0
 ```
 
 ### Updates

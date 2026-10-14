@@ -1,4 +1,4 @@
-# Gen1Recomp Studio
+# G1R Studio (Gen1Recomp Studio)
 
 Map/content editor for gen1recomp (sibling repo `../gen1recomp`, or a release
 build). Tauri 2 desktop app; the whole editor runs in the web view.

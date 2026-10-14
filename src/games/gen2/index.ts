@@ -97,6 +97,9 @@ const content: ContentSpec[] = [
   { registry: "type_chart", file: "type_chart.lua", editable: true, build: typeChartRecords },
   // script text by key ("55:515e"); new keys (a studio trainer's texts) work too
   { registry: "text", file: "text.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([, v]) => typeof v === "string")) },
+  // palettes.lua subtables are the registry's ids (trainers, pokemon, ...);
+  // the studio edits trainers (a new class's portrait colors)
+  { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => k === "trainers" && !!v && typeof v === "object")) },
   // trainer classes (gen1recomp writes the registry one level into `classes`)
   {
     registry: "trainers", file: "trainers.lua", editable: true,
@@ -424,7 +427,15 @@ const trainers: TrainerSpec = {
     },
   },
   heldItems: true,
-  newClasses: false,
+  // gen1recomp Schemas gen2Fields: a class's `index` and a trainer's are bytes
+  limits: { classIndex: 255, teams: 255 },
+  classPrefix: "",
+  // its portrait colors (palettes.lua trainers[class]) go with a copied class
+  classExtras: (sourceId, newId, ctx) => {
+    const table = recordsOf(ctx, "palettes").trainers as Record<string, unknown> | undefined;
+    const colors = table?.[sourceId];
+    return colors && table ? [{ registry: "palettes", id: "trainers", value: { ...table, [newId]: structuredClone(colors) } }] : [];
+  },
   objectTrainer: {
     key: "trainer",
     // OBJECTTYPE_TRAINER (constants/map_object_constants.asm)
@@ -482,7 +493,9 @@ const trainers: TrainerSpec = {
   },
   // palettes.lua trainers[class]: the two middle colors between white and black
   picColors: (ctx, classId) => {
-    const pair = (palettes(ctx) as { trainers?: Record<string, [number, number, number][]> }).trainers?.[classId];
+    // the palettes registry (a mod's new class has its own entry), else the file's
+    const own = recordsOf(ctx, "palettes").trainers as Record<string, [number, number, number][]> | undefined;
+    const pair = own?.[classId] ?? (palettes(ctx) as { trainers?: Record<string, [number, number, number][]> }).trainers?.[classId];
     return pair?.length === 2 ? [[255, 255, 255], pair[0], pair[1], [0, 0, 0]].map((c) => [c[0], c[1], c[2]] as Rgb) : null;
   },
   ai: false,

@@ -308,6 +308,14 @@ export interface TrainerSpec {
   // is a ROM constant scripts and map people refer to by number)
   newTeams?: boolean;
   newClasses?: boolean;
+  // what the engine can hold: a class's number (`index`, Gen 2's trainer
+  // structs and loadtrainer name classes by it) and trainers per class
+  limits?: { classIndex: number; teams: number };
+  // a new class's id prefix (Gen 1: OPP_)
+  classPrefix?: string;
+  // records that go with a new class copied from `sourceId` (Gen 2: its
+  // portrait colors in palettes.trainers)
+  classExtras?(sourceId: string, newId: string, ctx: GameContext): { registry: string; id: string; value: unknown }[];
   // map people that are trainers through a record of their own (Gen 2:
   // object.trainer = { class (index), member, event, seenText, winText,
   // scriptKey }); the map inspector builds and edits it (src/ui/mapTrainer.ts)

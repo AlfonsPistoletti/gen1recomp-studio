@@ -105,7 +105,16 @@ check("vanilla warps carry no map-group numbers", !JSON.stringify(base).includes
   const room = newBark.objects as Ent[];
   room.push({ x: 4, y: 4, sprite: "SPRITE_YOUNGSTER", movement: 6, type: ot.typeValue, sight: 3, trainer: { class: ot.classIndex(ctx, "BEAUTY"), member: (beauty.trainers as Rec[]).length, event: flag, seenText: "STUDIO_TRAINER_1_SEEN", winText: "STUDIO_TRAINER_1_WIN" } });
   edited.text = { STUDIO_TRAINER_1_SEEN: "Let's battle!{DONE}", STUDIO_TRAINER_1_WIN: "I lost…{DONE}" };
-  edited.trainers = { BEAUTY: beauty };
+  // a new class: the next number, the source's first trainer, its colors
+  const s = adapter.trainers!;
+  const indexes = Object.values(content.trainers).map((t) => Number((t as Rec).index)).filter(Number.isFinite);
+  const fresh = { ...(clone(content.trainers.BEAUTY) as Rec), id: "STUDIO_CLASS", name: "TESTER", index: Math.max(...indexes) + 1 };
+  teams.write(fresh, teams.read(fresh).slice(0, 1));
+  check("new class number within the engine's limit", (fresh.index as number) <= s.limits!.classIndex);
+  const extras = s.classExtras!("BEAUTY", "STUDIO_CLASS", ctx);
+  check("new class gets the source's colors", extras.length === 1 && !!((extras[0].value as Rec).STUDIO_CLASS));
+  edited.palettes = { trainers: extras[0].value as Rec };
+  edited.trainers = { BEAUTY: beauty, STUDIO_CLASS: fresh };
 }
 const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: editedMaps, ...edited });
 const source = studioContentFile("studio_selftest", calls, fieldOrders(adapter));

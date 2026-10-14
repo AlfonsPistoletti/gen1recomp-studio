@@ -51,6 +51,10 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   (`TrainerSpec.objectTrainer`, `src/ui/mapTrainer.ts`): class index, member, a free "beaten" event flag (from 2047 down,
   past every flag the game data uses: Gold 1931, Crystal 1999) and new `text` keys STUDIO_TRAINER_<n>_SEEN/_WIN;
   the game fights it through its standard trainer script. After-battle talk reuses another trainer's scriptKey.
+  New Gold classes ("+ Class"): the engine finds a class by its `index` (Trainers.classIndex over the merged table), so
+  a copy gets the next number, the source's first trainer, its portrait (mod art, or the ROM's through asset
+  transforms) and its colors (`palettes` registry id "trainers"). `TrainerSpec.limits` (index <= 255, 255 trainers
+  per class: bytes in the schema) is enforced by the editor: never offer more than the engine holds.
   Gold Pokédex entries: pokedex.lua `entries` are loaded into each species' `dexEntry` (base), edited inline
   (`PokemonSpec.dexInline`: pages of <NEXT> lines, height ft*100+in, weight 0.1 lb); gen1recomp
   PokedexText.apply copies the saved patch onto the entry (engine f8eafdb0 or later). Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =

@@ -537,7 +537,27 @@ export const gen2: GameAdapter = {
   manifestGame: "gen2",
   startMap: "NEW_BARK_TOWN",
   viewOnly: { registries: ["tilesets", "sprites"], reason: "Gen 2 tilesets and sprites can be looked at, not changed yet." },
-  workspaces: ["maps", "pokemon", "moves", "items", "trainers", "global"],
+  workspaces: ["maps", "pokemon", "moves", "items", "trainers", "graphics", "global"],
+  graphicsViews: ["tilesets"],
+  // pokecrystal constants/collision_constants.asm (the codes a block's quarter
+  // takes); walk/water/wall from gen1recomp's CollPermissions table
+  tileCollision: {
+    // pure: release builds (no Gen 2) drop it
+    codes: /* @__PURE__ */ ([
+      [0x00, "floor"], [0x07, "wall"], [0x18, "tall grass"], [0x14, "long grass"], [0x12, "cut tree"], [0x15, "headbutt tree"],
+      [0x29, "water"], [0x24, "whirlpool"], [0x33, "waterfall"], [0x23, "ice"], [0x60, "pit (hole)"],
+      [0x71, "door"], [0x7a, "stairs"], [0x7b, "cave"], [0x72, "ladder"], [0x7c, "warp panel"],
+      [0x70, "warp mat ↓"], [0x76, "warp mat ←"], [0x78, "warp mat ↑"], [0x7e, "warp mat →"],
+      [0xa0, "ledge →"], [0xa1, "ledge ←"], [0xa2, "ledge ↑"], [0xa3, "ledge ↓"],
+      [0xa4, "ledge ↘"], [0xa5, "ledge ↙"], [0xa6, "ledge ↗"], [0xa7, "ledge ↖"],
+      [0x90, "counter"], [0x91, "bookshelf"], [0x93, "PC"], [0x94, "radio"], [0x95, "town map"], [0x96, "mart shelf"], [0x97, "TV"],
+      [0x9d, "window"], [0x9f, "incense burner"],
+    ] as [number, string][]).map(([code, label]) => ({ code, label })),
+    permission: (code) => COLL_PERMISSIONS[code % 256] ?? 15,
+    // PAL_BG_* (constants/tileset_constants.asm), tilePalettes is 1-based
+    paletteSlots: ["Gray", "Red", "Green", "Water", "Yellow", "Brown", "Roof", "Text"],
+    defaultSlot: 1,
+  },
   playFromHere: false,
 
   async load(read, version): Promise<Dataset> {
@@ -637,6 +657,9 @@ export const gen2: GameAdapter = {
       for (const f of fights) fight(f, { mapId: id, index: -1 });
     }
     for (const m of Object.values(maps)) gen2.normalizeMap(m);
+    // tilesets.lua also holds the animation frame sheets (animFrames,
+    // waterFrames, ...): only records with a sheet and blocks are tilesets
+    for (const [k, t] of Object.entries(tilesets)) if (!t || typeof t !== "object" || typeof t.image !== "string" || !t.blocks) delete tilesets[k];
     for (const t of Object.values(tilesets)) crystalTiles(t);
     const monFile = tables[content.findIndex((c) => c.registry === "pokemon")] as { growthRates?: Record<string, unknown> } | undefined;
     const icons = await (read("icons.lua") as Promise<Icons>).catch(() => ({}) as Icons);

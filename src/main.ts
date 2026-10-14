@@ -1157,6 +1157,10 @@ function applyAdapterLimits(adapter: NonNullable<ReturnType<typeof adapterFor>>)
   for (const b of workspaceTabs) b.hidden = !!shown && !shown.includes(b.dataset.ws!);
   if (shown && !shown.includes(nav.workspace)) setWorkspace(shown[0] as WorkspaceId);
   addGroup.hidden = !!adapter.viewOnly?.registries.includes("maps");
+  // the Graphics views the game has (Gen 2: Tilesets only)
+  const views = adapter.graphicsViews;
+  for (const sel of viewSwitches) for (const o of sel.options) o.hidden = !!views && !views.includes(o.value);
+  if (views && !views.includes(nav.graphicsView)) nav.showGraphics(views[0] as GraphicsView);
   // the tile brush makes blocks, so it needs editable tilesets
   const noTiles = !!adapter.viewOnly?.registries.includes("tilesets");
   for (const b of toolButtons) if (b.dataset.tool === "tile") b.hidden = noTiles;

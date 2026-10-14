@@ -573,7 +573,8 @@ function usesOf(id: string): Use[] {
     if (how.length) out.push({ label: `${String(m.name ?? pid)} (${how.join(", ")})`, open: () => nav.openPokemon(pid) });
   }
   for (const [tid, t] of Object.entries(store.table("trainers") as Record<string, Rec>)) {
-    const teams = (t.parties as { moves?: string[] }[][] | undefined) ?? [];
+    // TrainerSpec.teams (Gen 2: the class's trainers), else Gen 1's parties
+    const teams = (store.adapter.trainers?.teams?.read(t) ?? (t.parties as { moves?: string[] }[][] | undefined)) ?? [];
     teams.forEach((party, p) => {
       if (party.some((m) => m.moves?.includes(id))) out.push({ label: `${String(t.name ?? tid)} team ${p + 1}`, open: () => nav.openTrainer(tid, p + 1) });
     });

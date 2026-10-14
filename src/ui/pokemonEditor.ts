@@ -285,7 +285,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     const into = keys(store.adapter.pokemon).into;
     for (const [mid, m] of Object.entries(species())) if ((m.evolutions as Evolution[] | undefined)?.some((e) => e[into] === id)) uses.push(`evolution of ${mid}`);
     for (const [tid, t] of Object.entries(store.table("trainers") as Record<string, Rec>)) {
-      if ((t.parties as { species: string }[][] | undefined)?.some((p) => p.some((s) => s.species === id))) uses.push(`team of ${tid}`);
+      const teams = store.adapter.trainers?.teams?.read(t) ?? (t.parties as { species: string }[][] | undefined);
+      if (teams?.some((p) => p.some((s) => s.species === id))) uses.push(`team of ${tid}`);
     }
     const msg = uses.length ? `${id} is still used by:\n- ${[...new Set(uses)].slice(0, 12).join("\n- ")}\n\nThose would refer to a Pokémon that no longer exists. Delete anyway?` : `Delete ${id}?`;
     if (!confirm(msg)) return;

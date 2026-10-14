@@ -69,6 +69,17 @@ edited.type_chart = { "FIRE>STEEL": { multiplier: 10 } };
   fish[group].old[0].level = 42;
   edited.encounters = { grass, fishGroups: fish };
 }
+// trainers: a class's trainers through the adapter's team accessors
+{
+  const teams = adapter.trainers!.teams!;
+  const beauty = clone(content.trainers.BEAUTY) as Rec;
+  const parties = teams.read(beauty).map((p) => p.map((m) => ({ ...m })));
+  parties[0][0] = { species: "MEOWTH", level: 12, item: "BERRY", moves: ["SCRATCH", "BITE"] };
+  teams.write(beauty, parties);
+  teams.setName(beauty, 0, "VICKY");
+  check("trainer type follows the slots", (beauty.trainers as Rec[])[0].trainerType === "TRAINERTYPE_ITEM_MOVES");
+  edited.trainers = { BEAUTY: beauty };
+}
 edited.map_songs = { NEW_BARK_TOWN: Object.values(content.map_songs).find((s) => s !== content.map_songs.NEW_BARK_TOWN) as string };
 
 // maps, the way the map tools edit them (through the adapter)

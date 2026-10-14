@@ -43,7 +43,11 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   field keys may be dotted paths (`radius.x`, `hours.0`); selects can be `numeric` with `labels`.
   Gen 2 encounters (`adapter.timedEncounters`, `src/ui/timedEncounterPanel.ts`): registry ids are kinds (grass,
   water, fishGroups, ...) holding every map/group; the panel edits one map's entries inside them (grass per
-  MORN/DAY/NITE, water, the map's `fishGroup` and that group's rods), so a save patches only those entries. Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
+  MORN/DAY/NITE, water, the map's `fishGroup` and that group's rods), so a save patches only those entries.
+  Gen 2 trainers: a class record holds `trainers` [{ name, trainerType, party }]; `TrainerSpec.teams` reads/writes
+  them as the editor's teams (trainerType follows the slots: item/moves), slots may hold an `item`; usage counts,
+  AI, colors, portrait borrowing and new classes/teams are off (`usage`/`ai`/`colors`/`basePic`/`newTeams` false):
+  only Gold's cart scripts start trainer battles. Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
   tileset `tilePalettes[tile]` (1-based), roof slot colors from `roofs[group]` in TOWN/ROUTE; walls from per-block
   `collision` quads via gen1recomp's CollPermissions table (restated). The map panel shows music/roof/rules only when
   the game has those registries (`has()` in inspector.ts). Gen 3 shows as "coming soon".

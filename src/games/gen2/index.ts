@@ -9,7 +9,7 @@
 import type { Rgb } from "../../render/color.ts";
 import { MONO } from "../../render/color.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec, TimedEncounterSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
 interface Roofs {
@@ -95,6 +95,12 @@ const content: ContentSpec[] = [
   { registry: "moves", file: "moves.lua", editable: true, build: records, fieldOrder: ["id", "name", "index", "type", "power", "accuracy", "pp", "effect", "effectChance", "description"] },
   { registry: "items", file: "items.lua", editable: true, build: records, fieldOrder: ["id", "name", "index", "price", "pocket", "description"] },
   { registry: "type_chart", file: "type_chart.lua", editable: true, build: typeChartRecords },
+  // trainer classes (gen1recomp writes the registry one level into `classes`)
+  {
+    registry: "trainers", file: "trainers.lua", editable: true,
+    build: (f) => ({ ...((f as { classes?: Record<string, unknown> }).classes ?? {}) }),
+    fieldOrder: ["id", "name", "index", "baseMoney", "encounterMusic", "pic", "items", "attributes", "trainers"],
+  },
   // ids are kinds (grass, water, fishGroups, ...), each holding every map or
   // group; only the edited entries are written (gen1recomp Schemas gen2Keys)
   { registry: "encounters", file: "encounters.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([, v]) => !!v && typeof v === "object")) },
@@ -124,6 +130,9 @@ function typeChartRecords(file: Record<string, unknown>): Record<string, unknown
 }
 
 const palettes = (ctx: GameContext) => (ctx.data.extra.palettes ?? {}) as Palettes;
+// "<class index>:<member>" -> where a script starts that battle (see load)
+const scriptFights = new Map<string, { mapId: string; index: number }[]>();
+
 // variable sprite slots (see load): the new game's sprite per slot, the one
 // other maps' scripts give it later, and the slots each map's scripts set
 const variableSprites = { start: new Map<number, string>(), later: new Map<number, string>(), own: new Map<string, Set<number>>() };
@@ -356,6 +365,88 @@ const timedEncounters: TimedEncounterSpec = {
   },
 };
 
+// ------------------------------------------------------------------ trainers
+
+// a class's trainers as teams: [{ id, name, trainerType, party }]; the type
+// says which optional party fields the cart stores, so it follows the slots
+type Gen2Trainer = { name?: string; trainerType?: string; party?: TrainerSlot[] } & Record<string, unknown>;
+const classTrainers = (r: Record<string, unknown>) => asList(r.trainers) as Gen2Trainer[];
+function trainerType(slots: TrainerSlot[]): string {
+  const item = slots.some((m) => m.item);
+  const moves = slots.some((m) => Array.isArray(m.moves));
+  return item && moves ? "TRAINERTYPE_ITEM_MOVES" : item ? "TRAINERTYPE_ITEM" : moves ? "TRAINERTYPE_MOVES" : "TRAINERTYPE_NORMAL";
+}
+
+const trainers: TrainerSpec = {
+  registry: "trainers",
+  picSize: 56,
+  maxPartySize: 6,
+  nameMax: 10,
+  // the class's own pic, else menu_gfx battleHud.trainerPics (BattleState)
+  pic: (id, ctx) => {
+    const own = recordsOf(ctx, "trainers")[id]?.pic;
+    return typeof own === "string" ? own : (ctx.data.extra.trainerPics as Record<string, string> | undefined)?.[id];
+  },
+  // gen1recomp Mon.movesAtLevel: the last four distinct level-up moves
+  defaultMoves: (_t, _p, i, party, ctx) => {
+    const slot = party[i];
+    const known: string[] = [];
+    for (const e of asList(recordsOf(ctx, "pokemon")[slot.species]?.levelMoves) as { level: number; move: string }[]) {
+      if (e.level > slot.level || known.includes(e.move)) continue;
+      known.push(e.move);
+      if (known.length > 4) known.shift();
+    }
+    return known;
+  },
+  objectClassKey: "trainerClass",
+  objectPartyKey: "trainerParty",
+  aiLayers: [],
+  notes: () => [],
+  teams: {
+    read: (r) => classTrainers(r).map((t) => asList(t.party) as TrainerSlot[]),
+    write: (d, parties) => {
+      const old = classTrainers(d);
+      d.trainers = parties.map((slots, i) => ({ ...(old[i] ?? { name: "TRAINER" }), party: slots, trainerType: trainerType(slots) }));
+    },
+    name: (r, p) => String(classTrainers(r)[p]?.name ?? ""),
+    setName: (d, p, name) => {
+      d.trainers = classTrainers(d).map((t, i) => (i === p ? { ...t, name: name || String(t.name ?? "") } : t));
+    },
+  },
+  heldItems: true,
+  newTeams: false,
+  // map objects that are trainers (their `trainer` = { class, member }: the
+  // class's index and the 1-based trainer), and the battles scripts start
+  uses: (ctx, classId) => {
+    const out = new Map<number, { mapId: string; index: number }[]>();
+    const cls = recordsOf(ctx, "trainers")[classId]?.index;
+    if (typeof cls !== "number") return out;
+    const add = (member: number, at: { mapId: string; index: number }) => {
+      const list = out.get(member) ?? [];
+      if (!list.some((u) => u.mapId === at.mapId && u.index === at.index)) list.push(at);
+      out.set(member, list);
+    };
+    for (const [mapId, m] of Object.entries(ctx.maps)) {
+      (asList(m.objects) as { trainer?: { class?: number; member?: number } }[]).forEach((o, index) => {
+        if (o.trainer?.class === cls) add(o.trainer.member ?? 1, { mapId, index });
+      });
+    }
+    for (const [key, list] of scriptFights) {
+      const [c, member] = key.split(":").map(Number);
+      if (c === cls) for (const at of list) add(member, at);
+    }
+    return out;
+  },
+  // palettes.lua trainers[class]: the two middle colors between white and black
+  picColors: (ctx, classId) => {
+    const pair = (palettes(ctx) as { trainers?: Record<string, [number, number, number][]> }).trainers?.[classId];
+    return pair?.length === 2 ? [[255, 255, 255], pair[0], pair[1], [0, 0, 0]].map((c) => [c[0], c[1], c[2]] as Rgb) : null;
+  },
+  ai: false,
+  colors: false,
+  basePic: false,
+};
+
 // ------------------------------------------------------------------ global
 
 const globals: GlobalsSpec = {
@@ -383,7 +474,7 @@ export const gen2: GameAdapter = {
   manifestGame: "gen2",
   startMap: "NEW_BARK_TOWN",
   viewOnly: { registries: ["tilesets", "sprites"], reason: "Gen 2 tilesets and sprites can be looked at, not changed yet." },
-  workspaces: ["maps", "pokemon", "moves", "items", "global"],
+  workspaces: ["maps", "pokemon", "moves", "items", "trainers", "global"],
   playFromHere: false,
 
   async load(read): Promise<Dataset> {
@@ -412,9 +503,12 @@ export const gen2: GameAdapter = {
     // the slots each map's own scripts set (followed through calls/jumps), and
     // a value other maps' scripts give a slot: the Olivine rival's slot holds a
     // swimmer once the rival has left, which is what Route 41 shows in play
+    // (the same walk notes `loadtrainer class, member` rows: who fights whom)
+    let fights: string[] = [];
     const slotsSetFrom = (roots: string[]): Set<number> => {
       const seen = new Set<string>();
       const slots = new Set<number>();
+      fights = [];
       const walk = (v: unknown): void => {
         if (typeof v === "string") {
           if (v in scripts && !seen.has(v)) {
@@ -425,6 +519,8 @@ export const gen2: GameAdapter = {
         else if (v && typeof v === "object") {
           const row = v as { op?: string; args?: unknown };
           const args = asList(row.args) as number[];
+          const t = v as { class?: number; member?: number };
+          if (row.op === "loadtrainer" && typeof t.class === "number") fights.push(`${t.class}:${t.member ?? 1}`);
           if (row.op === "variablesprite" && typeof args[0] === "number") {
             slots.add(args[0]);
             const later = name(args[1]);
@@ -438,22 +534,41 @@ export const gen2: GameAdapter = {
       roots.forEach(walk);
       return slots;
     };
+    scriptFights.clear();
+    const fight = (key: string, at: { mapId: string; index: number }) => {
+      const list = scriptFights.get(key) ?? [];
+      if (!list.some((u) => u.mapId === at.mapId && u.index === at.index)) list.push(at);
+      scriptFights.set(key, list);
+    };
     for (const [id, m] of Object.entries(maps)) {
       const keys: string[] = [];
       JSON.stringify(m, (_k, v: unknown) => (typeof v === "string" && v in scripts && keys.push(v), v));
       const slots = slotsSetFrom(keys);
       if (slots.size) variableSprites.own.set(id, slots);
+      // battles an object's own script starts (gym leaders, ...) belong to it;
+      // the rest to the map (step triggers, scenes)
+      const objectKeys = new Set<string>();
+      (asList(m.objects) as Record<string, unknown>[]).forEach((o, i) => {
+        const own: string[] = [];
+        JSON.stringify(o, (_k, v: unknown) => (typeof v === "string" && v in scripts && own.push(v), v));
+        own.forEach((k) => objectKeys.add(k));
+        slotsSetFrom(own);
+        for (const f of fights) fight(f, { mapId: id, index: i });
+      });
+      slotsSetFrom(keys.filter((k) => !objectKeys.has(k)));
+      for (const f of fights) fight(f, { mapId: id, index: -1 });
     }
     for (const m of Object.values(maps)) gen2.normalizeMap(m);
     for (const t of Object.values(tilesets)) crystalTiles(t);
     const monFile = tables[content.findIndex((c) => c.registry === "pokemon")] as { growthRates?: Record<string, unknown> } | undefined;
     const icons = await (read("icons.lua") as Promise<Icons>).catch(() => ({}) as Icons);
+    const menuGfx = await (read("menu_gfx.lua") as Promise<{ battleHud?: { trainerPics?: Record<string, string> } }>).catch(() => ({}) as { battleHud?: { trainerPics?: Record<string, string> } });
     const pokedex = await (read("pokedex.lua") as Promise<{ newOrder?: string[] }>).catch(() => ({}) as { newOrder?: string[] });
     const contentTables: Dataset["content"] = {};
     content.forEach((c, i) => (contentTables[c.registry] = c.build ? c.build(tables[i] ?? {}) : tables[i] ?? {}));
     contentTables.tilesets = { ...tilesets };
     contentTables.sprites = { ...sprites };
-    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), icons, johtoDex: asList(pokedex.newOrder) } };
+    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), icons, johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {} } };
   },
 
   // Empty Lua tables arrive as []; the lists the view reads become arrays
@@ -657,5 +772,6 @@ export const gen2: GameAdapter = {
   timedEncounters,
   moves,
   items,
+  trainers,
   globals,
 };

@@ -268,6 +268,8 @@ export interface TrainerSlot {
   species: string;
   level: number;
   moves?: string[];
+  // a held item (Gen 2)
+  item?: string;
 }
 
 // What the Trainers workspace needs to know about a generation.
@@ -292,6 +294,29 @@ export interface TrainerSpec {
   // item/switch behaviour records, keyed by aiClass or the trainer id
   aiClasses?: { registry: string; items: string[] };
   notes(trainerId: string, ctx: GameContext): string[];
+  // how a class record stores its teams (unset: Gen 1's `parties` lists and
+  // `partyNames` { "1": name }); Gen 2: `trainers` [{ name, party }]
+  teams?: {
+    read(r: Record<string, unknown>): TrainerSlot[][];
+    write(draft: Record<string, unknown>, parties: TrainerSlot[][]): void;
+    name(r: Record<string, unknown>, p: number): string;
+    setName(draft: Record<string, unknown>, p: number, name: string): void;
+  };
+  // a slot may hold an item (Gen 2)
+  heldItems?: boolean;
+  // false: no new classes or teams (Gen 2: only the game's scripts start
+  // trainer battles, and those can't be written in the studio)
+  newTeams?: boolean;
+  // who fights each team of a class (1-based team -> map objects; index -1:
+  // a map script); unset: Gen 1's objectClassKey/objectPartyKey on objects
+  uses?(ctx: GameContext, classId: string): Map<number, { mapId: string; index: number }[]>;
+  // false: no AI panel / colors choice / portrait borrowing (Gen 2 for now)
+  ai?: boolean;
+  colors?: boolean;
+  basePic?: boolean;
+  // a class's portrait colors (lightest first) when the game has its own
+  // per-class palettes (Gen 2) instead of the palettes registry
+  picColors?(ctx: GameContext, classId: string): Rgb[] | null;
 }
 
 // ------------------------------------------------------------------ globals

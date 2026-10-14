@@ -31,6 +31,9 @@ export interface TilesetExtension {
   // added tiles that are water / shore (surfable), appended to the tileset's
   water?: number[];
   shore?: number[];
+  // Gen 2: a collision quad per added block, a palette slot per added tile
+  collision?: number[][];
+  palettes?: number[];
 }
 
 // Surfing (gen1recomp src/world/Map.lua): a cell is surfable when its
@@ -138,6 +141,9 @@ export function liveTileset(id: string): TilesetDef | undefined {
       walkable: [...((base.walkable as number[] | undefined) ?? []), ...(ext.walkable ?? [])],
       ...(ext.water?.length ? { waterTiles: [...waterTilesOf(base), ...ext.water] } : {}),
       ...(ext.shore?.length ? { shoreTiles: [...shoreTilesOf(base), ...ext.shore] } : {}),
+      // Gen 2 (per-block collision, per-tile palette slots)
+      ...(Array.isArray(base.collision) ? { collision: [...(base.collision as number[][]), ...(ext.collision ?? [])] } : {}),
+      ...(ext.palettes?.length ? { tilePalettes: [...((base.tilePalettes as number[] | undefined) ?? []), ...ext.palettes] } : {}),
     };
     byExt.set(ext, out);
   }

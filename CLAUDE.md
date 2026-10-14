@@ -55,6 +55,11 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   a copy gets the next number, the source's first trainer, its portrait (mod art, or the ROM's through asset
   transforms) and its colors (`palettes` registry id "trainers"). `TrainerSpec.limits` (index <= 255, 255 trainers
   per class: bytes in the schema) is enforced by the editor: never offer more than the engine holds.
+  Gen 2 tilesets (Gold/Silver; Crystal view-only, its blocks are rewritten by crystalTiles): `studio_tilesets` holds
+  `{ first, tiles, palettes, blocks, collision }` (a collision quad per added block, a palette slot per added tile),
+  patched in at load by `src/lua/tilesetRuntime2.ts`. `adapter.tileCollision` switches the Tilesets editor to that
+  model (per-quarter collision codes, palette slot per tile; editTileset keeps collision/palettes the length of
+  blocks/tiles); `adapter.graphicsViews` limits Graphics to Tilesets. Limits: 256 blocks, 256 tiles (LimitError).
   Gold Pokédex entries: pokedex.lua `entries` are loaded into each species' `dexEntry` (base), edited inline
   (`PokemonSpec.dexInline`: pages of <NEXT> lines, height ft*100+in, weight 0.1 lb); gen1recomp
   PokedexText.apply copies the saved patch onto the entry (engine f8eafdb0 or later). Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =

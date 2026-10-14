@@ -638,6 +638,19 @@ export interface GameAdapter {
   viewOnly?: { registries: string[]; reason: string };
   // the workspaces this generation has; unset = all of them
   workspaces?: string[];
+  // the Graphics views it has (unset: all)
+  graphicsViews?: string[];
+  // tilesets whose collision is a quad of codes per block (Gen 2) instead of
+  // walkable tiles, and whose tiles each pick one of 8 palette slots
+  tileCollision?: {
+    // named codes (others show as their number); `permission` from the
+    // engine's table: 0 walk, 1 water, 15 wall
+    codes: { code: number; label: string }[];
+    permission(code: number): number;
+    paletteSlots: string[];
+    // the slot an added tile starts on (1-based)
+    defaultSlot: number;
+  };
   // false: Play starts the game as usual (the studio can't put the player on
   // a picked cell in this generation yet)
   playFromHere?: boolean;

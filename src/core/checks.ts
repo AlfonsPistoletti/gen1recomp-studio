@@ -21,8 +21,8 @@ export function warpProblem(adapter: GameAdapter, maps: Record<string, MapDef>, 
   if (!w || !warp) return null;
   const destMap = String(warp[w.spec.mapKey] ?? "");
   const destWarp = Number(warp[w.spec.warpKey] ?? 0);
-  // LAST_MAP and friends resolve at runtime
-  if (w.spec.specialMaps.includes(destMap)) return null;
+  // LAST_MAP and friends (Gen 2: warp 255) resolve at runtime
+  if (w.spec.specialMaps.includes(destMap) || destWarp === w.spec.backWarp) return null;
   const dest = maps[destMap];
   const base = { mapId, index, destMap, destWarp };
   if (!dest) return { ...base, message: `Warp ${index + 1} on ${mapId} leads to ${destMap || "(no map)"}, which does not exist.` };

@@ -296,6 +296,7 @@ const pokemon: PokemonSpec = {
     { id: "ITEM", label: "Item", item: true },
     { id: "TRADE", label: "Trade" },
   ],
+  evolutionLevelAlways: true,
   machines: (ctx) =>
     Object.values(recordsOf(ctx, "items"))
       .map((i) => i.machine as Machine | undefined)

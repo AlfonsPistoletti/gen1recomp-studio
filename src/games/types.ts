@@ -102,6 +102,17 @@ export interface MoveSpec {
   // effect ids moves may use (behaviour lives in the engine)
   effects(ctx: GameContext): string[];
   categories: string[];
+  // false: the moves have no priority / damage category / high-crit fields
+  // (Gen 2 keeps those in the effect)
+  battleDetails?: boolean;
+  // the secondary effect's chance in % (effectChance)
+  effectChance?: boolean;
+  // the move screen's description: lines joined with <NEXT>
+  description?: { lines: number; lineMax: number };
+  // percent fields the engine reads as a byte (0-255) too: kept in sync
+  rawBytes?: Record<string, string>;
+  // false: no "+ New" (a new move needs data the studio doesn't make yet)
+  newMoves?: boolean;
   // battle animations as references to another move's ({ __ref })
   animRegistry?: string;
   // custom effects built from blocks
@@ -179,10 +190,25 @@ export interface ItemSpec {
   // items whose built-in behaviour blocks can't rebuild (bicycle, rods, ...)
   special(id: string, item: Record<string, unknown>): boolean;
   // items the game uses for something else (elevator floors, ...): why
-  internal(id: string): string | null;
+  internal(id: string, item?: Record<string, unknown>): string | null;
   // which ids the engine gives a move picker (Ether-style)
   picksMove(id: string): boolean;
   marts(ctx: GameContext): MartRef[];
+  // false: no custom effects or ball numbers (Gen 2 items act by id and held effect)
+  effects?: boolean;
+  // false: no "+ New Item" / "+ TM/HM"
+  newItems?: boolean;
+  // bag pockets (replaces the Key item switch)
+  pockets?: string[];
+  // the bag's description: lines joined with <NEXT>
+  description?: { lines: number; lineMax: number };
+  // what the item does when held (heldEffect), and what its number
+  // (heldParameter) means for an effect: unset amount = the engine ignores it
+  heldEffects?: { ids: string[]; info(effect: string): { note?: string; amount?: { label: string; hint: string; max: number } } };
+  // a TM/HM's kind, move and number (unset: the item's `machine` record);
+  // machineEdit false: shown, not changed
+  machineOf?(item: Record<string, unknown>): { kind?: string; move?: string; number?: number } | undefined;
+  machineEdit?: boolean;
 }
 
 // ------------------------------------------------------------------ ids
@@ -242,6 +268,8 @@ export interface TrainerSlot {
   species: string;
   level: number;
   moves?: string[];
+  // a held item (Gen 2)
+  item?: string;
 }
 
 // What the Trainers workspace needs to know about a generation.
@@ -266,6 +294,54 @@ export interface TrainerSpec {
   // item/switch behaviour records, keyed by aiClass or the trainer id
   aiClasses?: { registry: string; items: string[] };
   notes(trainerId: string, ctx: GameContext): string[];
+  // how a class record stores its teams (unset: Gen 1's `parties` lists and
+  // `partyNames` { "1": name }); Gen 2: `trainers` [{ name, party }]
+  teams?: {
+    read(r: Record<string, unknown>): TrainerSlot[][];
+    write(draft: Record<string, unknown>, parties: TrainerSlot[][]): void;
+    name(r: Record<string, unknown>, p: number): string;
+    setName(draft: Record<string, unknown>, p: number, name: string): void;
+  };
+  // a slot may hold an item (Gen 2)
+  heldItems?: boolean;
+  // false: no new teams; newClasses false: no new classes (Gen 2: a class
+  // is a ROM constant scripts and map people refer to by number)
+  newTeams?: boolean;
+  newClasses?: boolean;
+  // what the engine can hold: a class's number (`index`, Gen 2's trainer
+  // structs and loadtrainer name classes by it) and trainers per class
+  limits?: { classIndex: number; teams: number };
+  // a new class's id prefix (Gen 1: OPP_)
+  classPrefix?: string;
+  // records that go with a new class copied from `sourceId` (Gen 2: its
+  // portrait colors in palettes.trainers)
+  classExtras?(sourceId: string, newId: string, ctx: GameContext): { registry: string; id: string; value: unknown }[];
+  // map people that are trainers through a record of their own (Gen 2:
+  // object.trainer = { class (index), member, event, seenText, winText,
+  // scriptKey }); the map inspector builds and edits it (src/ui/mapTrainer.ts)
+  objectTrainer?: {
+    key: string;
+    typeKey: string;
+    typeValue: number;
+    sightKey: string;
+    textRegistry: string;
+    classIndex(ctx: GameContext, classId: string): number | undefined;
+    classOf(ctx: GameContext, index: number): string | undefined;
+    // an event flag no game script or other trainer uses, or null
+    freeFlag(ctx: GameContext): number | null;
+    // after-battle scripts to reuse: other trainers' on this map
+    afterScripts(map: MapDef): { key: string; label: string }[];
+  };
+  // who fights each team of a class (1-based team -> map objects; index -1:
+  // a map script); unset: Gen 1's objectClassKey/objectPartyKey on objects
+  uses?(ctx: GameContext, classId: string): Map<number, { mapId: string; index: number }[]>;
+  // false: no AI panel / colors choice / portrait borrowing (Gen 2 for now)
+  ai?: boolean;
+  colors?: boolean;
+  basePic?: boolean;
+  // a class's portrait colors (lightest first) when the game has its own
+  // per-class palettes (Gen 2) instead of the palettes registry
+  picColors?(ctx: GameContext, classId: string): Rgb[] | null;
 }
 
 // ------------------------------------------------------------------ globals
@@ -310,10 +386,34 @@ export interface StatSpec {
 export interface PokemonSpec {
   stats: StatSpec[];
   maxTypes: number;
+  // a single type is stored twice ([GRASS, GRASS], Gen 2's base data)
+  typesTwice?: boolean;
   typeNames(ctx: GameContext): string[];
   growthRates(ctx: GameContext): string[];
-  // evolution methods and which extra fields each one uses
-  evolutionMethods: { id: string; label: string; level?: boolean; item?: boolean }[];
+  // record keys that differ by generation (unset: Gen 1's learnset,
+  // level1Moves, evolutions[].species, frontSize); startMoves null: none
+  keys?: { levelMoves?: string; startMoves?: string | null; evolveInto?: string; picSize?: string };
+  // evolution methods and which extra fields each one uses (item "optional":
+  // a trade with or without a held item; time/comparison: the choices)
+  evolutionMethods: { id: string; label: string; level?: boolean; item?: boolean | "optional"; time?: string[]; comparison?: { id: string; label: string }[] }[];
+  // Gen 1's importer writes level 1 for evolutions without a level: keep that shape
+  evolutionLevelAlways?: boolean;
+  // breeding block (Gen 2): egg groups in nibble order (index + 1), written
+  // with the raw byte the engine compares (eggGroupsRaw)
+  breeding?: { eggGroups: string[] };
+  // the two wild held items (`items`: rare, common)
+  heldItems?: boolean;
+  // battle pic colors from the game's per-species palettes (lightest first);
+  // unset: the palettes registry and the Colors choice
+  monColors?(ctx: GameContext, id: string): Rgb[] | null;
+  // a regional Pokédex besides the national one (Gen 2: Johto), species in order
+  regionalDex?: { label: string; order(ctx: GameContext): string[] };
+  // the Pokédex entry is stored in the record itself (Gen 2: dexEntry
+  // { kind, height = ft*100+in, weight in 0.1 lb, text, text2 }, each page
+  // `lines` lines joined with <NEXT>) instead of Gen 1's text key
+  dexInline?: { lines: number; lineMax: number };
+  // what this generation can't edit yet
+  without?: ("newSpecies" | "dexEntry" | "cry" | "iconImport")[];
   // TM/HM moves in machine order, labelled "TM01 MEGA_PUNCH"
   machines(ctx: GameContext): { move: string; label: string }[];
   moveNames(ctx: GameContext): string[];
@@ -365,6 +465,20 @@ export interface EncounterSpec {
   notes(map: MapDef, ctx: GameContext): string[];
 }
 
+// Wild tables keyed by kind, each holding every map (Gen 2: the encounters
+// registry's ids are "grass", "water", "fishGroups", ...), grass per time
+// of day. The panel edits one map's entries inside the kind records.
+export interface TimedEncounterSpec {
+  registry: string;
+  times: { key: string; label: string }[];
+  // chance of each slot in %, in slot order
+  grassOdds: number[];
+  waterOdds: number[];
+  // fishing: the map field naming its group, the group records' kind, rods
+  fish: { mapKey: string; kind: string; rods: { key: string; label: string }[] };
+  wildCell(map: MapDef, tileset: TilesetDef | undefined, cx: number, cy: number, ctx: GameContext): "grass" | "water" | "any" | null;
+}
+
 // ------------------------------------------------------------------ fields
 // Declarative inspector fields; the inspector renders them generically.
 
@@ -372,6 +486,7 @@ interface FieldBase {
   label: string;
   hint?: string;
 }
+// a field's `key` may be a dotted path into the record ("radius.x", "hours.0")
 
 export type FieldSpec =
   | (FieldBase & { kind: "text"; key: string })
@@ -379,14 +494,21 @@ export type FieldSpec =
   | (FieldBase & {
       kind: "select";
       key: string;
-      options: (ctx: GameContext) => string[];
+      // the open map, for choices taken from it
+      options: (ctx: GameContext, map?: MapDef) => string[];
+      // stored as a number (the options are number strings)
+      numeric?: boolean;
+      // what an option shows (unset or undefined: the value itself)
+      labels?: (value: string, ctx: GameContext, map?: MapDef) => string | undefined;
       // offered as the first choice; picking it deletes the key
       // undefined from the function = no empty choice
       emptyLabel?: string | ((record: Record<string, unknown>, ctx: GameContext) => string | undefined);
     })
   // a warp's destination: map + warp on that map, with "go to" and a
   // reciprocity check
-  | (FieldBase & { kind: "warpTarget"; mapKey: string; warpKey: string; specialMaps: string[] })
+  // specialMaps: map ids that resolve at runtime (Gen 1 LAST_MAP); backWarp:
+  // a warp number that does (Gen 2's 255: back where the player came from)
+  | (FieldBase & { kind: "warpTarget"; mapKey: string; warpKey: string; specialMaps: string[]; backWarp?: number })
   // JSON for every key no other field (and not x/y) claims
   | (FieldBase & { kind: "extras" })
   // two fields side by side
@@ -498,6 +620,9 @@ export interface ImageSpec {
 
 export interface CellInfo {
   walkable: boolean;
+  // whether a warp here is taken (Gen 2: only on door/stairs/cave/mat/pit
+  // collision); unset = not known
+  warp?: boolean;
   tile?: number;
   label?: string;
 }
@@ -509,10 +634,13 @@ export interface GameAdapter {
   manifestGame: string;
   // the map the studio opens first (the player's home town)
   startMap: string;
-  // set while the studio can only show this generation: why (no saving)
-  readOnly?: string;
+  // registries the studio only shows for this generation (no edits), and why
+  viewOnly?: { registries: string[]; reason: string };
   // the workspaces this generation has; unset = all of them
   workspaces?: string[];
+  // false: Play starts the game as usual (the studio can't put the player on
+  // a picked cell in this generation yet)
+  playFromHere?: boolean;
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;
@@ -545,6 +673,7 @@ export interface GameAdapter {
   content: ContentSpec[];
   pokemon?: PokemonSpec;
   encounters?: EncounterSpec;
+  timedEncounters?: TimedEncounterSpec;
   globals?: GlobalsSpec;
   trainers?: TrainerSpec;
   moves?: MoveSpec;

@@ -15,8 +15,10 @@ import { changedParts, resetMapDialog } from "./mapReset.ts";
 import { nav } from "./nav.ts";
 import { songLabel } from "./soundEditor.ts";
 import { warpProblem } from "../core/checks.ts";
-import { tilesetIds } from "../core/tilesets.ts";
+import { liveTileset, tilesetIds } from "../core/tilesets.ts";
 import { mapRulesSection } from "./mapRules.ts";
+import { objectTrainerSection } from "./mapTrainer.ts";
+import { FEATURES } from "../features.ts";
 import { gameRoof, gbcAvailable, ROOFS, roofColors, tilesetHasRoof, townRoofs, type RoofRecord } from "../core/gbc.ts";
 import type { Rgb } from "../render/color.ts";
 
@@ -78,9 +80,28 @@ function claimedKeys(specs: FieldSpec[], out = new Set<string>(["x", "y"])): Set
   for (const s of specs) {
     if (s.kind === "pair") claimedKeys(s.fields, out);
     else if (s.kind === "warpTarget") out.add(s.mapKey).add(s.warpKey);
-    else if (s.kind !== "extras") out.add(s.key);
+    else if (s.kind !== "extras") out.add(s.key.split(".")[0]);
   }
   return out;
+}
+
+// a field key may be a dotted path into the record ("radius.x", "hours.0")
+function getPath(r: Rec, key: string): unknown {
+  return key.split(".").reduce<unknown>((v, k) => (v && typeof v === "object" ? (v as Rec)[k] : undefined), r);
+}
+function setPath(r: Rec, key: string, value: unknown): void {
+  const parts = key.split(".");
+  let at = r;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const k = parts[i];
+    const next = at[k];
+    // copy the nested table: the record is a draft, its children may be shared
+    at[k] = Array.isArray(next) ? [...next] : next && typeof next === "object" ? { ...(next as Rec) } : /^\d+$/.test(parts[i + 1]) ? [] : {};
+    at = at[k] as Rec;
+  }
+  const last = parts[parts.length - 1];
+  if (value === undefined) delete at[last];
+  else at[last] = value;
 }
 
 function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[], view: MapView): HTMLElement | null {
@@ -88,31 +109,22 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
     case "pair":
       return h("div", { class: "row two" }, ...spec.fields.map((f) => renderField(f, record, edit, all, view)));
     case "text": {
-      const input = h("input", { type: "text", value: (record[spec.key] as string) ?? "", spellcheck: false });
-      input.addEventListener("change", () =>
-        edit(spec.label, (r) => {
-          if (input.value) r[spec.key] = input.value;
-          else delete r[spec.key];
-        }),
-      );
+      const input = h("input", { type: "text", value: (getPath(record, spec.key) as string) ?? "", spellcheck: false });
+      input.addEventListener("change", () => edit(spec.label, (r) => setPath(r, spec.key, input.value || undefined)));
       return field(spec.label, input, spec.hint);
     }
     case "int":
-      return field(spec.label, numberInput(record[spec.key] as number | undefined, (v) => edit(spec.label, (r) => (r[spec.key] = v)), spec.min, spec.max), spec.hint);
+      return field(spec.label, numberInput(getPath(record, spec.key) as number | undefined, (v) => edit(spec.label, (r) => setPath(r, spec.key, v)), spec.min, spec.max), spec.hint);
     case "select": {
       const empty = typeof spec.emptyLabel === "function" ? spec.emptyLabel(record, store.ctx) : spec.emptyLabel;
       // a number (Gen 2's variable sprites) shows as its own entry, not as the list's first
-      const raw = record[spec.key];
+      const raw = getPath(record, spec.key);
       const value = typeof raw === "string" || typeof raw === "number" ? String(raw) : "";
-      return field(
-        spec.label,
-        selectInput(value, spec.options(store.ctx), (v) =>
-          edit(spec.label, (r) => {
-            if (v) r[spec.key] = v;
-            else delete r[spec.key];
-          }), empty),
-        spec.hint,
-      );
+      const map = store.map;
+      const sel = selectInput(value, spec.options(store.ctx, map), (v) =>
+        edit(spec.label, (r) => setPath(r, spec.key, v === "" ? undefined : spec.numeric ? Number(v) : v)), empty);
+      if (spec.labels) for (const o of sel.options) if (o.value) o.textContent = spec.labels(o.value, store.ctx, map) ?? o.value;
+      return field(spec.label, sel, spec.hint);
     }
     case "warpTarget":
       return warpTarget(spec, record, edit, view);
@@ -166,13 +178,6 @@ function connectWarps(spec: Extract<FieldSpec, { kind: "warpTarget" }>, fromMap:
   toast(`${fromMap} warp ${fromIndex + 1} ↔ ${toMap} warp ${toIndex + 1}`, "ok");
 }
 
-// connectWarps without a field spec at hand (a new map's entrance)
-export function connectDoor(fromMap: string, fromIndex: number, toMap: string, x: number, y: number): void {
-  const layer = store.adapter.layers.find((l) => l.kind === "warp");
-  const spec = layer?.fields.find((f): f is Extract<FieldSpec, { kind: "warpTarget" }> => f.kind === "warpTarget");
-  if (spec) connectWarps(spec, fromMap, fromIndex, toMap, x, y);
-}
-
 function warpTarget(spec: Extract<FieldSpec, { kind: "warpTarget" }>, record: Rec, edit: Edit, view: MapView): HTMLElement {
   const layer = store.adapter.layers.find((l) => l.kind === "warp")!;
   const destId = String(record[spec.mapKey] ?? "");
@@ -181,6 +186,7 @@ function warpTarget(spec: Extract<FieldSpec, { kind: "warpTarget" }>, record: Re
   const ids = [...spec.specialMaps, ...Object.keys(store.maps).sort()];
   const mapSelect = selectInput(destId, ids, (v) => edit("Warp target", (r) => (r[spec.mapKey] = v || spec.specialMaps[0])));
   let warpControl: HTMLElement;
+  const isBack = destNum === spec.backWarp;
   if (dest) {
     const sel = h(
       "select",
@@ -188,6 +194,7 @@ function warpTarget(spec: Extract<FieldSpec, { kind: "warpTarget" }>, record: Re
       ...store.entities(dest, layer.key).map((w, i) =>
         h("option", { value: i + 1, selected: i + 1 === destNum }, `${i + 1}  (${w.x}, ${w.y}) → ${String(w[spec.mapKey] ?? "")}`),
       ),
+      ...(spec.backWarp !== undefined ? [h("option", { value: spec.backWarp, selected: isBack }, "Back where the player came from")] : []),
     );
     sel.addEventListener("change", () => edit("Warp target", (r) => (r[spec.warpKey] = Number(sel.value))));
     warpControl = sel;
@@ -198,16 +205,22 @@ function warpTarget(spec: Extract<FieldSpec, { kind: "warpTarget" }>, record: Re
   const index = store.selection?.index ?? 0;
   const backTo = back ? String(back[spec.mapKey] ?? "") : "";
   const problem = warpProblem(store.adapter, store.maps, store.currentMap, index);
+  // the game only takes a warp standing on a warp tile (Gen 2: door, stairs, cave, mat)
+  const here = store.map;
+  const onWarpTile = here ? store.adapter.cell(here, liveTileset(here.tileset), Number(record.x), Number(record.y)).warp : undefined;
   return h(
     "div",
     { class: "field-group" },
+    onWarpTile === false
+      ? h("p", { class: "hint bad" }, "The game never takes this warp: its cell isn't a door, stairs, cave entrance or warp mat. Paint such a block under it, or move it onto one.")
+      : null,
     field("Connect to a door…", comboInput("", "dl-maps", Object.keys(store.maps).sort(), (to) => {
       const from = store.currentMap;
       const index = store.selection?.index ?? 0;
       nav.pickCell(to, (x, y) => connectWarps(spec, from, index, to, x, y));
     }, "Pick a map, then click the spot"), "Both ways at once: the other map gets a warp on the cell you click (made if missing) that leads back here."),
     field("Destination map", mapSelect),
-    field("Destination warp", warpControl, spec.specialMaps.includes(destId) ? spec.hint : undefined),
+    field("Destination warp", warpControl, spec.specialMaps.includes(destId) || isBack ? spec.hint : undefined),
     problem
       ? h(
           "div",
@@ -223,7 +236,7 @@ function warpTarget(spec: Extract<FieldSpec, { kind: "warpTarget" }>, record: Re
           "div",
           { class: "row" },
           h("button", { class: "btn small", onclick: () => view.followWarp(index) }, `Go to ${destId} →`),
-          back && backTo !== store.currentMap && !spec.specialMaps.includes(backTo)
+          back && backTo !== store.currentMap && !spec.specialMaps.includes(backTo) && back[spec.warpKey] !== spec.backWarp
             ? h("span", { class: "hint warn" }, `That warp leads to ${backTo}, not back here.`)
             : null,
         )
@@ -528,7 +541,10 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
     if (el) fields.push(el);
   }
   if (says && !fields.includes(says)) fields.push(says);
-  const fights = layer.kind === "npc" ? trainerSection(record) : null;
+  const fights = layer.kind === "npc"
+    // (people with their own trainer record exist only in Gen 2: release builds drop the module)
+    ? trainerSection(record) ?? (FEATURES.gen2 ? objectTrainerSection(record, (label, mutate) => store.edit(map.id, label, (d) => mutate(store.entities(d, layer.key)[index]))) : null)
+    : null;
   if (fights) fields.splice(fields.indexOf(says ?? fields[fields.length - 1]), 0, fights);
   // what it does (shop, nurse, PC, prizes) goes right above what it says
   const role = layer.kind === "npc" || layer.kind === "sign"

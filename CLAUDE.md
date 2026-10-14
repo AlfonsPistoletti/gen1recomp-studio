@@ -25,8 +25,39 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
 - `src/games/`: one `GameAdapter` per generation (data files, entity layers +
   declarative inspector fields, connections, collision, colors, new-map defaults,
   `content` registries, `pokemon`/`encounters` specs). `gen1` is complete; `gen2`
-  (`src/games/gen2`) is a view-only map viewer (`readOnly`: no saving, no mod picker; `workspaces: ["maps"]`
-  hides the rest). Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
+  (`src/games/gen2`) is in progress: maps/tilesets/sprites are `viewOnly` (store.record refuses those edits and
+  emits "viewonly"), content registries Gold shares with Red save into mods with `"games": ["gen2"]`;
+  `workspaces` lists the editors done so far. Play on Gen 2 (`playFromHere: false`) starts the game as usual
+  with a saving-off helper (`playtestSavingOff`). `npm run selftest:gen2` round-trips a Gold dataset.
+  The Pokémon editor reads shape differences from `PokemonSpec` (`keys`: levelMoves/startMoves/evolveInto/picSize,
+  `typesTwice`, `breeding` (eggGroupsRaw kept in sync: the engine compares the byte), `heldItems` (`items[1]` common,
+  `[2]` rare; a rare-only list loads as `{ "2": id }` and is written `[2] = id`), `monColors`, `without`).
+  Moves/Items the same way: `MoveSpec` battleDetails/effectChance/description (<NEXT> lines)/rawBytes (accuracyRaw and
+  effectChanceRaw kept in sync: Gold's battle reads the bytes first)/newMoves; `ItemSpec` effects/newItems/pockets
+  (pocketId synced)/description/heldEffects/machineOf (Gold TMs: `teaches` + `tmLabel`)/machineEdit. Gold's type chart
+  build takes the file's own type records (plain ids, PSYCHIC_TYPE) plus the Foresight rows as matchups.
+  Gen 2 maps are editable (tilesets/sprites still view-only, so the tile brush is hidden): warps use
+  `warpTarget.backWarp` 255 ("back where the player came from", World:resolveWarp), connections are `{ mapId, offset }`,
+  `normalizeMap` drops the extractor's destGroup/destMapNum and connection extras (never read). NPC/sign/trigger
+  scripts are cart bytecode: the studio only lets an entity reuse a scriptKey of the same layer on that map. Inspector
+  field keys may be dotted paths (`radius.x`, `hours.0`); selects can be `numeric` with `labels`.
+  Gen 2 encounters (`adapter.timedEncounters`, `src/ui/timedEncounterPanel.ts`): registry ids are kinds (grass,
+  water, fishGroups, ...) holding every map/group; the panel edits one map's entries inside them (grass per
+  MORN/DAY/NITE, water, the map's `fishGroup` and that group's rods), so a save patches only those entries.
+  Gen 2 trainers: a class record holds `trainers` [{ name, trainerType, party }]; `TrainerSpec.teams` reads/writes
+  them as the editor's teams (trainerType follows the slots: item/moves), slots may hold an `item`; usage counts,
+  AI, colors, portrait borrowing and new classes/teams are off (`usage`/`ai`/`colors`/`basePic`/`newTeams` false):
+  New Gold trainers: "+ Trainer" appends to a class (member = index), and a map person gets a `trainer` record
+  (`TrainerSpec.objectTrainer`, `src/ui/mapTrainer.ts`): class index, member, a free "beaten" event flag (from 2047 down,
+  past every flag the game data uses: Gold 1931, Crystal 1999) and new `text` keys STUDIO_TRAINER_<n>_SEEN/_WIN;
+  the game fights it through its standard trainer script. After-battle talk reuses another trainer's scriptKey.
+  New Gold classes ("+ Class"): the engine finds a class by its `index` (Trainers.classIndex over the merged table), so
+  a copy gets the next number, the source's first trainer, its portrait (mod art, or the ROM's through asset
+  transforms) and its colors (`palettes` registry id "trainers"). `TrainerSpec.limits` (index <= 255, 255 trainers
+  per class: bytes in the schema) is enforced by the editor: never offer more than the engine holds.
+  Gold Pokédex entries: pokedex.lua `entries` are loaded into each species' `dexEntry` (base), edited inline
+  (`PokemonSpec.dexInline`: pages of <NEXT> lines, height ft*100+in, weight 0.1 lb); gen1recomp
+  PokedexText.apply copies the saved patch onto the entry (engine f8eafdb0 or later). Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
   tileset `tilePalettes[tile]` (1-based), roof slot colors from `roofs[group]` in TOWN/ROUTE; walls from per-block
   `collision` quads via gen1recomp's CollPermissions table (restated). The map panel shows music/roof/rules only when
   the game has those registries (`has()` in inspector.ts). Gen 3 shows as "coming soon".

@@ -229,9 +229,16 @@ export function attachCombo(input: HTMLInputElement, options: () => string[], li
   };
   const show = () => {
     before = input.value;
+    // inside a modal dialog the rest of the page is inert: the list must
+    // live in the dialog to get clicks
+    const host = input.closest("dialog") ?? document.body;
+    const p = popup();
+    if (p.parentElement !== host) {
+      if (p.matches(":popover-open")) p.hidePopover();
+      host.append(p);
+    }
     render("");
     place();
-    const p = popup();
     if (!p.matches(":popover-open")) p.showPopover();
     open = true;
     highlight(shown.indexOf(options().find((o) => o.toUpperCase() === input.value.trim().toUpperCase()) ?? ""));

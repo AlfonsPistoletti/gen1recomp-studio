@@ -6,6 +6,8 @@
 import type { Host } from "../host/types.ts";
 import { field, h, toast } from "./dom.ts";
 import { normalizeGithub } from "../project/publish.ts";
+import { GAME_NAMES, GAME_OF_VERSION } from "../games/index.ts";
+import type { GameId } from "../games/types.ts";
 
 // what mods in the wild use; the manager groups by it and accepts any text
 const CATEGORIES = ["GAMEPLAY", "BALANCE", "QUEST", "GRAPHICS", "AUDIO", "UI", "MECHANIC", "TOOL", "TOTAL_CONVERSION", "OTHER"];
@@ -14,7 +16,6 @@ const PROFILES: [string, string][] = [
   ["overhaul", "Overhaul: big changes; marked on linked play"],
   ["total_conversion", "Total conversion: a different game on the engine"],
 ];
-const VERSIONS = ["red", "blue", "yellow"];
 // permissions the engine knows (Manifest.lua); engine_internals follows what
 // the studio's own helpers need, so it is shown, not toggled
 const PERMISSIONS: [string, string][] = [
@@ -27,7 +28,9 @@ const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 // "mod_id", "mod_id@^1.2.0", "mod_id#owner/repo"
 const MOD_REF = /^[A-Za-z0-9_-]+(?:@\S+|#[\w.-]+\/[\w.-]+)?$/;
 
-export async function modDetailsDialog(host: Host, modId: string, saved: () => void, otherMods: string[] = []): Promise<void> {
+// `gen`: the generation the studio edits the mod for (its versions are offered)
+export async function modDetailsDialog(host: Host, modId: string, gen: GameId, saved: () => void, otherMods: string[] = []): Promise<void> {
+  const VERSIONS = Object.keys(GAME_OF_VERSION).filter((v) => GAME_OF_VERSION[v] === gen);
   const path = `mods/${modId}/manifest.json`;
   const text = await host.readText("game", path);
   if (text === null) return toast(`${path} is missing`, "error");
@@ -61,7 +64,8 @@ export async function modDetailsDialog(host: Host, modId: string, saved: () => v
   const profile = h("select", {}, ...PROFILES.map(([v, l]) => h("option", { value: v, selected: (str("profile") || "content") === v }, l)));
   const priority = h("input", { type: "number", value: String(manifest.priority ?? 0), min: -1000, max: 1000 });
   const games = Array.isArray(manifest.games) ? (manifest.games as unknown[]).filter((g): g is string => typeof g === "string") : [];
-  const allGen1 = games.length === 0 || games.includes("gen1") || games.includes("all");
+  // no "games" = every Gen 1 game (gen1recomp ModTargets)
+  const allGen1 = (games.length === 0 && gen === "gen1") || games.includes(gen) || games.includes("all");
   const allBox = h("input", { type: "checkbox", checked: allGen1 });
   const versionBoxes = VERSIONS.map((v) => ({ v, box: h("input", { type: "checkbox", checked: allGen1 || games.includes(v), disabled: allGen1 }) }));
   allBox.addEventListener("change", () => versionBoxes.forEach(({ box }) => {
@@ -133,9 +137,10 @@ export async function modDetailsDialog(host: Host, modId: string, saved: () => v
     const gv = gameVersion.value.trim();
     if (gv) next.game_version = gv;
     else delete next.game_version;
-    // games: Gen 1 as a whole or some of its versions; other generations kept
-    const others = games.filter((g) => !["gen1", "all", ...VERSIONS].includes(g));
-    const chosen = allBox.checked ? ["gen1"] : versionBoxes.filter((x) => x.box.checked).map((x) => x.v);
+    // games: this generation as a whole or some of its versions; other
+    // generations kept (a mod without "games" was Gen 1's: keep that)
+    const others = games.length ? games.filter((g) => ![gen, "all", ...VERSIONS].includes(g)) : gen === "gen1" ? [] : ["gen1"];
+    const chosen = allBox.checked ? [gen] : versionBoxes.filter((x) => x.box.checked).map((x) => x.v);
     if (!chosen.length) return toast("Pick at least one game", "error");
     next.games = [...chosen, ...others];
     for (const l of lists) {
@@ -178,7 +183,7 @@ export async function modDetailsDialog(host: Host, modId: string, saved: () => v
         field("Engine version", gameVersion, "A version range of gen1recomp the mod needs. Empty: any."),
       ),
       field("Games", h("div", { class: "row wrap" },
-        h("label", { class: "inline-check" }, allBox, "Every Gen 1 game"),
+        h("label", { class: "inline-check" }, allBox, `Every ${GAME_NAMES[gen]} game`),
         ...versionBoxes.map(({ v, box }) => h("label", { class: "inline-check" }, box, v[0].toUpperCase() + v.slice(1))),
       ), "The game picker and the studio list a mod only for the games it names."),
 

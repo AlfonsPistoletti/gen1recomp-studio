@@ -8,6 +8,7 @@ import { append, h, toast } from "./dom.ts";
 
 const GAME_NAMES: Record<string, string> = {
   gen1: "Pokémon Red, Blue and Yellow", all: "every game", red: "Pokémon Red", blue: "Pokémon Blue", yellow: "Pokémon Yellow",
+  gen2: "Pokémon Gold, Silver and Crystal", gold: "Pokémon Gold", silver: "Pokémon Silver", crystal: "Pokémon Crystal",
 };
 
 // the outline a new page starts from

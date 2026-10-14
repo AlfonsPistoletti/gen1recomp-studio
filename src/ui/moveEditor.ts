@@ -11,6 +11,7 @@ import { nav } from "./nav.ts";
 import { idRow } from "./renameId.ts";
 import { promptNewRecord } from "./newRecord.ts";
 import { mountRecordList } from "./recordList.ts";
+import { sortMenu, type SortOption, type SortState } from "./sortMenu.ts";
 
 type Rec = Record<string, unknown>;
 
@@ -27,6 +28,46 @@ function ordered(): string[] {
   return Object.keys(all).sort((a, b) => ((all[a].index as number) ?? 999) - ((all[b].index as number) ?? 999) || a.localeCompare(b));
 }
 
+// the list's sort choices (game order first: the default)
+const SORTS: SortOption[] = [
+  { id: "index", label: "Game order", group: "Order" },
+  { id: "name", label: "Name", group: "Order" },
+  { id: "type", label: "Type", group: "Order" },
+  { id: "effect", label: "Effect", group: "Order" },
+  { id: "power", label: "Power", group: "Numbers", desc: true },
+  { id: "accuracy", label: "Accuracy", group: "Numbers", desc: true },
+  { id: "pp", label: "PP", group: "Numbers", desc: true },
+];
+
+// move ids in the chosen order (ties: game order), and what the list's
+// right column shows for each
+function sortedMoves(sort: SortState): { ids: string[]; meta(id: string): string } {
+  const all = moves();
+  const base = ordered();
+  const rank = new Map(base.map((id, i) => [id, i]));
+  const typeMeta = (id: string) => String(all[id].type ?? "").replace("_TYPE", "");
+  const num = (key: string) => (id: string) => Number(all[id][key]) || 0;
+  let value: (id: string) => number | string = (id) => rank.get(id) ?? 9999;
+  let meta = typeMeta;
+  if (sort.id === "name") value = (id) => String(all[id].name ?? id);
+  else if (sort.id === "type") value = typeMeta;
+  else if (sort.id === "effect") {
+    value = (id) => String(all[id].effect ?? "");
+    meta = (id) => String(all[id].effect ?? "").replace(/^EFFECT_/, "").toLowerCase();
+  } else if (sort.id === "power" || sort.id === "accuracy" || sort.id === "pp") {
+    value = num(sort.id);
+    meta = (id) => String(num(sort.id)(id));
+  }
+  const dir = sort.desc ? -1 : 1;
+  const ids = [...base].sort((a, b) => {
+    const va = value(a);
+    const vb = value(b);
+    const c = typeof va === "number" && typeof vb === "number" ? va - vb : String(va).localeCompare(String(vb));
+    return c * dir || (rank.get(a) ?? 0) - (rank.get(b) ?? 0);
+  });
+  return { ids, meta };
+}
+
 // the move whose animation a move plays: its own, or the one it references
 function animOf(id: string): string {
   const reg = spec()?.animRegistry;
@@ -37,19 +78,21 @@ function animOf(id: string): string {
 export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
   let current: string | null = null;
   const newBtn = h("button", { class: "btn small", title: "Add a move, starting as a copy of one", onclick: () => createMove() }, "+ New");
+  const sort = sortMenu("moves", () => SORTS, () => list.render());
   const list = mountRecordList(left, {
     title: "Moves",
-    head: [newBtn],
+    head: [newBtn, sort.el],
     placeholder: "Search moves…  (Ctrl+F)",
     searchId: "moves-search",
     items: () => {
       const s = spec();
       if (!s) return [];
       const all = moves();
-      return ordered().map((id) => ({
+      const { ids, meta } = sortedMoves(sort.state());
+      return ids.map((id) => ({
         id,
         label: String(all[id].name ?? id),
-        meta: String(all[id].type ?? "").replace("_TYPE", ""),
+        meta: meta(id),
         search: `${id} ${String(all[id].type ?? "")} ${String(all[id].effect ?? "")}`,
         edited: store.isRecordEdited(s.registry, id) || (!!s.animRegistry && store.isRecordEdited(s.animRegistry, id)),
         isNew: store.baseTable(s.registry)[id] === undefined,
@@ -143,6 +186,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
     }
     const id = current;
     title.textContent = String(r.name ?? id);
+    newBtn.hidden = s.newMoves === false;
     const isNew = store.baseTable(s.registry)[id] === undefined;
     revert.textContent = isNew ? "Delete move" : "Revert to base";
     revert.hidden = !isNew && !(store.isRecordEdited(s.registry, id) || (!!s.animRegistry && store.isRecordEdited(s.animRegistry, id)));
@@ -198,7 +242,8 @@ function moveForm(s: MoveSpec, id: string, r: Rec): HTMLElement[] {
   const name = h("input", { type: "text", value: String(r.name ?? ""), maxLength: s.nameMax, spellcheck: false });
   name.addEventListener("change", () => edit(id, "Move name", (d) => (d.name = name.value.trim().toUpperCase() || id)));
   const num = (key: string, label: string, min: number, max: number, hint: string) =>
-    field(label, numberInput(r[key] as number | undefined, (v) => edit(id, label, (d) => (d[key] = Math.max(min, Math.min(max, v)))), min, max), hint);
+    field(label, numberInput(r[key] as number | undefined, (v) => edit(id, label, (d) => setNum(s, d, key, Math.max(min, Math.min(max, v)))), min, max), hint);
+  const details = s.battleDetails !== false;
 
   const power = Number(r.power ?? 0);
   const category = typeof r.category === "string" ? r.category : "";
@@ -223,12 +268,15 @@ function moveForm(s: MoveSpec, id: string, r: Rec): HTMLElement[] {
       "div",
       { class: "row three" },
       num("pp", "PP", 1, s.maxPp, "Uses before it runs out."),
-      field(
-        "Priority",
-        numberInput(Number(r.priority ?? 0), (v) => edit(id, "Priority", (d) => (v ? (d.priority = Math.max(-7, Math.min(7, v))) : delete d.priority)), -7, 7),
-        "Higher goes first; 0 = normal.",
-      ),
+      details
+        ? field(
+            "Priority",
+            numberInput(Number(r.priority ?? 0), (v) => edit(id, "Priority", (d) => (v ? (d.priority = Math.max(-7, Math.min(7, v))) : delete d.priority)), -7, 7),
+            "Higher goes first; 0 = normal.",
+          )
+        : null,
     ),
+    s.description ? descriptionField(s, id, r) : null,
   );
 
   const extras = h(
@@ -243,7 +291,7 @@ function moveForm(s: MoveSpec, id: string, r: Rec): HTMLElement[] {
     h("label", { class: "ai-layer" }, highCrit, h("span", {}, h("strong", {}, "High critical-hit ratio"), h("span", { class: "hint" }, "Crits much more often, like Slash or Karate Chop."))),
   );
 
-  const out = [basics, effectCard(s, id, r), extras];
+  const out = [basics, effectCard(s, id, r), ...(details ? [extras] : [])];
   if (s.animRegistry) {
     const reg = s.animRegistry;
     const ref = (store.table(reg)[id] as { __ref?: string } | undefined)?.__ref;
@@ -271,6 +319,30 @@ function moveForm(s: MoveSpec, id: string, r: Rec): HTMLElement[] {
     );
   }
   return out;
+}
+
+// a number, and its 0-255 byte twin when the record has one (MoveSpec.rawBytes)
+function setNum(s: MoveSpec, d: Rec, key: string, v: number): void {
+  d[key] = v;
+  const raw = s.rawBytes?.[key];
+  if (raw && raw in d) d[raw] = Math.floor((v * 255) / 100);
+}
+
+// the move screen's text: one input per line, stored joined with <NEXT>
+function descriptionField(s: MoveSpec, id: string, r: Rec): HTMLElement {
+  const spec = s.description!;
+  const lines = String(r.description ?? "").split("<NEXT>");
+  const inputs = Array.from({ length: spec.lines }, (_, i) => {
+    const input = h("input", { type: "text", value: lines[i] ?? "", maxLength: spec.lineMax, spellcheck: false, class: "mono" });
+    input.addEventListener("change", () =>
+      edit(id, "Move description", (d) => {
+        const next = inputs.map((x) => x.value);
+        while (next.length > 1 && !next[next.length - 1]) next.pop();
+        d.description = next.join("<NEXT>");
+      }));
+    return input;
+  });
+  return field("Description", h("div", { class: "desc-lines" }, ...inputs), `${spec.lines} lines of up to ${spec.lineMax} characters, shown on the move screen.`);
 }
 
 // ------------------------------------------------------------------ effect
@@ -323,6 +395,15 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
     }));
   for (const o of sel.options) if (o.value) o.title = custom?.describe(o.value) || (specs[o.value] ? "Custom effect" : "");
   const card = h("section", { class: "card" }, h("h4", {}, "Effect"), field("Effect", sel));
+  if (s.effectChance) {
+    card.append(
+      field(
+        "Effect chance %",
+        numberInput(Number(r.effectChance ?? 0), (v) => edit(id, "Effect chance", (d) => setNum(s, d, "effectChance", Math.max(0, Math.min(100, v)))), 0, 100),
+        "How often the side effect happens (a burn, a stat drop, flinching); 0 for effects that always happen.",
+      ),
+    );
+  }
   if (!custom) return card;
 
   if (!spec) {
@@ -479,16 +560,21 @@ interface Use {
 
 function usesOf(id: string): Use[] {
   const out: Use[] = [];
+  const k = store.adapter.pokemon?.keys;
+  const lvKey = k?.levelMoves ?? "learnset";
+  const startKey = k?.startMoves === undefined ? "level1Moves" : k.startMoves;
   for (const [pid, m] of Object.entries(store.table("pokemon") as Record<string, Rec>)) {
     const how: string[] = [];
-    if ((m.level1Moves as string[] | undefined)?.includes(id)) how.push("at start");
-    const lv = (m.learnset as { level: number; move: string }[] | undefined)?.filter((e) => e.move === id).map((e) => `Lv ${e.level}`) ?? [];
+    if (startKey && (m[startKey] as string[] | undefined)?.includes(id)) how.push("at start");
+    const lv = (m[lvKey] as { level: number; move: string }[] | undefined)?.filter((e) => e.move === id).map((e) => `Lv ${e.level}`) ?? [];
     how.push(...lv);
+    if ((m.eggMoves as string[] | undefined)?.includes(id)) how.push("egg move");
     if ((m.tmhm as string[] | undefined)?.includes(id)) how.push("TM/HM");
     if (how.length) out.push({ label: `${String(m.name ?? pid)} (${how.join(", ")})`, open: () => nav.openPokemon(pid) });
   }
   for (const [tid, t] of Object.entries(store.table("trainers") as Record<string, Rec>)) {
-    const teams = (t.parties as { moves?: string[] }[][] | undefined) ?? [];
+    // TrainerSpec.teams (Gen 2: the class's trainers), else Gen 1's parties
+    const teams = (store.adapter.trainers?.teams?.read(t) ?? (t.parties as { moves?: string[] }[][] | undefined)) ?? [];
     teams.forEach((party, p) => {
       if (party.some((m) => m.moves?.includes(id))) out.push({ label: `${String(t.name ?? tid)} team ${p + 1}`, open: () => nav.openTrainer(tid, p + 1) });
     });
@@ -498,7 +584,8 @@ function usesOf(id: string): Use[] {
 
 function usedBy(id: string): HTMLElement[] {
   const uses = usesOf(id);
-  const machine = Object.values(store.table("items") as Record<string, { name?: string; machine?: { move?: string } }>).find((i) => i.machine?.move === id);
+  // Gen 1 items carry machine.move, Gen 2's `teaches`
+  const machine = Object.values(store.table("items") as Record<string, { name?: string; machine?: { move?: string }; teaches?: string }>).find((i) => i.machine?.move === id || i.teaches === id);
   const out: HTMLElement[] = [];
   if (machine) out.push(h("p", { class: "hint" }, `Taught by ${machine.name}.`));
   if (!uses.length) out.push(h("p", { class: "hint" }, "No Pokémon learns this move and no trainer uses it."));

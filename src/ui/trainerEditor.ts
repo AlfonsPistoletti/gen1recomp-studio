@@ -3,7 +3,8 @@
 // to "ai_classes". A team is a list of { species, level, moves? }; a slot
 // without moves gets what the game would give it, shown greyed.
 
-import { addAsset } from "../core/assets.ts";
+import { addAsset, derivedPath, isCachePath } from "../core/assets.ts";
+import { canDerive } from "../core/reuse.ts";
 import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { TrainerSlot, TrainerSpec } from "../games/types.ts";
@@ -47,8 +48,31 @@ function trainerTrueColor(r: Rec): boolean {
   return base?.trueColor === true;
 }
 
+// the class's teams, as the game stores them (TrainerSpec.teams; Gen 1:
+// `parties`)
 function parties(r: Rec | undefined): Party[] {
-  return Array.isArray(r?.parties) ? (r!.parties as Party[]) : [];
+  if (!r) return [];
+  const t = spec()?.teams;
+  if (t) return t.read(r);
+  return Array.isArray(r.parties) ? (r.parties as Party[]) : [];
+}
+function setParties(d: Rec, list: Party[]): void {
+  const t = spec()?.teams;
+  if (t) t.write(d, list);
+  else d.parties = list;
+}
+function teamName(r: Rec, p: number): string {
+  const t = spec()?.teams;
+  return t ? t.name(r, p) : ((r.partyNames ?? {}) as Record<string, string>)[String(p + 1)] ?? "";
+}
+function setTeamName(d: Rec, p: number, v: string): void {
+  const t = spec()?.teams;
+  if (t) return t.setName(d, p, v);
+  const names = { ...((d.partyNames ?? {}) as Record<string, string>) };
+  if (v) names[String(p + 1)] = v;
+  else delete names[String(p + 1)];
+  if (Object.keys(names).length) d.partyNames = names;
+  else delete d.partyNames;
 }
 
 // battles the game's scripts start (rivals, ...), loaded with the project;
@@ -88,6 +112,10 @@ const scriptUses = (id: string): ScriptBattle[] => [...scripted, ...eventBattles
 function fightCounts(): Map<string, number> {
   const s = spec()!;
   const out = new Map<string, number>();
+  if (s.uses) {
+    for (const id of Object.keys(trainers())) out.set(id, [...s.uses(store.ctx, id).values()].reduce((n, l) => n + l.length, 0));
+    return out;
+  }
   const layer = store.adapter.layers.find((l) => l.kind === "npc");
   if (!layer) return out;
   for (const map of Object.values(store.maps)) {
@@ -103,6 +131,7 @@ function fightCounts(): Map<string, number> {
 // map objects that fight as this trainer, per team number (1-based)
 function usesOf(id: string): Map<number, { mapId: string; index: number }[]> {
   const s = spec()!;
+  if (s.uses) return s.uses(store.ctx, id);
   const out = new Map<number, { mapId: string; index: number }[]>();
   const layer = store.adapter.layers.find((l) => l.kind === "npc");
   if (!layer) return out;
@@ -120,10 +149,12 @@ function usesOf(id: string): Map<number, { mapId: string; index: number }[]> {
 export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
   let current: string | null = null;
 
-  const newBtn = h("button", { class: "btn small", title: "Add a trainer class, starting as a copy of one", onclick: () => createTrainer() }, "+ New");
+  const newBtn = h("button", { class: "btn small", title: "Add a trainer class, starting as a copy of one", onclick: () => void createTrainer() }, "+ New");
+  // classes of named trainers (Gen 2): a trainer joins a class
+  const newTrainerBtn = h("button", { class: "btn small", title: "Add a trainer to a class, fresh or as a copy of another trainer", onclick: () => void addTrainer(current) }, "+ Trainer");
   const list = mountRecordList(left, {
     title: "Trainers",
-    head: [newBtn],
+    head: [newBtn, newTrainerBtn],
     placeholder: "Search trainers…  (Ctrl+F)",
     searchId: "trainers-search",
     items: () => {
@@ -131,6 +162,9 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
       if (!s) return [];
       const all = trainers();
       const used = fightCounts();
+      // classes sharing a name (Gold's gym leaders are all LEADER) show their id
+      const names = new Map<string, number>();
+      for (const r of Object.values(all)) names.set(String(r.name), (names.get(String(r.name)) ?? 0) + 1);
       return Object.keys(all)
         .sort((a, b) => ((all[a].index as number) ?? 999) - ((all[b].index as number) ?? 999) || a.localeCompare(b))
         .map((id) => {
@@ -138,10 +172,11 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
           const pic = s.pic(id, store.ctx);
           const species = parties(r).flat().map((m) => m.species);
           const fought = used.get(id) ?? 0;
+          const n = parties(r).length;
           return {
             id,
-            label: String(r.name ?? id),
-            meta: fought ? `${parties(r).length} team${parties(r).length === 1 ? "" : "s"}` : "unused",
+            label: (names.get(String(r.name)) ?? 0) > 1 ? `${String(r.name ?? id)} (${id})` : String(r.name ?? id),
+            meta: fought ? `${n} ${s.teams ? "trainer" : "team"}${n === 1 ? "" : "s"}` : "unused",
             search: `${id} ${species.join(" ")}`,
             icon: pic ? spriteUrl(pic) : undefined,
             edited: store.isRecordEdited(s.registry, id) || (!!s.aiClasses && store.isRecordEdited(s.aiClasses.registry, aiId(id))),
@@ -205,7 +240,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     const all = trainers();
     const res = await promptNewRecord({
       title: "New trainer class",
-      idPrefix: "OPP_",
+      idPrefix: s.classPrefix ?? "OPP_",
       nameMax: s.nameMax,
       taken: (id) => all[id] !== undefined,
       sources: Object.keys(all).sort().map((id) => ({ id, label: `${String(all[id].name ?? id)} (${id})` })),
@@ -219,13 +254,33 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     delete rec.index;
     delete rec.source;
     delete rec.aiClass;
-    if (typeof src.pic === "string") {
+    if (s.limits) {
+      // the next class number, within what the engine reads
+      const used = Object.values(all).map((t) => Number(t.index)).filter((n) => Number.isFinite(n));
+      const next = Math.max(-1, ...used) + 1;
+      if (next > s.limits.classIndex) return toast(`No room for another class: the game numbers classes up to ${s.limits.classIndex}`, "error");
+      rec.index = next;
+    }
+    if (s.teams) {
+      // start with the source's first trainer only
+      setParties(rec, parties(src).slice(0, 1));
+    }
+    if (s.basePic === false) {
+      // the source's portrait: its own art as is, the game's through the
+      // asset-transforms recipe (a mod may not point at the ROM's files)
+      const pic = s.pic(res.source, store.ctx);
+      const mod = store.project.mod;
+      if (typeof src.pic === "string" && !isCachePath(src.pic)) rec.pic = src.pic;
+      else if (pic && isCachePath(pic) && mod && canDerive()) rec.pic = derivedPath(mod, pic);
+      else delete rec.pic;
+    } else if (typeof src.pic === "string") {
       delete rec.pic;
       rec.basePic = res.source;
     }
     const ai = s.aiClasses ? store.table(s.aiClasses.registry)[aiId(res.source)] : undefined;
     store.group(`New trainer ${res.id}`, () => {
       store.setRecord(s.registry, res.id, `New trainer ${res.id}`, rec);
+      for (const x of s.classExtras?.(res.source, res.id, store.ctx) ?? []) store.setRecord(x.registry, x.id, "New class colors", x.value);
       if (s.aiClasses && ai) store.setRecord(s.aiClasses.registry, res.id, "Trainer AI", clone(ai));
     });
     open(res.id);
@@ -257,7 +312,10 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
     const id = current;
     title.textContent = String(r.name ?? id);
-    colors.replaceChildren(colorSelect(viewNow(), trainerPalette(r), false, (v) => {
+    newBtn.hidden = s.newClasses === false;
+    newBtn.textContent = s.teams ? "+ Class" : "+ New";
+    newTrainerBtn.hidden = !s.teams || s.newTeams === false;
+    colors.replaceChildren(s.colors === false ? "" : colorSelect(viewNow(), trainerPalette(r), false, (v) => {
       view = v;
       render(true);
     }));
@@ -316,7 +374,7 @@ function editParty(id: string, p: number, label: string, mutate: (party: Party) 
   edit(id, label, (r) => {
     const all = parties(r).map((x) => x.map((m) => ({ ...m })));
     mutate(all[p]);
-    r.parties = all;
+    setParties(r, all);
   });
 }
 
@@ -346,19 +404,91 @@ function mainForm(s: TrainerSpec, id: string, r: Rec): HTMLElement[] {
     "button",
     {
       class: "btn small",
-      title: "Adds a team at the end; NPCs pick a team by its number",
-      onclick: () => edit(id, "Add team", (d) => (d.parties = [...parties(d), [{ species: firstSpecies(), level: 5 }]])),
+      title: s.teams ? "Adds a trainer to this class; place it on a map as a person (Maps, select a person, Trainer)" : "Adds a team at the end; NPCs pick a team by its number",
+      // a class is full at the engine's trainer limit
+      disabled: !!s.limits && all.length >= s.limits.teams,
+      onclick: () => {
+        if (s.teams) return void addTrainer(id);
+        edit(id, "Add team", (d) => setParties(d, [...parties(d), [{ species: firstSpecies(), level: 5 }]]));
+        nav.openTrainer(id, parties(trainers()[id]).length);
+      },
     },
-    "+ Team",
+    s.teams ? "+ Trainer" : "+ Team",
   );
-  return [header, ...teams, h("div", { class: "row" }, add, h("span", { class: "hint" }, "Map NPCs choose a team by its number (trainerParty)."))];
+  if (s.newTeams === false) return [header, ...teams];
+  const hint = s.teams ? "A new trainer is fought by a map person made a trainer in its panel (Maps)." : "Map NPCs choose a team by its number (trainerParty).";
+  return [header, h("div", { class: "row" }, add, h("span", { class: "hint" }, hint)), ...teams];
+}
+
+// A new named trainer (Gen 2): which class, its name, and a fresh team or a
+// copy of any trainer's; the view jumps to it.
+async function addTrainer(classId: string | null): Promise<void> {
+  const s = spec();
+  if (!s?.teams) return;
+  const all = trainers();
+  // only classes with room for another trainer (the engine's member numbers)
+  const classes = Object.keys(all).filter((c) => !s.limits || parties(all[c]).length < s.limits.teams).sort();
+  if (!classes.length) return void toast("Every class is full", "error");
+  const res = await promptTrainer(s, classes, classId && all[classId] ? classId : classes[0]);
+  if (!res) return;
+  const src = res.from ? res.from.split("#") : null;
+  const team = src ? parties(all[src[0]])[Number(src[1])]?.map((m) => ({ ...m, ...(m.moves ? { moves: [...m.moves] } : {}) })) : undefined;
+  let index = 0;
+  edit(res.cls, "Add trainer", (d) => {
+    const list = [...parties(d), team ?? [{ species: firstSpecies(), level: 5 }]];
+    setParties(d, list);
+    index = list.length;
+    s.teams!.setName(d, index - 1, res.name);
+  });
+  nav.openTrainer(res.cls, index);
+}
+
+function promptTrainer(s: TrainerSpec, classes: string[], cls: string): Promise<{ cls: string; name: string; from: string } | null> {
+  return new Promise((resolve) => {
+    const all = trainers();
+    const dialog = h("dialog", {});
+    const classSel = selectInput(cls, classes, (v) => (cls = v));
+    for (const o of classSel.options) o.textContent = `${String(all[o.value]?.name ?? o.value)} (${o.value})`;
+    const name = h("input", { type: "text", maxLength: s.nameMax, spellcheck: false, placeholder: "NAME" });
+    // "" = fresh; else "<class>#<team index>"
+    let from = "";
+    const sources = classes.flatMap((c) => parties(all[c]).map((p, i) => ({ value: `${c}#${i}`, label: `${String(all[c]?.name ?? c)} ${teamName(all[c], i) || `#${i + 1}`} · ${p.map((m) => `${m.species} ${m.level}`).join(", ")}` })));
+    const fromSel = selectInput("", sources.map((x) => x.value), (v) => (from = v), "Fresh: one Pokémon");
+    for (const o of fromSel.options) if (o.value) o.textContent = sources.find((x) => x.value === o.value)?.label ?? o.value;
+    const close = (v: { cls: string; name: string; from: string } | null) => {
+      dialog.close();
+      dialog.remove();
+      resolve(v);
+    };
+    const create = () => {
+      const n = name.value.trim().toUpperCase();
+      if (!n) return toast("Give the trainer a name", "error");
+      close({ cls, name: n, from });
+    };
+    name.addEventListener("keydown", (e) => e.key === "Enter" && create());
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      close(null);
+    });
+    dialog.append(
+      h("h3", {}, "New trainer"),
+      field("Class", classSel, "Its picture, prize money and \"CLASS NAME wants to battle!\""),
+      field("Name", name, `Up to ${s.nameMax} characters.`),
+      field("Team", fromSel, "A fresh team of one Pokémon, or a copy of another trainer's."),
+      h("p", { class: "hint" }, "Then place it on a map: select a person in Maps and use Make this a trainer."),
+      h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), h("button", { class: "btn primary", onclick: create }, "Create")),
+    );
+    document.body.append(dialog);
+    dialog.showModal();
+    name.focus();
+  });
 }
 
 // BattleState: the prize is baseMoney × the level of the last Pokémon the
 // trainer sends out (the team's last), so it is shown per team
 function prizeHint(r: Rec): string {
   const base = Number(r.baseMoney ?? 0);
-  const won = parties(r).map((p, i) => `${parties(r).length > 1 ? `team ${i + 1} ` : ""}₽${base * Number(p[p.length - 1]?.level ?? 0)}`);
+  const won = parties(r).map((p, i) => `${parties(r).length > 1 ? `${teamName(r, i) || `team ${i + 1}`} ` : ""}₽${base * Number(p[p.length - 1]?.level ?? 0)}`);
   return `The game pays this × the level of the team's last Pokémon: ${won.join(", ") || "₽0"}`;
 }
 
@@ -383,18 +513,9 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
   const mons = store.table("pokemon") as Record<string, Rec>;
   const speciesIds = Object.keys(mons).sort();
   const moveIds = store.adapter.pokemon?.moveNames(store.ctx) ?? [];
-  const partyNames = (r.partyNames ?? {}) as Record<string, string>;
-  const teamName = h("input", { type: "text", value: partyNames[String(p + 1)] ?? "", placeholder: "(no name)", spellcheck: false, class: "team-name" });
-  teamName.addEventListener("change", () =>
-    edit(id, "Team name", (d) => {
-      const names = { ...((d.partyNames ?? {}) as Record<string, string>) };
-      const v = teamName.value.trim().toUpperCase();
-      if (v) names[String(p + 1)] = v;
-      else delete names[String(p + 1)];
-      if (Object.keys(names).length) d.partyNames = names;
-      else delete d.partyNames;
-    }),
-  );
+  const nameInput = h("input", { type: "text", value: teamName(r, p), placeholder: s.teams ? "name" : "(no name)", maxLength: s.nameMax, spellcheck: false, class: "team-name", title: s.teams ? "The trainer's name: \"BEAUTY VICTORIA wants to battle!\"" : "" });
+  nameInput.addEventListener("change", () => edit(id, "Team name", (d) => setTeamName(d, p, nameInput.value.trim().toUpperCase())));
+  const items = s.heldItems ? (store.adapter.pokemon?.itemNames(store.ctx) ?? []) : [];
 
   const rows = party.map((slot, i) => {
     const custom = Array.isArray(slot.moves);
@@ -419,7 +540,7 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
       "div",
       { class: "team-slot" },
       front
-        ? showTinted(h("img", { class: "slot-icon big", alt: "" }), front, picColors(viewNow(), (redpp) => monPaletteName(slot.species, mons[slot.species], redpp), mons[slot.species]?.trueColor === true))
+        ? showTinted(h("img", { class: "slot-icon big", alt: "" }), front, slotColors(slot.species, mons[slot.species]))
         : h("span", { class: "slot-icon big" }),
       h(
         "div",
@@ -430,6 +551,9 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
           comboInput(slot.species, "dl-species", speciesIds, (v) => editParty(id, p, "Team species", (pt) => (pt[i].species = v))),
           h("span", { class: "muted" }, "Lv"),
           numberInput(slot.level, (v) => editParty(id, p, "Team level", (pt) => (pt[i].level = Math.max(1, Math.min(100, v)))), 1, 100),
+          s.heldItems
+            ? selectInput(String(slot.item ?? ""), items, (v) => editParty(id, p, "Held item", (pt) => (v ? (pt[i].item = v) : delete pt[i].item)), "no item")
+            : null,
           h("button", { class: "btn small ghost", title: "Move up", disabled: i === 0, onclick: () => editParty(id, p, "Reorder team", (pt) => pt.splice(i - 1, 0, ...pt.splice(i, 1))) }, "↑"),
           h("button", { class: "btn small ghost", title: "Move down", disabled: i === party.length - 1, onclick: () => editParty(id, p, "Reorder team", (pt) => pt.splice(i + 1, 0, ...pt.splice(i, 1))) }, "↓"),
           h("button", { class: "btn small ghost", title: "Remove", disabled: party.length <= 1, onclick: () => editParty(id, p, "Remove team member", (pt) => pt.splice(i, 1)) }, "✕"),
@@ -444,16 +568,19 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
         "div",
         { class: "row" },
         h("span", { class: "hint" }, "Fought at:"),
-        ...used.map((u) => h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(u.mapId, "objects", u.index) }, `${u.mapId} #${u.index + 1}`)),
+        // index -1: a map script (no object of its own) starts the battle
+        ...used.map((u) => u.index < 0
+          ? h("button", { class: "btn small ghost", title: "A script on this map starts the battle", onclick: () => nav.openMap(u.mapId) }, `${u.mapId} (script)`)
+          : h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(u.mapId, "objects", u.index) }, `${u.mapId} #${u.index + 1}`)),
         ...scripts.map((b) => b.where.startsWith("event:")
           ? h("button", { class: "btn small ghost", onclick: () => nav.openEvent(b.where.slice(6)) }, `event ${b.where.slice(6)}`)
           : h("span", { class: "tag", title: "A battle the game's own script starts" }, `script: ${b.where}`)),
       )
-    : h("p", { class: "hint" }, "No map NPC or script uses this team.");
+    : h("p", { class: "hint" }, s.teams ? "No map NPC or script fights this trainer." : "No map NPC or script uses this team.");
 
   const removeTeam = () => {
     if (used.length && !confirm(`Team ${p + 1} is used by ${used.length} NPC(s). Remove it anyway? They would have no team to fight with.`)) return;
-    edit(id, "Remove team", (d) => (d.parties = parties(d).slice(0, -1)));
+    edit(id, "Remove team", (d) => setParties(d, parties(d).slice(0, -1)));
   };
   return h(
     "section",
@@ -461,13 +588,16 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
     h(
       "div",
       { class: "card-head" },
-      h("h4", {}, `Team ${p + 1}`, rivalChoice(id, p) ? h("span", { class: "hint team-choice" }, rivalChoice(id, p)) : null),
+      h("h4", {}, s.teams ? `Trainer ${p + 1}` : `Team ${p + 1}`, rivalChoice(id, p) ? h("span", { class: "hint team-choice" }, rivalChoice(id, p)) : null),
       h(
         "div",
         { class: "row nowrap" },
-        teamName,
-        h("button", { class: "btn small ghost", title: "Copy this team to a new one at the end", onclick: () => edit(id, "Duplicate team", (d) => (d.parties = [...parties(d), party.map((m) => ({ ...m }))])) }, "Duplicate"),
-        isLast ? h("button", { class: "btn small ghost danger", title: "Only the last team can be removed, so the other numbers stay valid", onclick: removeTeam }, "Remove") : null,
+        nameInput,
+        s.newTeams === false || s.teams ? null : h("button", { class: "btn small ghost", title: "Copy this team to a new one at the end", onclick: () => edit(id, "Duplicate team", (d) => setParties(d, [...parties(d), party.map((m) => ({ ...m }))])) }, "Duplicate"),
+        // the game's own trainers stay (scripts refer to them by number)
+        isLast && s.newTeams !== false && (!s.teams || p >= parties(store.baseTable(s.registry)[id] as Rec | undefined).length)
+          ? h("button", { class: "btn small ghost danger", title: "Only the last team can be removed, so the other numbers stay valid", onclick: removeTeam }, "Remove")
+          : null,
       ),
     ),
     ...rows,
@@ -499,7 +629,7 @@ function portrait(s: TrainerSpec, id: string, r: Rec, pic: string | undefined): 
       else delete d.trueColor;
     });
   };
-  const borrow = selectInput(
+  const borrow = s.basePic === false ? null : selectInput(
     typeof r.basePic === "string" && !r.pic ? r.basePic : "",
     Object.keys(all).filter((t) => t !== id && (typeof all[t].pic === "string")).sort(),
     (v) =>
@@ -516,12 +646,20 @@ function portrait(s: TrainerSpec, id: string, r: Rec, pic: string | undefined): 
   return h(
     "div",
     { class: "art-slot portrait" },
-    h("div", { class: "art-thumb" }, pic ? showTinted(h("img", { alt: "" }), spriteUrl(pic), picColors(viewNow(), () => trainerPalette(r), trainerTrueColor(r))) : h("span", { class: "hint" }, "no portrait")),
+    h("div", { class: "art-thumb" }, pic ? showTinted(h("img", { alt: "" }), spriteUrl(pic), s.colors === false ? (s.picColors?.(store.ctx, id) ?? null) : picColors(viewNow(), () => trainerPalette(r), trainerTrueColor(r))) : h("span", { class: "hint" }, "no portrait")),
     h("button", { class: "btn small", onclick: importPic }, "Import…"),
     borrow,
-    h("label", { class: "row nowrap hint" }, color, "Full color"),
-    field("Palette", paletteField(r.palette, "MEWMON", (v) => edit(id, "Portrait palette", (d) => (v ? (d.palette = v) : delete d.palette))), "The portrait's colors in battle."),
+    s.colors === false ? null : h("label", { class: "row nowrap hint" }, color, "Full color"),
+    s.colors === false ? null : field("Palette", paletteField(r.palette, "MEWMON", (v) => edit(id, "Portrait palette", (d) => (v ? (d.palette = v) : delete d.palette))), "The portrait's colors in battle."),
   );
+}
+
+// a team member's picture colors: the game's own per-species palette when it
+// has one (Gen 2), else the Colors choice
+function slotColors(species: string, mon: Rec | undefined) {
+  const own = store.adapter.pokemon?.monColors;
+  if (own) return mon?.trueColor === true ? null : own(store.ctx, species);
+  return picColors(viewNow(), (redpp) => monPaletteName(species, mon, redpp), mon?.trueColor === true);
 }
 
 // a custom move list: set slot k, drop empty slots, keep at most four
@@ -542,6 +680,7 @@ function aiId(trainerId: string): string {
 }
 
 function aiForm(s: TrainerSpec, id: string, r: Rec): HTMLElement[] {
+  if (s.ai === false) return [h("p", { class: "hint" }, "This game sets a class's AI in its attribute bytes, which the studio doesn't edit yet.")];
   const out: HTMLElement[] = [];
   // move choice layers
   const mods = Array.isArray(r.aiMods) ? (r.aiMods as unknown[]) : [];

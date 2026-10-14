@@ -54,6 +54,8 @@ chikorita.types = ["FIRE", "FIRE"];
 const chansey = clone(content.pokemon.CHANSEY) as Rec;
 check("sparse held items load as { 2: id }", deepEqual(chansey.items, { 2: "LUCKY_EGG" }), JSON.stringify(chansey.items));
 chansey.items = { 2: "BERRY" };
+check("Pokédex entries loaded into the records", typeof (chikorita.dexEntry as Rec | undefined)?.text === "string");
+(chikorita.dexEntry as Rec).kind = "TESTLEAF";
 edited.pokemon = { CHIKORITA: chikorita, CHANSEY: chansey };
 edited.moves = { TACKLE: { ...(clone(content.moves.TACKLE) as Rec), power: 40 } };
 edited.items = { POTION: { ...(clone(content.items.POTION) as Rec), price: 250 } };
@@ -68,17 +70,6 @@ edited.type_chart = { "FIRE>STEEL": { multiplier: 10 } };
   const group = Object.keys(fish)[0];
   fish[group].old[0].level = 42;
   edited.encounters = { grass, fishGroups: fish };
-}
-// trainers: a class's trainers through the adapter's team accessors
-{
-  const teams = adapter.trainers!.teams!;
-  const beauty = clone(content.trainers.BEAUTY) as Rec;
-  const parties = teams.read(beauty).map((p) => p.map((m) => ({ ...m })));
-  parties[0][0] = { species: "MEOWTH", level: 12, item: "BERRY", moves: ["SCRATCH", "BITE"] };
-  teams.write(beauty, parties);
-  teams.setName(beauty, 0, "VICKY");
-  check("trainer type follows the slots", (beauty.trainers as Rec[])[0].trainerType === "TRAINERTYPE_ITEM_MOVES");
-  edited.trainers = { BEAUTY: beauty };
 }
 edited.map_songs = { NEW_BARK_TOWN: Object.values(content.map_songs).find((s) => s !== content.map_songs.NEW_BARK_TOWN) as string };
 
@@ -95,6 +86,27 @@ const editedMaps: Record<string, Rec> = { NEW_BARK_TOWN: newBark as unknown as R
 check("new warp leads back the way the player came", (newBark.warps as Ent[]).at(-1)!.destWarp === 255);
 check("vanilla warps carry no map-group numbers", !JSON.stringify(base).includes("destGroup"));
 
+// trainers: a class's trainers through the adapter's team accessors
+{
+  const teams = adapter.trainers!.teams!;
+  const beauty = clone(content.trainers.BEAUTY) as Rec;
+  const parties = teams.read(beauty).map((p) => p.map((m) => ({ ...m })));
+  parties[0][0] = { species: "MEOWTH", level: 12, item: "BERRY", moves: ["SCRATCH", "BITE"] };
+  teams.write(beauty, parties);
+  teams.setName(beauty, 0, "VICKY");
+  check("trainer type follows the slots", (beauty.trainers as Rec[])[0].trainerType === "TRAINERTYPE_ITEM_MOVES");
+  // a new trainer in the class, fought by a map person with its own record
+  teams.write(beauty, [...teams.read(beauty), [{ species: "PIDGEY", level: 7 }]]);
+  check("new trainer gets the next member number", (beauty.trainers as Rec[]).at(-1)!.index === (beauty.trainers as Rec[]).length);
+  const ot = adapter.trainers!.objectTrainer!;
+  const ctx = { data: project.data, maps: base, records: {} };
+  const flag = ot.freeFlag(ctx);
+  check("a free event flag above the game's", flag !== null && flag > 1931 && flag < 2048, String(flag));
+  const room = newBark.objects as Ent[];
+  room.push({ x: 4, y: 4, sprite: "SPRITE_YOUNGSTER", movement: 6, type: ot.typeValue, sight: 3, trainer: { class: ot.classIndex(ctx, "BEAUTY"), member: (beauty.trainers as Rec[]).length, event: flag, seenText: "STUDIO_TRAINER_1_SEEN", winText: "STUDIO_TRAINER_1_WIN" } });
+  edited.text = { STUDIO_TRAINER_1_SEEN: "Let's battle!{DONE}", STUDIO_TRAINER_1_WIN: "I lost…{DONE}" };
+  edited.trainers = { BEAUTY: beauty };
+}
 const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: editedMaps, ...edited });
 const source = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
 const file = "mods/studio_selftest/studio_content.lua";
@@ -103,6 +115,7 @@ check("generated Lua runs", run.errors.length === 0, run.errors.join("; "));
 check("no game paths written", !source.includes("assets/generated"));
 check("sparse held item written as [2]", source.includes('[2] = "BERRY"'));
 check("encounters patched per map, not whole", /encounters:patch\("grass", \{\s+ROUTE_29 = /.test(source) && source.includes("ROUTE_30 = mod.DELETE") && !source.includes("ROUTE_31 ="));
+check("dex entry saved as a patch of what changed", /dexEntry = \{ kind = "TESTLEAF" \}/.test(source));
 check("pokemon saved as a patch", source.includes('pokemon:patch("CHIKORITA"') && !source.includes("spriteFront"));
 
 {

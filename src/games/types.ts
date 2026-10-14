@@ -304,9 +304,26 @@ export interface TrainerSpec {
   };
   // a slot may hold an item (Gen 2)
   heldItems?: boolean;
-  // false: no new classes or teams (Gen 2: only the game's scripts start
-  // trainer battles, and those can't be written in the studio)
+  // false: no new teams; newClasses false: no new classes (Gen 2: a class
+  // is a ROM constant scripts and map people refer to by number)
   newTeams?: boolean;
+  newClasses?: boolean;
+  // map people that are trainers through a record of their own (Gen 2:
+  // object.trainer = { class (index), member, event, seenText, winText,
+  // scriptKey }); the map inspector builds and edits it (src/ui/mapTrainer.ts)
+  objectTrainer?: {
+    key: string;
+    typeKey: string;
+    typeValue: number;
+    sightKey: string;
+    textRegistry: string;
+    classIndex(ctx: GameContext, classId: string): number | undefined;
+    classOf(ctx: GameContext, index: number): string | undefined;
+    // an event flag no game script or other trainer uses, or null
+    freeFlag(ctx: GameContext): number | null;
+    // after-battle scripts to reuse: other trainers' on this map
+    afterScripts(map: MapDef): { key: string; label: string }[];
+  };
   // who fights each team of a class (1-based team -> map objects; index -1:
   // a map script); unset: Gen 1's objectClassKey/objectPartyKey on objects
   uses?(ctx: GameContext, classId: string): Map<number, { mapId: string; index: number }[]>;
@@ -383,6 +400,10 @@ export interface PokemonSpec {
   monColors?(ctx: GameContext, id: string): Rgb[] | null;
   // a regional Pokédex besides the national one (Gen 2: Johto), species in order
   regionalDex?: { label: string; order(ctx: GameContext): string[] };
+  // the Pokédex entry is stored in the record itself (Gen 2: dexEntry
+  // { kind, height = ft*100+in, weight in 0.1 lb, text, text2 }, each page
+  // `lines` lines joined with <NEXT>) instead of Gen 1's text key
+  dexInline?: { lines: number; lineMax: number };
   // what this generation can't edit yet
   without?: ("newSpecies" | "dexEntry" | "cry" | "iconImport")[];
   // TM/HM moves in machine order, labelled "TM01 MEGA_PUNCH"

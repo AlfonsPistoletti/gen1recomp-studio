@@ -47,7 +47,13 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   Gen 2 trainers: a class record holds `trainers` [{ name, trainerType, party }]; `TrainerSpec.teams` reads/writes
   them as the editor's teams (trainerType follows the slots: item/moves), slots may hold an `item`; usage counts,
   AI, colors, portrait borrowing and new classes/teams are off (`usage`/`ai`/`colors`/`basePic`/`newTeams` false):
-  only Gold's cart scripts start trainer battles. Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
+  New Gold trainers: "+ Trainer" appends to a class (member = index), and a map person gets a `trainer` record
+  (`TrainerSpec.objectTrainer`, `src/ui/mapTrainer.ts`): class index, member, a free "beaten" event flag (from 2047 down,
+  past every flag the game data uses: Gold 1931, Crystal 1999) and new `text` keys STUDIO_TRAINER_<n>_SEEN/_WIN;
+  the game fights it through its standard trainer script. After-battle talk reuses another trainer's scriptKey.
+  Gold Pokédex entries: pokedex.lua `entries` are loaded into each species' `dexEntry` (base), edited inline
+  (`PokemonSpec.dexInline`: pages of <NEXT> lines, height ft*100+in, weight 0.1 lb); gen1recomp
+  PokedexText.apply copies the saved patch onto the entry (engine f8eafdb0 or later). Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =
   tileset `tilePalettes[tile]` (1-based), roof slot colors from `roofs[group]` in TOWN/ROUTE; walls from per-block
   `collision` quads via gen1recomp's CollPermissions table (restated). The map panel shows music/roof/rules only when
   the game has those registries (`has()` in inspector.ts). Gen 3 shows as "coming soon".

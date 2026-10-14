@@ -17,6 +17,8 @@ import { songLabel } from "./soundEditor.ts";
 import { warpProblem } from "../core/checks.ts";
 import { liveTileset, tilesetIds } from "../core/tilesets.ts";
 import { mapRulesSection } from "./mapRules.ts";
+import { objectTrainerSection } from "./mapTrainer.ts";
+import { FEATURES } from "../features.ts";
 import { gameRoof, gbcAvailable, ROOFS, roofColors, tilesetHasRoof, townRoofs, type RoofRecord } from "../core/gbc.ts";
 import type { Rgb } from "../render/color.ts";
 
@@ -539,7 +541,10 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
     if (el) fields.push(el);
   }
   if (says && !fields.includes(says)) fields.push(says);
-  const fights = layer.kind === "npc" ? trainerSection(record) : null;
+  const fights = layer.kind === "npc"
+    // (people with their own trainer record exist only in Gen 2: release builds drop the module)
+    ? trainerSection(record) ?? (FEATURES.gen2 ? objectTrainerSection(record, (label, mutate) => store.edit(map.id, label, (d) => mutate(store.entities(d, layer.key)[index]))) : null)
+    : null;
   if (fights) fields.splice(fields.indexOf(says ?? fields[fields.length - 1]), 0, fights);
   // what it does (shop, nurse, PC, prizes) goes right above what it says
   const role = layer.kind === "npc" || layer.kind === "sign"

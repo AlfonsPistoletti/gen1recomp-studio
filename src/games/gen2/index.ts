@@ -95,6 +95,8 @@ const content: ContentSpec[] = [
   { registry: "moves", file: "moves.lua", editable: true, build: records, fieldOrder: ["id", "name", "index", "type", "power", "accuracy", "pp", "effect", "effectChance", "description"] },
   { registry: "items", file: "items.lua", editable: true, build: records, fieldOrder: ["id", "name", "index", "price", "pocket", "description"] },
   { registry: "type_chart", file: "type_chart.lua", editable: true, build: typeChartRecords },
+  // script text by key ("55:515e"); new keys (a studio trainer's texts) work too
+  { registry: "text", file: "text.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([, v]) => typeof v === "string")) },
   // trainer classes (gen1recomp writes the registry one level into `classes`)
   {
     registry: "trainers", file: "trainers.lua", editable: true,
@@ -130,6 +132,11 @@ function typeChartRecords(file: Record<string, unknown>): Record<string, unknown
 }
 
 const palettes = (ctx: GameContext) => (ctx.data.extra.palettes ?? {}) as Palettes;
+// event flags the game's data uses (see load)
+const usedFlags = new Set<number>();
+// constants/event_flags.asm: NUM_EVENTS = $800 (gen1recomp Save.EVENT_BYTES)
+const NUM_EVENTS = 0x800;
+
 // "<class index>:<member>" -> where a script starts that battle (see load)
 const scriptFights = new Map<string, { mapId: string; index: number }[]>();
 
@@ -257,7 +264,9 @@ const pokemon: PokemonSpec = {
       return name ? { name } : {};
     },
   },
-  without: ["newSpecies", "dexEntry", "cry", "iconImport"],
+  without: ["newSpecies", "cry", "iconImport"],
+  // gen1recomp PokedexText.apply copies pokemon.dexEntry onto pokedex.lua's entry
+  dexInline: { lines: 3, lineMax: 18 },
   // pokedex.lua newOrder: the Pokédex's New (Johto) mode
   regionalDex: { label: "Johto dex", order: (ctx) => (ctx.data.extra.johtoDex as string[] | undefined) ?? [] },
 };
@@ -406,7 +415,8 @@ const trainers: TrainerSpec = {
     read: (r) => classTrainers(r).map((t) => asList(t.party) as TrainerSlot[]),
     write: (d, parties) => {
       const old = classTrainers(d);
-      d.trainers = parties.map((slots, i) => ({ ...(old[i] ?? { name: "TRAINER" }), party: slots, trainerType: trainerType(slots) }));
+      // a new trainer gets the next member number (its index)
+      d.trainers = parties.map((slots, i) => ({ ...(old[i] ?? { id: `TRAINER_${i + 1}`, name: "TRAINER", index: i + 1 }), party: slots, trainerType: trainerType(slots) }));
     },
     name: (r, p) => String(classTrainers(r)[p]?.name ?? ""),
     setName: (d, p, name) => {
@@ -414,7 +424,40 @@ const trainers: TrainerSpec = {
     },
   },
   heldItems: true,
-  newTeams: false,
+  newClasses: false,
+  objectTrainer: {
+    key: "trainer",
+    // OBJECTTYPE_TRAINER (constants/map_object_constants.asm)
+    typeKey: "type",
+    typeValue: 2,
+    sightKey: "sight",
+    textRegistry: "text",
+    classIndex: (ctx, id) => {
+      const i = recordsOf(ctx, "trainers")[id]?.index;
+      return typeof i === "number" ? i : undefined;
+    },
+    classOf: (ctx, index) => Object.entries(recordsOf(ctx, "trainers")).find(([, r]) => r.index === index)?.[0],
+    // from the top of the flag array down: past every flag the game uses
+    freeFlag: (ctx) => {
+      const taken = new Set(usedFlags);
+      for (const m of Object.values(ctx.maps)) {
+        for (const o of asList(m.objects) as { eventFlag?: number; trainer?: { event?: number } }[]) {
+          if (typeof o.trainer?.event === "number") taken.add(o.trainer.event);
+          if (typeof o.eventFlag === "number") taken.add(o.eventFlag);
+        }
+      }
+      for (let f = NUM_EVENTS - 1; f > Math.max(0, ...usedFlags); f--) if (!taken.has(f)) return f;
+      return null;
+    },
+    afterScripts: (map) => {
+      const seen = new Map<string, string>();
+      for (const o of asList(map.objects) as { sprite?: unknown; trainer?: { scriptKey?: string } }[]) {
+        const k = o.trainer?.scriptKey;
+        if (k && !seen.has(k)) seen.set(k, `Same as ${String(o.sprite ?? "").replace(/^SPRITE_/, "")} (${k})`);
+      }
+      return [...seen].map(([key, label]) => ({ key, label }));
+    },
+  },
   // map objects that are trainers (their `trainer` = { class, member }: the
   // class's index and the 1-based trainer), and the battles scripts start
   uses: (ctx, classId) => {
@@ -535,6 +578,15 @@ export const gen2: GameAdapter = {
       return slots;
     };
     scriptFights.clear();
+    // every event flag the game's data names (map people, scripts, new-game
+    // flags): a studio trainer's "beaten" flag must be none of them
+    usedFlags.clear();
+    for (const src of [maps, scripts, initial]) {
+      JSON.stringify(src, (k, v: unknown) => {
+        if ((k === "event" || k === "eventFlag" || k === "flag") && typeof v === "number" && v < 0xffff) usedFlags.add(v);
+        return v;
+      });
+    }
     const fight = (key: string, at: { mapId: string; index: number }) => {
       const list = scriptFights.get(key) ?? [];
       if (!list.some((u) => u.mapId === at.mapId && u.index === at.index)) list.push(at);
@@ -563,9 +615,16 @@ export const gen2: GameAdapter = {
     const monFile = tables[content.findIndex((c) => c.registry === "pokemon")] as { growthRates?: Record<string, unknown> } | undefined;
     const icons = await (read("icons.lua") as Promise<Icons>).catch(() => ({}) as Icons);
     const menuGfx = await (read("menu_gfx.lua") as Promise<{ battleHud?: { trainerPics?: Record<string, string> } }>).catch(() => ({}) as { battleHud?: { trainerPics?: Record<string, string> } });
-    const pokedex = await (read("pokedex.lua") as Promise<{ newOrder?: string[] }>).catch(() => ({}) as { newOrder?: string[] });
+    type Dex = { newOrder?: string[]; entries?: Record<string, { kind?: string; height?: number; weight?: number; text?: string; text2?: string }> };
+    const pokedex = await (read("pokedex.lua") as Promise<Dex>).catch(() => ({}) as Dex);
     const contentTables: Dataset["content"] = {};
     content.forEach((c, i) => (contentTables[c.registry] = c.build ? c.build(tables[i] ?? {}) : tables[i] ?? {}));
+    // the Pokédex entries (pokedex.lua) as each species' dexEntry, so an
+    // edit is saved as a patch of what changed (gen1recomp PokedexText)
+    for (const [sp, e] of Object.entries(pokedex.entries ?? {})) {
+      const rec = contentTables.pokemon?.[sp] as Record<string, unknown> | undefined;
+      if (rec) rec.dexEntry = { kind: e.kind ?? "", height: e.height ?? 0, weight: e.weight ?? 0, text: e.text ?? "", text2: e.text2 ?? "" };
+    }
     contentTables.tilesets = { ...tilesets };
     contentTables.sprites = { ...sprites };
     return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), icons, johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {} } };

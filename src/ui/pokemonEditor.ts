@@ -200,7 +200,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     const id = current;
     rerender(main, () => mainForm(id, rec, spec));
     rerender(side, () => sideForm(id, rec, spec));
-    sideTitle.textContent = lacks(spec, "dexEntry") && lacks(spec, "cry") ? "Pokédex" : "Pokédex & cry";
+    sideTitle.textContent = lacks(spec, "cry") ? "Pokédex" : "Pokédex & cry";
     title.textContent = `#${String(rec.dex ?? "?").padStart(3, "0")} ${String(rec.name ?? current)}`;
     colors.replaceChildren(spec.monColors ? "" : colorSelect(view ?? defaultView(), monPaletteName(id, rec, false), rec.trueColor === true, (v) => {
       view = v;
@@ -814,6 +814,9 @@ function sideForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
     return [card("Pokédex entry", h("p", { class: "hint" }, "Mods can't change this game's Pokédex entries yet: the engine has no way for them (reported to gen1recomp).")), ...(lacks(spec, "cry") ? [] : [cryCard(id)])];
   }
   const dex = r.dexEntry as Rec | undefined;
+  if (spec.dexInline) {
+    return [dex ? card("Pokédex entry", ...inlineDex(id, dex, spec.dexInline)) : card("Pokédex entry", h("p", { class: "hint" }, "No Pokédex entry.")), ...(lacks(spec, "cry") ? [] : [cryCard(id)])];
+  }
   const dexFields: HTMLElement[] = [];
   if (dex) {
     const editDex = (label: string, key: string, value: unknown) => edit(id, label, (d) => ((d.dexEntry as Rec)[key] = value));
@@ -836,6 +839,43 @@ function sideForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
     dex ? card("Pokédex entry", ...dexFields) : card("Pokédex entry", h("p", { class: "hint" }, "No Pokédex entry.")),
     lacks(spec, "cry") ? null : cryCard(id),
   ].filter((x): x is HTMLElement => !!x);
+}
+
+// a Pokédex entry kept in the record (PokemonSpec.dexInline, Gen 2): two
+// pages of lines joined with <NEXT>, height as ft*100+in, weight in 0.1 lb
+function inlineDex(id: string, dex: Rec, shape: { lines: number; lineMax: number }): HTMLElement[] {
+  const editDex = (label: string, mutate: (d: Rec) => void) => edit(id, label, (d) => mutate(d.dexEntry as Rec));
+  const kind = h("input", { type: "text", value: String(dex.kind ?? ""), maxLength: 10, spellcheck: false });
+  kind.addEventListener("change", () => editDex("Dex category", (d) => (d.kind = kind.value.toUpperCase())));
+  const height = Number(dex.height) || 0;
+  const ft = Math.floor(height / 100);
+  const inch = height % 100;
+  const page = (key: "text" | "text2", label: string) => {
+    const lines = String(dex[key] ?? "").split("<NEXT>");
+    const inputs = Array.from({ length: shape.lines }, (_, i) => {
+      const input = h("input", { type: "text", value: lines[i] ?? "", maxLength: shape.lineMax, spellcheck: false, class: "mono" });
+      input.addEventListener("change", () => editDex("Dex text", (d) => {
+        const next = inputs.map((x) => x.value);
+        while (next.length > 1 && !next[next.length - 1]) next.pop();
+        d[key] = next.join("<NEXT>");
+      }));
+      return input;
+    });
+    return field(label, h("div", { class: "desc-lines" }, ...inputs));
+  };
+  return [
+    field("Category", kind, `Shown as "${String(dex.kind ?? "")}"`),
+    h(
+      "div",
+      { class: "row three" },
+      field("Height ft", numberInput(ft, (n) => editDex("Height", (d) => (d.height = clampInt(n, 0, 99) * 100 + inch)), 0, 99)),
+      field("Height in", numberInput(inch, (n) => editDex("Height", (d) => (d.height = ft * 100 + clampInt(n, 0, 11))), 0, 11)),
+      field("Weight", numberInput(Number(dex.weight) || 0, (n) => editDex("Weight", (d) => (d.weight = clampInt(n, 0, 65535))), 0, 65535), `${((Number(dex.weight) || 0) / 10).toFixed(1)} lb`),
+    ),
+    page("text", "Page 1"),
+    page("text2", "Page 2"),
+    h("p", { class: "hint" }, `${shape.lines} lines of up to ${shape.lineMax} characters per page.`),
+  ];
 }
 
 function clampInt(n: number, min: number, max: number): number {

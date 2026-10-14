@@ -286,7 +286,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
     const id = current;
     title.textContent = String(r.name ?? id);
-    newBtn.hidden = s.newTeams === false;
+    newBtn.hidden = s.newTeams === false || s.newClasses === false;
     colors.replaceChildren(s.colors === false ? "" : colorSelect(viewNow(), trainerPalette(r), false, (v) => {
       view = v;
       render(true);
@@ -376,13 +376,14 @@ function mainForm(s: TrainerSpec, id: string, r: Rec): HTMLElement[] {
     "button",
     {
       class: "btn small",
-      title: "Adds a team at the end; NPCs pick a team by its number",
-      onclick: () => edit(id, "Add team", (d) => setParties(d, [...parties(d), [{ species: firstSpecies(), level: 5 }]])),
+      title: s.teams ? "Adds a trainer to this class; place it on a map as a person (Maps, select a person, Trainer)" : "Adds a team at the end; NPCs pick a team by its number",
+      onclick: () => edit(id, s.teams ? "Add trainer" : "Add team", (d) => setParties(d, [...parties(d), [{ species: firstSpecies(), level: 5 }]])),
     },
-    "+ Team",
+    s.teams ? "+ Trainer" : "+ Team",
   );
   if (s.newTeams === false) return [header, ...teams];
-  return [header, ...teams, h("div", { class: "row" }, add, h("span", { class: "hint" }, "Map NPCs choose a team by its number (trainerParty)."))];
+  const hint = s.teams ? "A new trainer is fought by a map person made a trainer in its panel (Maps)." : "Map NPCs choose a team by its number (trainerParty).";
+  return [header, ...teams, h("div", { class: "row" }, add, h("span", { class: "hint" }, hint))];
 }
 
 // BattleState: the prize is baseMoney × the level of the last Pokémon the
@@ -494,8 +495,11 @@ function teamCard(s: TrainerSpec, id: string, r: Rec, party: Party, p: number, u
         "div",
         { class: "row nowrap" },
         nameInput,
-        s.newTeams === false ? null : h("button", { class: "btn small ghost", title: "Copy this team to a new one at the end", onclick: () => edit(id, "Duplicate team", (d) => setParties(d, [...parties(d), party.map((m) => ({ ...m }))])) }, "Duplicate"),
-        isLast && s.newTeams !== false ? h("button", { class: "btn small ghost danger", title: "Only the last team can be removed, so the other numbers stay valid", onclick: removeTeam }, "Remove") : null,
+        s.newTeams === false || s.teams ? null : h("button", { class: "btn small ghost", title: "Copy this team to a new one at the end", onclick: () => edit(id, "Duplicate team", (d) => setParties(d, [...parties(d), party.map((m) => ({ ...m }))])) }, "Duplicate"),
+        // the game's own trainers stay (scripts refer to them by number)
+        isLast && s.newTeams !== false && (!s.teams || p >= parties(store.baseTable(s.registry)[id] as Rec | undefined).length)
+          ? h("button", { class: "btn small ghost danger", title: "Only the last team can be removed, so the other numbers stay valid", onclick: removeTeam }, "Remove")
+          : null,
       ),
     ),
     ...rows,

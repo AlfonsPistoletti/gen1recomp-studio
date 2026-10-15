@@ -117,6 +117,12 @@ const content: ContentSpec[] = [
   // group; only the edited entries are written (gen1recomp Schemas gen2Keys)
   { registry: "encounters", file: "encounters.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([, v]) => !!v && typeof v === "object")) },
   { registry: "map_songs", file: "audio.lua", editable: true, build: (f) => ((f as { mapSongs?: Record<string, unknown> }).mapSongs ?? {}) },
+  // species id -> the name of an ICON_ sheet; ICON_ ids are the sheets
+  // (gen1recomp Schemas R.icons gen2Value)
+  { registry: "icons", file: "icons.lua", editable: true, build: (f) => {
+    const file = f as { species?: Record<string, unknown>; icons?: Record<string, unknown> };
+    return { ...(file.species ?? {}), ...(file.icons ?? {}) };
+  } },
   { registry: "cries", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { cries?: Record<string, unknown> }).cries ?? {}) },
   { registry: "sfx", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { sfx?: Record<string, unknown> }).sfx ?? {}), fieldOrder: ["file"] },
   { registry: "music", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { songs?: Record<string, unknown> }).songs ?? {}), fieldOrder: ["file", "loopFile"] },
@@ -194,13 +200,8 @@ function crystalTiles(t: TilesetDef): void {
 
 // ------------------------------------------------------------------ pokemon
 
-interface Icons {
-  icons?: Record<string, { image?: string }>;
-  species?: Record<string, string>;
-}
 const recordsOf = (ctx: GameContext, registry: string) =>
   (ctx.records[registry] ?? ctx.data.content[registry] ?? {}) as Record<string, Record<string, unknown>>;
-const icons = (ctx: GameContext) => (ctx.data.extra.icons ?? {}) as Icons;
 
 // constants/pokemon_data_constants.asm egg groups, nibble value = index + 1
 const EGG_GROUPS = [
@@ -262,19 +263,20 @@ const pokemon: PokemonSpec = {
     const pair = (palettes(ctx) as { pokemon?: Record<string, { normal?: [number, number, number][] }> }).pokemon?.[id]?.normal;
     return pair?.length === 2 ? [[255, 255, 255], pair[0], pair[1], [0, 0, 0]].map((c) => [c[0], c[1], c[2]] as Rgb) : null;
   },
-  // menu icons are the icons registry (species -> ICON_*): shown, not edited yet
+  // menu icons are the icons registry: species -> ICON_* sheet name
   icon: {
     width: 16,
     height: 16,
     frames: 2,
-    names: (ctx) => Object.keys(icons(ctx).icons ?? {}).sort(),
-    path: (ctx, name) => icons(ctx).icons?.[name]?.image,
+    registry: "icons",
+    names: (ctx) => Object.keys(ctx.records.icons ?? {}).filter((k) => k.startsWith("ICON_")).sort(),
+    path: (ctx, name) => (ctx.records.icons?.[name] as { image?: string } | undefined)?.image,
     resolve: (ctx, r) => {
-      const name = typeof r.id === "string" ? icons(ctx).species?.[r.id] : undefined;
-      return name ? { name } : {};
+      const name = typeof r.id === "string" ? ctx.records.icons?.[r.id] : undefined;
+      return typeof name === "string" ? { name } : {};
     },
   },
-  without: ["newSpecies", "cry", "iconImport"],
+  without: ["newSpecies"],
   // gen1recomp PokedexText.apply copies pokemon.dexEntry onto pokedex.lua's entry
   dexInline: { lines: 3, lineMax: 18 },
   // pokedex.lua newOrder: the Pokédex's New (Johto) mode
@@ -665,7 +667,6 @@ export const gen2: GameAdapter = {
     for (const [k, t] of Object.entries(tilesets)) if (!t || typeof t !== "object" || typeof t.image !== "string" || !t.blocks) delete tilesets[k];
     for (const t of Object.values(tilesets)) crystalTiles(t);
     const monFile = tables[content.findIndex((c) => c.registry === "pokemon")] as { growthRates?: Record<string, unknown> } | undefined;
-    const icons = await (read("icons.lua") as Promise<Icons>).catch(() => ({}) as Icons);
     const menuGfx = await (read("menu_gfx.lua") as Promise<{ battleHud?: { trainerPics?: Record<string, string> } }>).catch(() => ({}) as { battleHud?: { trainerPics?: Record<string, string> } });
     type Dex = { newOrder?: string[]; entries?: Record<string, { kind?: string; height?: number; weight?: number; text?: string; text2?: string }> };
     const pokedex = await (read("pokedex.lua") as Promise<Dex>).catch(() => ({}) as Dex);
@@ -679,7 +680,7 @@ export const gen2: GameAdapter = {
     }
     contentTables.tilesets = { ...tilesets };
     contentTables.sprites = { ...sprites };
-    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), icons, johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {} } };
+    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {} } };
   },
 
   // Empty Lua tables arrive as []; the lists the view reads become arrays

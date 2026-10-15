@@ -80,6 +80,15 @@ edited.type_chart = { "FIRE>STEEL": { multiplier: 10 } };
   ((swarm[swarmMap].slots as Record<string, Rec[]>).DAY[0]).level = 33;
   edited.encounters = { grass, fishGroups: fish, trees, treeSets: sets, swarmGrass: swarm };
 }
+// menu icons: a species names another sheet, or a sheet the studio made for it;
+// cries: borrowed from another species
+check("icons hold species and sheets", typeof content.icons.CHIKORITA === "string" && typeof content.icons.ICON_BULBASAUR === "object");
+edited.icons = {
+  CHIKORITA: "ICON_STUDIO_CHIKORITA",
+  ICON_STUDIO_CHIKORITA: { id: "ICON_STUDIO_CHIKORITA", image: "assets/studio/chikorita_icon_0123abcd.png", width: 16, height: 32, frames: 2 },
+  CYNDAQUIL: "ICON_BULBASAUR",
+};
+edited.cries = { CHIKORITA: { base: "BAYLEEF" } };
 edited.map_songs = { NEW_BARK_TOWN: Object.values(content.map_songs).find((s) => s !== content.map_songs.NEW_BARK_TOWN) as string };
 
 // maps, the way the map tools edit them (through the adapter)
@@ -134,6 +143,7 @@ check("no game paths written", !source.includes("assets/generated"));
 check("sparse held item written as [2]", source.includes('[2] = "BERRY"'));
 check("encounters patched per map, not whole", /encounters:patch\("grass", \{\s+ROUTE_29 = /.test(source) && source.includes("ROUTE_30 = mod.DELETE") && !source.includes("ROUTE_31 ="));
 check("dex entry saved as a patch of what changed", /dexEntry = \{ kind = "TESTLEAF" \}/.test(source));
+check("icons: species overridden by name, own sheet registered", source.includes('icons:override("CYNDAQUIL", "ICON_BULBASAUR")') && source.includes('icons:register("ICON_STUDIO_CHIKORITA"'));
 check("pokemon saved as a patch", source.includes('pokemon:patch("CHIKORITA"') && !source.includes("spriteFront"));
 
 {

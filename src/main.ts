@@ -267,15 +267,15 @@ const TOOLS: { id: Tool; label: string; key: string; tip: string; icon: IconNode
   { id: "select", label: "Select", key: "S", tip: "Select, move and edit warps, NPCs and signs", icon: MousePointer2 },
   { id: "brush", label: "Block brush", key: "B", tip: "Paint the current stamp of blocks", icon: Paintbrush },
   { id: "tile", label: "Tile brush", key: "T", tip: "Paint single 8×8 tiles: the studio makes or reuses the blocks (right-click picks a tile, right-drag an area)", icon: Brush },
-  { id: "rect", label: "Rect", key: "R", tip: "Fill a rectangle with the stamp pattern", icon: Square },
-  { id: "fill", label: "Fill", key: "F", tip: "Flood-fill connected identical blocks", icon: PaintBucket },
+  { id: "rect", label: "Rectangle", key: "R", tip: "Drag a rectangle; it is filled with the stamp pattern", icon: Square },
+  { id: "fill", label: "Flood fill", key: "F", tip: "Fill all connected identical blocks with the stamp", icon: PaintBucket },
 ];
-const OVERLAYS: { id: keyof Overlays; label: string; key: string; icon: IconNode }[] = [
+const OVERLAYS: { id: keyof Overlays; label: string; key: string; tip?: string; icon: IconNode }[] = [
   { id: "grid", label: "Grid", key: "G", icon: Grid3x3 },
-  { id: "collision", label: "Collision", key: "C", icon: Footprints },
-  { id: "entities", label: "Warps, NPCs and signs", key: "E", icon: MapPin },
+  { id: "collision", label: "Collisions", key: "C", tip: "where the player can't walk", icon: Footprints },
+  { id: "entities", label: "Entities", key: "E", tip: "warps, NPCs and signs", icon: MapPin },
   { id: "neighbors", label: "Neighbouring maps", key: "N", icon: LayoutGrid },
-  { id: "wild", label: "Wild encounter cells", key: "W", icon: Swords },
+  { id: "wild", label: "Wild encounters", key: "W", tip: "the cells that can start a wild battle", icon: Swords },
   { id: "animate", label: "Animated tiles", key: "A", icon: Waves },
 ];
 
@@ -285,26 +285,24 @@ const toolButtons = TOOLS.map((t) =>
 const overlayButtons = OVERLAYS.map((o) =>
   h(
     "button",
-    { class: "toggle icon-tool", title: `${o.label} (${o.key})`, "aria-label": o.label, onclick: () => store.toggleOverlay(o.id), "data-overlay": o.id },
+    { class: "toggle icon-tool", title: `${o.label}${o.tip ? `: ${o.tip}` : ""} (${o.key})`, "aria-label": o.label, onclick: () => store.toggleOverlay(o.id), "data-overlay": o.id },
     icon(o.icon),
   ),
 );
 // RED++ colors (pokered-gbc), when the install has their data (a checkout)
 const COLORS_KEY = "studio.colorMode";
-const colorButton = h("button", {
-  class: "toggle icon-tool",
-  "aria-label": "RED++ colors",
-  onclick: () => {
-    store.setColorMode(store.colorMode === "redpp" ? "sgb" : "redpp");
-    remember(COLORS_KEY, store.colorMode);
-  },
-}, icon(Palette));
+function toggleColors(): void {
+  if (!gbcAvailable()) return;
+  store.setColorMode(store.colorMode === "redpp" ? "sgb" : "redpp");
+  remember(COLORS_KEY, store.colorMode);
+}
+const colorButton = h("button", { class: "toggle icon-tool", "aria-label": "RED++ colors", onclick: toggleColors }, icon(Palette));
 function updateColorButton(): void {
   const ok = gbcAvailable();
   colorButton.disabled = !ok;
   colorButton.classList.toggle("active", ok && store.colorMode === "redpp");
   colorButton.title = ok
-    ? "RED++ colors: show maps in the game's COLORS=RED++ mode (from pokered-gbc). Off: the Game Boy palettes."
+    ? "RED++ colors: show maps in the game's COLORS=RED++ mode (from pokered-gbc). Off: the Game Boy palettes. (P)"
     : "RED++ colors need a gen1recomp source checkout (its data/palettes_gbc.lua)";
 }
 store.on((reason) => {
@@ -1114,6 +1112,13 @@ window.addEventListener("keydown", (e) => {
   if (tool) return void (!toolButtons.find((b) => b.dataset.tool === tool.id)?.hidden && store.setTool(tool.id));
   const overlay = OVERLAYS.find((o) => o.key === key);
   if (overlay) return store.toggleOverlay(overlay.id);
+  if (key === "P") return toggleColors();
+  // Shift+0 by key position: ")" sits elsewhere on other layouts (Shift+9 on German ones)
+  if (e.code === "Digit0" && e.shiftKey) {
+    view.fitWorld();
+    zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`;
+    return;
+  }
   switch (e.key) {
     case "Delete":
     case "Backspace":
@@ -1130,9 +1135,6 @@ window.addEventListener("keydown", (e) => {
       break;
     case "0":
       view.fitMap();
-      break;
-    case ")":
-      view.fitWorld();
       break;
     case "+": case "=":
       view.zoomBy(1.25);

@@ -201,6 +201,8 @@ interface Spot {
 
 interface FieldTable {
   flyWarps?: Record<string, Spot>;
+  // the Fly menu's towns in order (gen1recomp FlyMenu / TownMap walk it)
+  flyOrder?: string[];
   [key: string]: unknown;
 }
 
@@ -231,11 +233,24 @@ function setHidden(s: TownSpec, kind: HiddenKind, mapId: string, what: string, l
 }
 
 function setLanding(s: TownSpec, mapId: string, spot: Spot | null): void {
-  store.editRecord<Record<string, Spot>>(s.fieldRegistry, "flyWarps", "Landing spot", (d) => {
-    if (spot) d[mapId] = spot;
-    else delete d[mapId];
-  }, { create: () => ({}) });
-  store.seal();
+  store.group("Landing spot", () => {
+    store.editRecord<Record<string, Spot>>(s.fieldRegistry, "flyWarps", "Landing spot", (d) => {
+      if (spot) d[mapId] = spot;
+      else delete d[mapId];
+    }, { create: () => ({}) });
+    // Fly lands on the landing spot: no spot, no Fly
+    if (!spot) setFlyTown(s, mapId, false);
+  });
+}
+
+// A new town in the Fly menu: listed in field.flyOrder (appended; the engine
+// merges the list "deep"). gen1recomp Map.isFlyTown takes a mod map
+// (index >= 1000) when it is outdoors or on PLATEAU; the game's towns are
+// always listed.
+function setFlyTown(s: TownSpec, mapId: string, on: boolean): void {
+  const order = fieldTable(s).flyOrder ?? [];
+  if (order.includes(mapId) === on) return;
+  store.setRecord(s.fieldRegistry, "flyOrder", on ? "Fly to this town" : "No Fly to this town", on ? [...order, mapId] : order.filter((m) => m !== mapId));
 }
 
 function pick(view: MapView, what: string, onPick: (x: number, y: number) => void): void {
@@ -264,8 +279,26 @@ export function townSection(map: MapDef, view: MapView): HTMLElement[] {
         h("button", { class: "btn small", onclick: () => pick(view, "landing spot", (x, y) => setLanding(s, map.id, { x, y })) }, land ? "Move (pick on map)" : "Set (pick on map)"),
         land ? h("button", { class: "btn small ghost", onclick: () => setLanding(s, map.id, null) }, "Clear") : null,
       ),
-      h("p", { class: "hint" }, "Where Teleport, Dig, Escape Rope and blacking out put the player after healing at a Pokémon Center in this town (usually in front of the center). Without one they land on the center's door. Flying to new towns isn't supported yet."),
+      h("p", { class: "hint" }, "Where Fly, Teleport, Dig, Escape Rope and blacking out put the player (Teleport, Dig and blacking out after healing at a Pokémon Center in this town; usually in front of the center). Without one they land on the center's door."),
     );
+    // the game's towns are Fly destinations already; its routes never are
+    // (Map.isFlyTown: a game map flies only with index < 11)
+    if (store.baseTable("maps")[map.id] === undefined) {
+      const listed = (f.flyOrder ?? []).includes(map.id);
+      const box = h("input", { type: "checkbox", checked: listed, disabled: !land && !listed });
+      box.addEventListener("change", () => {
+        setFlyTown(s, map.id, box.checked);
+        store.seal();
+      });
+      out.push(
+        h("label", { class: "row" }, box, h("span", {}, "Fly here")),
+        h("p", { class: "hint" }, land
+          ? "The Fly menu lists this town once the player has been here, and Fly lands on the landing spot. Place it on the Town Map too (Graphics › Town Map), or the Fly map shows only its name."
+          : "Set a landing spot first: Fly lands there."),
+      );
+    } else if (!((store.baseTable(s.fieldRegistry).flyOrder ?? []) as string[]).includes(map.id)) {
+      out.push(h("p", { class: "hint" }, "Fly can't go here: the game flies only to its own 11 towns and to maps your mod adds. For a new Fly destination, make a new map (+ New in the map list)."));
+    }
   }
   return out;
 }

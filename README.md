@@ -77,7 +77,10 @@ you can jump into.
   - whether the map counts as outdoors.
 - **Hidden things:** PCs, people drawn into the tiles (like the man on the Pokémon Center bench),
   hidden items and coins, and gym statues.
-- **Landing spot:** for towns, where Teleport, Dig and blacking out bring the player back.
+- **Landing spot:** for towns, where Fly, Teleport, Dig and blacking out bring the player.
+- **Fly to new towns:** on your own outdoor maps, tick **Fly here** (needs a landing spot). The town
+  shows up in the Fly menu once the player has been there; place it on the Town Map too. The
+  game's routes can't become Fly destinations.
 - **Wild Pokémon:** the **Encounters** tab at the bottom of the right panel edits grass, water and
   Super Rod Pokémon. The swords button in the toolbar shows which cells can start a wild battle.
 - **New maps:** **+ New** in the map list starts an empty map, or a copy of another one (handy
@@ -238,7 +241,6 @@ Your mod lives in gen1recomp's `mods` folder; **Open mod folder** (gear menu) sh
 - **Story scenes:** the game's story scenes are programmed inside gen1recomp. The studio can change
   what people say in them, but not what happens.
 - **Not possible yet:**
-  - flying to new towns;
   - a different chance per wild slot on each map;
   - individual stats for trainer Pokémon.
 

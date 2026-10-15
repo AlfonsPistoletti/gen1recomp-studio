@@ -4,8 +4,8 @@
 // own (studioTiles, 64 shade digits each; the engine ignores the key, the
 // assets_transforms recipe builds the sheet from them). locations[MAP] =
 // { name, x, y } puts a map on it, at screen tile (x + 2, y + 1) (markerXY).
-// Fly isn't offered: the engine only flies to the 11 original towns
-// (Map.isFlyTown: index < NUM_CITY_MAPS; mod maps have index >= 1000).
+// A new town's Fly entry is set on the map (Maps: Landing spot, "Fly here");
+// the Fly map moves its cursor to the town's place here.
 
 import { assetUrl, CACHE, isCachePath, type SheetRecipe } from "../core/assets.ts";
 import { clone, deepEqual } from "../core/merge.ts";
@@ -81,7 +81,9 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
     items: () => {
       const locs = live()?.locations ?? {};
       const baseLocs = base()?.locations ?? {};
-      const ids = new Set([...Object.keys(locs), ...Object.keys(store.maps).filter(isModMap)]);
+      // the game's place list also names a few maps that don't exist (pokered's
+      // unused *_COPY ids): only real maps are listed
+      const ids = new Set([...Object.keys(locs).filter((m) => store.maps[m]), ...Object.keys(store.maps).filter(isModMap)]);
       return [...ids].sort().map((id) => ({
         id,
         label: id,
@@ -307,7 +309,7 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
         side.append(h("button", { class: "btn small danger", onclick: () => edit(`${id}: Town Map place back`, (d) => { d.locations![id] = clone(baseLoc!); }) }, "Back to the game's place"));
       }
     }
-    side.append(h("p", { class: "hint" }, "Fly to new towns isn't possible yet: the game only flies to its 11 original towns."));
+    side.append(h("p", { class: "hint" }, "A new town you can fly to (Maps: the town's Landing spot, \"Fly here\") shows up at its place here on the Fly map."));
   };
 
   // ---------------------------------------------------------------- import

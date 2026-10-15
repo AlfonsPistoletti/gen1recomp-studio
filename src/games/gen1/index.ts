@@ -516,7 +516,8 @@ const towns: TownSpec = {
   ],
   benchText: (label) => BENCH_GUY_TEXT[label] ?? `_${label}`,
   // Teleport/Dig/Escape Rope land outside: OVERWORLD (or a map marked outdoor)
-  isTown: (map) => isOutdoorMap(map),
+  // gen1recomp Map.isFlyTown: outdoors, or the PLATEAU tileset (Indigo Plateau)
+  isTown: (map) => isOutdoorMap(map) || map.tileset === "PLATEAU",
 };
 
 // ------------------------------------------------------------------ trainers

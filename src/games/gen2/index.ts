@@ -372,6 +372,9 @@ const timedEncounters: TimedEncounterSpec = {
   grassOdds: [30, 30, 20, 10, 5, 4, 1],
   waterOdds: [60, 30, 10],
   fish: { mapKey: "fishGroup", kind: "fishGroups", rods: [{ key: "old", label: "Old Rod" }, { key: "good", label: "Good Rod" }, { key: "super", label: "Super Rod" }] },
+  // Encounter.treeSetUsable: Gold/Silver skip these sets (GS_DEAD_SETS)
+  trees: { map: "trees", rocks: "rocks", sets: "treeSets", unused: (v) => (v === "crystal" ? ["TREEMON_SET_NONE"] : ["TREEMON_SET_NONE", "TREEMON_SET_UNUSED", "TREEMON_SET_CITY"]) },
+  swarms: { grass: "swarmGrass", water: "swarmWater" },
   wildCell(map, tileset, cx, cy) {
     const id = map.blocks[Math.floor(cy / 2) * map.width + Math.floor(cx / 2)] ?? 0;
     const quad = (tileset?.collision as number[][] | undefined)?.[id];

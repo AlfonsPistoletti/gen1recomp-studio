@@ -476,6 +476,12 @@ export interface TimedEncounterSpec {
   waterOdds: number[];
   // fishing: the map field naming its group, the group records' kind, rods
   fish: { mapKey: string; kind: string; rods: { key: string; label: string }[] };
+  // headbutt trees / rock smash: kinds mapping map -> set name, and the sets
+  // ({ common, rare } lists of { chance %, species, level }); sets a version
+  // never rolls from
+  trees?: { map: string; rocks: string; sets: string; unused(version: string): string[] };
+  // swarm tables (grass/water shape), only for the maps the game has them
+  swarms?: { grass: string; water: string };
   wildCell(map: MapDef, tileset: TilesetDef | undefined, cx: number, cy: number, ctx: GameContext): "grass" | "water" | "any" | null;
 }
 

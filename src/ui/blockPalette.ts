@@ -36,8 +36,12 @@ export function mountBlockPalette(host: HTMLElement, view: MapView): void {
     updateInfo();
     void refresh();
   };
-  // the title gives way (ellipsis) before the controls wrap
-  host.append(h("div", { class: "panel-head" }, h("div", { class: "row nowrap shrink" }, h("div", { class: "seg" }, ...modeButtons), title, info), zoomControls), wrap);
+  // tileset name and selection sit in a footer so the head's controls fit the panel
+  host.append(
+    h("div", { class: "panel-head" }, h("div", { class: "seg" }, ...modeButtons), zoomControls),
+    wrap,
+    h("div", { class: "palette-foot" }, title, info),
+  );
 
   // A free pan/zoom viewport like the map: the canvas is positioned inside
   // `wrap` at (offX, offY) and drawn `zoom` screen pixels per atlas pixel.

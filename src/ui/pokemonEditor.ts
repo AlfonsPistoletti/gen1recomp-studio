@@ -60,6 +60,9 @@ function pic(path: string | undefined, pal: Rgb[] | null, attrs: Record<string, 
   return showTinted(h("img", { alt: "", ...attrs }), spriteUrl(path), pal);
 }
 
+// registries keyed by species id that "Revert to base" also covers
+const related = (): string[] => ["cries", ...(store.adapter.pokemon?.icon.registry ? [store.adapter.pokemon.icon.registry] : [])];
+
 function species(): Record<string, Rec> {
   return store.table(REG) as Record<string, Rec>;
 }
@@ -163,8 +166,16 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     class: "btn small danger",
     onclick: () => {
       if (!current) return;
-      if (store.baseTable(REG)[current] === undefined) deleteSpecies(current);
-      else store.revertRecord(REG, current, `Revert ${current}`);
+      if (store.baseTable(REG)[current] === undefined) return deleteSpecies(current);
+      const id = current;
+      const label = `Revert ${id}`;
+      store.group(label, () => {
+        for (const reg of [REG, ...related()]) store.revertRecord(reg, id, label);
+        // the icon sheet the studio made for this species, once unused
+        const icons = store.adapter.pokemon?.icon.registry;
+        const own = `ICON_STUDIO_${id}`;
+        if (icons && store.table(icons)[own] !== undefined && !Object.values(store.table(icons)).includes(own)) store.revertRecord(icons, own, label);
+      });
     },
   }, "Revert to base");
   const colors = h("span", {});
@@ -209,7 +220,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     newBtn.hidden = lacks(spec, "newSpecies");
     const isNew = store.baseTable(REG)[current] === undefined;
     revert.textContent = isNew ? "Delete Pokémon" : "Revert to base";
-    revert.hidden = !isNew && !store.isRecordEdited(REG, current);
+    revert.hidden = !isNew && ![REG, ...related()].some((reg) => store.isRecordEdited(reg, current!));
   };
   const schedule = () => {
     if (!scheduled) {
@@ -305,7 +316,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (reason === "project") {
       if (!current || !species()[current]) current = dexOrder()[0] ?? null;
       schedule();
-    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries" || registry === "items")) {
+    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries" || registry === "items" || (!!store.project && registry === store.adapter.pokemon?.icon.registry))) {
       // items: a new or changed TM/HM changes the TM/HM list
       if ((registry === REG || registry === "cries") && id !== current) return;
       schedule();
@@ -452,6 +463,10 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
     );
     if (!res) return;
     const path = addAsset(mod, `${id}_${kind}`, res.data);
+    if (kind === "icon" && spec.icon.registry) {
+      const sheet = { id: `ICON_STUDIO_${id}`, image: path, width: spec.icon.width, height: spec.icon.height * spec.icon.frames, frames: spec.icon.frames, ...(res.trueColor ? { trueColor: true } : {}) };
+      return setIcon("Import icon art", `ICON_STUDIO_${id}`, sheet);
+    }
     edit(id, `Import ${kind} art`, (d) => {
       if (kind === "front") {
         d.spriteFront = path;
@@ -469,6 +484,18 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       }
     });
   };
+
+  // icons kept in their own registry: the species names a sheet; a sheet the
+  // studio made for this species goes once nothing names it any more
+  const setIcon = (label: string, name: string, sheet?: Rec) =>
+    store.group(label, () => {
+      const reg = spec.icon.registry!;
+      const before = store.table(reg)[id];
+      if (sheet) store.setRecord(reg, name, label, sheet);
+      store.setRecord(reg, id, label, name);
+      const users = (n: unknown) => Object.values(store.table(reg)).filter((v) => v === n).length;
+      if (typeof before === "string" && before !== name && before.startsWith("ICON_STUDIO_") && !users(before)) store.setRecord(reg, before, label, undefined);
+    });
 
   // another species' art: the mod's own as is, vanilla art through the
   // asset-transforms recipe (written on save)
@@ -503,7 +530,7 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   const pal = monColors(id, r);
   const icon = spec.icon.resolve(store.ctx, r);
   const iconPath = icon.image ?? (icon.name ? spec.icon.path(store.ctx, icon.name) : undefined);
-  const iconSel = selectInput(icon.name ?? "", spec.icon.names(store.ctx), (v) => edit(id, "Menu icon", (d) => (d.icon = v)), icon.image ? "(own image)" : undefined);
+  const iconSel = selectInput(icon.name ?? "", spec.icon.names(store.ctx), (v) => (spec.icon.registry ? setIcon("Menu icon", v) : edit(id, "Menu icon", (d) => (d.icon = v))), icon.image ? "(own image)" : undefined);
   iconSel.title = "One of the game's menu icon shapes";
   // the dataset names shapes whose art this version lacks (PIKACHU outside
   // Yellow): only offer the ones that load

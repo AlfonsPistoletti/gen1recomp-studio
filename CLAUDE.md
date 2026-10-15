@@ -36,7 +36,7 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   effectChanceRaw kept in sync: Gold's battle reads the bytes first)/newMoves; `ItemSpec` effects/newItems/pockets
   (pocketId synced)/description/heldEffects/machineOf (Gold TMs: `teaches` + `tmLabel`)/machineEdit. Gold's type chart
   build takes the file's own type records (plain ids, PSYCHIC_TYPE) plus the Foresight rows as matchups.
-  Gen 2 maps are editable (tilesets/sprites still view-only, so the tile brush is hidden): warps use
+  Gen 2 maps are editable (sprites still view-only; Crystal tilesets too): warps use
   `warpTarget.backWarp` 255 ("back where the player came from", World:resolveWarp), connections are `{ mapId, offset }`,
   `normalizeMap` drops the extractor's destGroup/destMapNum and connection extras (never read). NPC/sign/trigger
   scripts are cart bytecode: the studio only lets an entity reuse a scriptKey of the same layer on that map. Inspector
@@ -63,6 +63,10 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   patched in at load by `src/lua/tilesetRuntime2.ts`. `adapter.tileCollision` switches the Tilesets editor to that
   model (per-quarter collision codes, palette slot per tile; editTileset keeps collision/palettes the length of
   blocks/tiles); `adapter.graphicsViews` limits Graphics to Tilesets. Limits: 256 blocks, 256 tiles (LimitError).
+  Gold menu icons: the `icons` registry (species id -> ICON_* sheet name string, ICON_* ids = sheet records);
+  `PokemonSpec.icon.registry` makes the editor write there; an imported icon registers `ICON_STUDIO_<species>`
+  ({ id, image, width 16, height 32, frames 2 }), dropped again once no species names it. Gold cries: same
+  `cries` registry and shapes as Gen 1 (Sound.playCry). Gold shops: no registry for data.gen2Marts (ISSUES #6).
   Gold Pokédex entries: pokedex.lua `entries` are loaded into each species' `dexEntry` (base), edited inline
   (`PokemonSpec.dexInline`: pages of <NEXT> lines, height ft*100+in, weight 0.1 lb); gen1recomp
   PokedexText.apply copies the saved patch onto the entry (engine f8eafdb0 or later). Gen 2 colors: `palettes.lua` environments[env].DAY -> 8 bg palettes (1-based ids), a tile's slot =

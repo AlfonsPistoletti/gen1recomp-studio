@@ -305,7 +305,14 @@ export class Store {
     } finally {
       const cmd = this.grouping;
       this.grouping = null;
-      if (cmd.changes.length) this.push(cmd);
+      if (cmd.changes.length) {
+        this.push(cmd);
+        // the edits announced themselves before the step was on the stack:
+        // once more, so the undo button sees it
+        const last = cmd.changes[cmd.changes.length - 1];
+        if (last.registry === "maps") this.emit("edit", last.id);
+        else this.emit("content", last.id, last.registry);
+      }
       this.seal();
     }
   }

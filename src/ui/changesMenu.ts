@@ -15,6 +15,7 @@ const NAMES: Record<string, [string, string]> = {
   text_pointers: ["Map text pointers", "text pointer"],
   pokemon: ["Pokémon", "Pokémon"],
   cries: ["Cries", "cry"],
+  icons: ["Menu icons", "menu icon"],
   moves: ["Moves", "move"],
   studio_effects: ["Custom move effects", "custom effect"],
   battle_anims: ["Move animations", "move animation"],
@@ -101,6 +102,11 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       return removed ? null : () => nav.openPokemon(id);
     case "cries":
       return store.table("pokemon")[id] ? () => nav.openPokemon(id) : null;
+    case "icons": {
+      // a species' icon, or the sheet the studio made for one
+      const species = id.replace(/^ICON_STUDIO_/, "");
+      return store.table("pokemon")[species] ? () => nav.openPokemon(species) : null;
+    }
     case "moves":
     case "battle_anims":
       return store.table("moves")[id] ? () => nav.openMove(id) : null;

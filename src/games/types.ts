@@ -438,6 +438,9 @@ export interface PokemonSpec {
     path(ctx: GameContext, name: string): string | undefined;
     // what a record shows: its own icon, else the dex-number default
     resolve(ctx: GameContext, record: Record<string, unknown>): { name?: string; image?: string };
+    // icons live in this registry (species id -> sheet name) instead of the
+    // pokemon record's `icon`; an imported image becomes a sheet record there
+    registry?: string;
   };
 }
 

@@ -21,6 +21,8 @@ import { STARTER_BALLS } from "../lua/starterRuntime.ts";
 import { textEditor } from "./textField.ts";
 import { INTRO, introCards, introEdited, revertIntro } from "./introEditor.ts";
 import { gameGifts, type GameGift } from "../project/gameEvents.ts";
+import { FEATURES } from "../features.ts";
+import { fishGroupCards, treeSetCards } from "./timedEncounterPanel.ts";
 
 const SECTION_KEY = "studio.globalSection";
 // the status screen's TYPE field fits 8 letters (ELECTRIC)
@@ -81,6 +83,8 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (registry === TRADES_REGISTRY && id === TRADES_ID && s.sections.some((x) => x.id === "trades")) return "trades";
   if (registry === STARTERS) return "starters";
   if (registry === GIFTS) return "gifts";
+  const shared = sharedListSection(registry, id);
+  if (shared) return shared;
   if (registry === "constants" && id === "badges") return "badges";
   if (registry === INTRO || (registry === "field" && id === "oakSpeech")) return "intro";
   if (registry === "field" && id === "fishing") return "wild";
@@ -93,6 +97,15 @@ export function globalSectionOf(registry: string, id: string): string | null {
   return s.numbers.find((n) => n.registry === registry && n.id === id)?.section ?? null;
 }
 
+// Gen 2's shared wild lists (fishing groups, tree sets) live in Global
+function sharedListSection(registry: string, id: string): string | null {
+  const timed = FEATURES.gen2 ? store.adapter.timedEncounters : undefined;
+  if (!timed || registry !== timed.registry) return null;
+  if (id === timed.fish.kind) return "fishing";
+  if (id === timed.trees?.sets) return "treesets";
+  return null;
+}
+
 // a readable name for a global setting record ("Level cap"), or null
 export function globalLabelOf(registry: string, id: string): string | null {
   const s = spec();
@@ -101,6 +114,8 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (section === "types") return null;
   if (section === "prizes") return counterLabel(id);
   if (section === "trades") return "In-game trades";
+  if (FEATURES.gen2 && section === "fishing") return "Fishing groups";
+  if (FEATURES.gen2 && section === "treesets") return "Headbutt & Rock Smash sets";
   if (registry === STARTERS) return `Starter: ${id}'s ball`;
   if (registry === GIFTS) return `Gift: ${id.split(":")[1]} (${id.split(":")[0]})`;
   if (section === "badges") return "Badges";
@@ -127,6 +142,9 @@ function sectionChanged(id: string): boolean {
   if (id === "wild" && odds) regs.push([odds.registry, odds.id]);
   if (regs.some(([r, i]) => store.isRecordEdited(r, i))) return true;
   if (id === "trades" && tradesEdited()) return true;
+  const timed = FEATURES.gen2 ? store.adapter.timedEncounters : undefined;
+  if (timed && id === "fishing" && store.isRecordEdited(timed.registry, timed.fish.kind)) return true;
+  if (timed?.trees && id === "treesets" && store.isRecordEdited(timed.registry, timed.trees.sets)) return true;
   if (id === "names" && store.isRecordEdited("field", "boot")) return true;
   if (id === "intro" && introEdited()) return true;
   if (id === "starters" && (Object.keys(store.table(STARTERS)).length > 0 || STARTER_BALLS.some((b) => store.isRecordEdited("text", b.ask)))) return true;
@@ -225,8 +243,8 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
-    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs")) schedule();
-    if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || registry === "constants" || registry === s.typeChart?.registry || registry === prizes)) nav.setWorkspace("global");
+    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
+    if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || sharedListSection(registry ?? "", _id ?? "") || registry === "constants" || registry === s.typeChart?.registry || registry === prizes)) nav.setWorkspace("global");
   });
 }
 
@@ -566,6 +584,9 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "types" && s.typeChart) out.push(...typeChartCards(s.typeChart));
   if (id === "fieldmoves" && s.hmBadges) out.push(hmBadgesCard(s.hmBadges));
   if (id === "trades") out.push(...tradeCards());
+  const timed = FEATURES.gen2 ? store.adapter.timedEncounters : undefined;
+  if (timed && id === "fishing") out.push(...fishGroupCards(timed));
+  if (timed?.trees && id === "treesets") out.push(...treeSetCards(timed));
   if (id === "starters") out.push(...starterCards());
   if (id === "gifts") out.push(...giftCards());
   if (id === "badges") out.push(badgesCard());

@@ -519,6 +519,8 @@ const trainers: TrainerSpec = {
 
 const globals: GlobalsSpec = {
   sections: [
+    { id: "fishing", group: "Wild Pokémon", label: "Fishing groups", hint: "What bites on each rod. Maps with the same water share a group; a map picks its group in its Encounters tab." },
+    { id: "treesets", group: "Wild Pokémon", label: "Headbutt & Rock Smash sets", hint: "What falls out of trees and rocks. Many maps share a set; a map picks its sets in its Encounters tab." },
     { id: "types", group: "Game", label: "Type chart", hint: "Type effectiveness, and which types are physical or special (Gold decides by type, like Red)." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],

@@ -7,7 +7,7 @@
 // trades are appended.
 
 import { store } from "../core/store.ts";
-import { clone } from "../core/merge.ts";
+import { clone, deepEqual } from "../core/merge.ts";
 import { gameEvents } from "../project/gameEvents.ts";
 import { field, h, toast } from "./dom.ts";
 import { nav } from "./nav.ts";
@@ -140,6 +140,7 @@ export function tradeCards(): HTMLElement[] {
     );
     style.addEventListener("change", () => editTrades(`Trade #${n}: dialogue`, (l) => (l[i].dialogset = Number(style.value))));
     const removable = n > base && n === list.length;
+    const game = n <= base ? (store.baseTable(TRADES_REGISTRY)[TRADES_ID] as Trade[])[i] : undefined;
     return h("section", { class: "card trade-card" },
       h("div", { class: "card-head" }, h("h4", {}, `Trade #${n}`), n > base ? h("span", { class: "tag new" }, "yours") : null),
       h("div", { class: "row wrap trade-row" },
@@ -152,6 +153,7 @@ export function tradeCards(): HTMLElement[] {
       h("p", { class: "hint trade-offer" }, `“${offerText(t)}”`),
       who,
       removable ? h("button", { class: "btn small danger", onclick: () => editTrades(`Remove trade #${n}`, (l) => l.pop()) }, "Remove trade") : null,
+      game && !deepEqual(game, t) ? h("button", { class: "btn small danger", onclick: () => editTrades(`Trade #${n}: the game's`, (l) => (l[i] = clone(game))) }, "Back to the game's trade") : null,
     );
   });
   return [

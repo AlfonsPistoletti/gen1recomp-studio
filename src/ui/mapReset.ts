@@ -9,7 +9,9 @@ import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import { dropUnusedBlocks } from "../core/tileBrush.ts";
 import type { MapDef } from "../core/types.ts";
+import { FEATURES } from "../features.ts";
 import { h } from "./dom.ts";
+import { revertTimedWild, timedWildEdited } from "./timedEncounterPanel.ts";
 
 interface Part {
   label: string;
@@ -136,6 +138,8 @@ export function changedParts(map: MapDef, includeLayout: boolean): Part[] {
   if (regExists("map_songs") && store.isRecordEdited("map_songs", id)) parts.push({ label: "Music", detail: "the map's song", revert: () => revertRecord("map_songs", id) });
   if (regExists("studio_roofs") && store.isRecordEdited("studio_roofs", id)) parts.push({ label: "RED++ roof", detail: "the roof colors", revert: () => revertRecord("studio_roofs", id) });
   if (regExists("encounters") && store.isRecordEdited("encounters", id)) parts.push({ label: "Wild Pokémon", detail: "grass and water tables", revert: () => revertRecord("encounters", id) });
+  const timed = FEATURES.gen2 ? store.adapter.timedEncounters : undefined;
+  if (timed && timedWildEdited(timed, id)) parts.push({ label: "Wild Pokémon", detail: "grass, water, headbutt trees, rock smash and swarms", revert: () => revertTimedWild(timed, id) });
   if (superRodChanged(id)) parts.push({ label: "Super Rod", detail: "what bites the Super Rod here", revert: () => setKeyed("superRod", id, keyed("superRod", id).base) });
   const rules = ruleDiffs(id);
   if (rules.length) parts.push({ label: "Rules", detail: rules.map((r) => r.label).join(", "), revert: () => rules.forEach((r) => r.revert()) });

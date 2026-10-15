@@ -687,6 +687,9 @@ input.combo { width: 100%; min-width: 0; }
   align-items: center;
 }
 .slot-row input[type="number"] { width: 100%; }
+/* a tree set row: the chance input sits before the arrow */
+.slot-row.with-extra { grid-template-columns: 0 26px minmax(0, 1fr) 16px 58px 64px 28px; }
+.slot-chance { display: flex; align-items: center; gap: 3px; }
 .slot-odds { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .slot-icon { width: 26px; height: 26px; image-rendering: pixelated; object-fit: contain; }
 

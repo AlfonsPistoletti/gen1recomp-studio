@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Game bugs (gen1recomp itself)
+    url: https://github.com/bryanthaboi/gen1recomp/issues
+    about: Problems with the game rather than the studio belong in gen1recomp's issue tracker.

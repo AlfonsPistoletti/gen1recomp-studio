@@ -42,6 +42,8 @@ import { mountPaletteWorkspace } from "./ui/paletteEditor.ts";
 import { mountTownMapWorkspace, townMapSheets } from "./ui/townMapEditor.ts";
 import { MAX_BLOCKS } from "./core/tileBrush.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
+import { bugReportDialog } from "./ui/bugReport.ts";
+import { installLog, log } from "./core/log.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
 import { playEvent } from "./ui/eventPreview.ts";
 
@@ -57,6 +59,9 @@ let allMods: ModInfo[] = [];
 let mods: ModInfo[] = [];
 let currentMod: string | null = null;
 let currentVersion = "red";
+
+// first, so the bug report log sees everything after it
+installLog();
 
 const view = new MapView($("#viewport"));
 
@@ -89,7 +94,9 @@ packBtn.append(h("span", { class: "menu-key" }, "Ctrl+P"));
 // clickable in the desktop app
 const installBtn = menuRow("", () => switchInstall());
 const updateBtn = menuRow("Check for updates…", () => void checkForUpdates(false));
-modMenuPanel.append(modDetailsBtn, modPageBtn, validateBtn, exportBtn, publishBtn, packBtn, folderBtn, h("div", { class: "menu-sep" }), installBtn, updateBtn);
+const bugBtn = menuRow("Report a bug…", () => bugReportDialog());
+bugBtn.title = "Copy what happened this session and open the bug form on GitHub";
+modMenuPanel.append(modDetailsBtn, modPageBtn, validateBtn, exportBtn, publishBtn, packBtn, folderBtn, h("div", { class: "menu-sep" }), installBtn, updateBtn, bugBtn);
 
 // what Export .zip and Publish on GitHub need from the top bar
 function shareContext(modId: string): ShareContext {
@@ -1180,6 +1187,7 @@ async function openProject(mod: string | null): Promise<void> {
     return;
   }
   document.body.classList.add("loading");
+  log("open", `${currentVersion}, mod ${mod ?? "(none)"}`);
   try {
     const project = await loadProject(host, currentVersion, adapter, mod);
     // RED++ (pokered-gbc colors) is Gen 1 only

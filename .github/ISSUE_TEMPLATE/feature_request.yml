@@ -1,0 +1,21 @@
+name: Feature request
+description: An idea for something the studio should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to do?
+      description: Describe what you want to make in your mod, not only the button you imagine.
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: Which game(s) it is for (Red/Blue/Yellow, Gold/Silver/Crystal).
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Examples, screenshots, how you do it today.

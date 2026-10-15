@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in G1R Studio doesn't work or crashes
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! The quickest way to fill this in is the studio's own **gear menu → Report a bug…**: it copies the log and fills in version and game.
+  - type: input
+    id: version
+    attributes:
+      label: Studio version
+      description: Gear menu → Report a bug… fills this in (or see the installer / release name).
+      placeholder: "0.2.0"
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game
+      description: The game picked in the top bar (red, blue, yellow, gold, silver, crystal).
+      placeholder: "red"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen
+      placeholder: |
+        1. Open Maps, pick PALLET_TOWN
+        2. ...
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: Paste what Report a bug… copied (your user folder's name is already left out).
+      render: text
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: Screenshots, the mod (a .zip from gear menu → Export .zip), how often it happens.

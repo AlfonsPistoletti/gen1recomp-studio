@@ -1,4 +1,5 @@
 import { createElement, type IconNode } from "lucide";
+import { log } from "../core/log.ts";
 
 type Attrs = Record<string, unknown> & { class?: string; style?: string };
 type Child = Node | string | number | null | undefined | false;
@@ -354,6 +355,7 @@ export function dropdown(button: HTMLButtonElement, panel: HTMLElement, onOpen?:
 }
 
 export function toast(message: string, kind: "info" | "error" | "ok" = "info"): void {
+  log(kind, message);
   const host = document.getElementById("toasts")!;
   const el = h("div", { class: `toast ${kind}` }, message);
   host.append(el);

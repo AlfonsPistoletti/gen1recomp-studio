@@ -29,7 +29,7 @@ import { mountEncounterPane } from "./ui/encounterPanel.ts";
 import { mountGlobalWorkspace } from "./ui/globalWorkspace.ts";
 import { mountPokemonWorkspace } from "./ui/pokemonEditor.ts";
 import { mountRightTabs } from "./ui/rightTabs.ts";
-import { mountSplitters } from "./ui/splitters.ts";
+import { mountPaletteSplitter, mountSplitters } from "./ui/splitters.ts";
 import { recall, remember } from "./ui/storage.ts";
 import { mountTextWorkspace } from "./ui/textWorkspace.ts";
 import { mountTrainerWorkspace } from "./ui/trainerEditor.ts";
@@ -509,6 +509,7 @@ nav.showGraphics = (view) => {
 };
 for (const s of viewSwitches) s.value = nav.graphicsView;
 mountSplitters($("#layout"));
+mountPaletteSplitter($("#right-base"), $("#palette"));
 
 // ---------------------------------------------------------------- workspaces
 

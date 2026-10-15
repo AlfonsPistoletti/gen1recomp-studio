@@ -80,3 +80,44 @@ export function mountSplitters(layout: HTMLElement): void {
     for (const s of SIDES) if (layout.style.getPropertyValue(s.cssVar)) apply(s, width(s));
   });
 }
+
+// Drag handle under the map view's block palette: its height lives in
+// --palette-h on the pane (the first grid row), remembered per browser.
+const PALETTE_KEY = "studio.paletteHeight";
+const PALETTE_MIN = 160;
+const PROPS_MIN = 120;
+
+export function mountPaletteSplitter(pane: HTMLElement, palette: HTMLElement): void {
+  const apply = (px: number): void => {
+    const max = Math.max(PALETTE_MIN, pane.clientHeight - PROPS_MIN);
+    pane.style.setProperty("--palette-h", `${Math.round(Math.max(PALETTE_MIN, Math.min(max, px)))}px`);
+  };
+  const saved = Number(recall(PALETTE_KEY));
+  if (saved) pane.style.setProperty("--palette-h", `${saved}px`);
+
+  const handle = h("div", { class: "splitter on-bottom", title: "Drag to resize, double-click to reset" });
+  palette.append(handle);
+  handle.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startH = palette.getBoundingClientRect().height;
+    document.body.classList.add("resizing", "rows");
+    const move = (ev: PointerEvent): void => apply(startH + ev.clientY - startY);
+    const up = (): void => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      document.body.classList.remove("resizing", "rows");
+      remember(PALETTE_KEY, String(Math.round(palette.getBoundingClientRect().height)));
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  });
+  handle.addEventListener("dblclick", () => {
+    pane.style.removeProperty("--palette-h");
+    remember(PALETTE_KEY, null);
+  });
+}

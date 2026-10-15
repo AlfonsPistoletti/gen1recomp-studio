@@ -9,7 +9,7 @@
 import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { TimedEncounterSpec } from "../games/types.ts";
-import { comboInput, field, h, numberInput } from "./dom.ts";
+import { comboInput, field, h, numberInput, selectInput } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { spriteUrl } from "./pokemonEditor.ts";
 
@@ -50,7 +50,8 @@ export function timedEncounterPanel(spec: TimedEncounterSpec): HTMLElement[] {
   const map = store.map;
   if (!map) return [];
   const id = map.id;
-  const edited = ["grass", "water"].some((k) => entryEdited(spec, k, id));
+  const kinds = ["grass", "water", ...(spec.trees ? [spec.trees.map, spec.trees.rocks] : []), ...(spec.swarms ? [spec.swarms.grass, spec.swarms.water] : [])];
+  const edited = kinds.some((k) => entryEdited(spec, k, id));
   return [
     h(
       "div",
@@ -61,6 +62,11 @@ export function timedEncounterPanel(spec: TimedEncounterSpec): HTMLElement[] {
     grassCard(spec, id),
     waterCard(spec, id),
     fishCard(spec, id),
+    ...(spec.trees ? [treeCard(spec, id, spec.trees.map, "Headbutt trees", "Headbutting a tree on this map")] : []),
+    ...(spec.trees ? [treeCard(spec, id, spec.trees.rocks, "Rock Smash", "Smashing a rock on this map")] : []),
+    // a swarm table works only on the maps the game has a swarm for
+    ...(spec.swarms && kindTable(spec, spec.swarms.grass)[id] ? [grassCard(spec, id, spec.swarms.grass, "Swarm (grass)", "Used instead of the grass table while a swarm is on (a phone call announces it).")] : []),
+    ...(spec.swarms && kindTable(spec, spec.swarms.water)[id] ? [waterCard(spec, id, spec.swarms.water, "Swarm (water)", "Used instead of the water table while a swarm is on.")] : []),
     h(
       "div",
       { class: "row" },
@@ -69,7 +75,7 @@ export function timedEncounterPanel(spec: TimedEncounterSpec): HTMLElement[] {
         ? h("button", {
             class: "btn small danger",
             onclick: () => store.group(`Revert wild Pokémon on ${id}`, () => {
-              for (const k of ["grass", "water"]) {
+              for (const k of kinds) {
                 const base = baseKind(spec, k)[id];
                 setEntry(spec, k, id, "Revert wild Pokémon", () => (base === undefined ? undefined : (clone(base) as Rec)));
               }
@@ -116,16 +122,15 @@ function starter(): string {
   return ["SENTRET", "RATTATA", "PIDGEY"].find((s) => pokemon[s]) ?? Object.keys(pokemon)[0] ?? "RATTATA";
 }
 
-function grassCard(spec: TimedEncounterSpec, id: string): HTMLElement {
-  const g = kindTable(spec, "grass")[id] as Grass | undefined;
-  const hint = "Rolled on each step in tall grass (in caves: on every step).";
+function grassCard(spec: TimedEncounterSpec, id: string, kind = "grass", title = "Grass", hint = "Rolled on each step in tall grass (in caves: on every step)."): HTMLElement {
+  const g = kindTable(spec, kind)[id] as Grass | undefined;
   if (!g) {
-    return emptyCard(spec, "grass", id, "Grass", hint, () => {
+    return emptyCard(spec, kind, id, title, hint, () => {
       const slots = Array.from({ length: spec.grassOdds.length }, (_, i) => ({ level: 2 + Math.floor(i / 2), species: starter() }));
       return { map: id, rates: Object.fromEntries(spec.times.map((t) => [t.key, 10])), slots: Object.fromEntries(spec.times.map((t) => [t.key, clone(slots)])) };
     });
   }
-  const edit = (label: string, mutate: (d: Grass) => void) => setEntry(spec, "grass", id, label, (e) => {
+  const edit = (label: string, mutate: (d: Grass) => void) => setEntry(spec, kind, id, label, (e) => {
     const d = e as Grass;
     mutate(d);
     return d as unknown as Rec;
@@ -136,7 +141,7 @@ function grassCard(spec: TimedEncounterSpec, id: string): HTMLElement {
     h("button", { class: `btn small${t.key === time ? " active" : ""}`, onclick: (e: Event) => {
       time = t.key;
       // redraw just this card
-      (e.target as HTMLElement).closest("section")?.replaceWith(grassCard(spec, id));
+      (e.target as HTMLElement).closest("section")?.replaceWith(grassCard(spec, id, kind, title, hint));
     } }, t.label)));
   const others = spec.times.filter((t) => t.key !== time);
   return h(
@@ -145,8 +150,10 @@ function grassCard(spec: TimedEncounterSpec, id: string): HTMLElement {
     h(
       "div",
       { class: "card-head" },
-      h("h4", {}, "Grass"),
-      h("button", { class: "btn small ghost danger", title: "Remove the grass table", onclick: () => setEntry(spec, "grass", id, "Remove grass table", () => undefined) }, "Remove"),
+      h("h4", {}, title),
+      kind === "grass" || kind === "water"
+        ? h("button", { class: "btn small ghost danger", title: `Remove the ${title.toLowerCase()} table`, onclick: () => setEntry(spec, kind, id, `Remove ${title.toLowerCase()} table`, () => undefined) }, "Remove")
+        : null,
     ),
     tabs,
     h("div", { class: "row" }, field("Encounter rate", numberInput(rate, (n) => edit("Encounter rate", (d) => (d.rates = { ...d.rates, [time]: Math.max(0, Math.min(255, n)) })), 0, 255)), h("span", { class: "hint" }, `${pctPerStep(rate)}. ${hint}`)),
@@ -172,13 +179,12 @@ function grassCard(spec: TimedEncounterSpec, id: string): HTMLElement {
   );
 }
 
-function waterCard(spec: TimedEncounterSpec, id: string): HTMLElement {
-  const w = kindTable(spec, "water")[id] as Water | undefined;
-  const hint = "Rolled on each step while surfing.";
+function waterCard(spec: TimedEncounterSpec, id: string, kind = "water", title = "Water", hint = "Rolled on each step while surfing."): HTMLElement {
+  const w = kindTable(spec, kind)[id] as Water | undefined;
   if (!w) {
-    return emptyCard(spec, "water", id, "Water", hint, () => ({ map: id, rate: 10, slots: Array.from({ length: spec.waterOdds.length }, (_, i) => ({ level: 10 + i * 5, species: store.table("pokemon").TENTACOOL ? "TENTACOOL" : starter() })) }));
+    return emptyCard(spec, kind, id, title, hint, () => ({ map: id, rate: 10, slots: Array.from({ length: spec.waterOdds.length }, (_, i) => ({ level: 10 + i * 5, species: store.table("pokemon").TENTACOOL ? "TENTACOOL" : starter() })) }));
   }
-  const edit = (label: string, mutate: (d: Water) => void) => setEntry(spec, "water", id, label, (e) => {
+  const edit = (label: string, mutate: (d: Water) => void) => setEntry(spec, kind, id, label, (e) => {
     const d = e as Water;
     mutate(d);
     return d as unknown as Rec;
@@ -189,8 +195,10 @@ function waterCard(spec: TimedEncounterSpec, id: string): HTMLElement {
     h(
       "div",
       { class: "card-head" },
-      h("h4", {}, "Water"),
-      h("button", { class: "btn small ghost danger", title: "Remove the water table", onclick: () => setEntry(spec, "water", id, "Remove water table", () => undefined) }, "Remove"),
+      h("h4", {}, title),
+      kind === "grass" || kind === "water"
+        ? h("button", { class: "btn small ghost danger", title: `Remove the ${title.toLowerCase()} table`, onclick: () => setEntry(spec, kind, id, `Remove ${title.toLowerCase()} table`, () => undefined) }, "Remove")
+        : null,
     ),
     h("div", { class: "row" }, field("Encounter rate", numberInput(w.rate, (n) => edit("Encounter rate", (d) => (d.rate = Math.max(0, Math.min(255, n)))), 0, 255)), h("span", { class: "hint" }, `${pctPerStep(w.rate)}. ${hint}`)),
     ...(w.slots ?? []).map((s, i) => slotRow(`${spec.waterOdds[i] ?? 0}%`, s, (label, mutate) => edit(label, (d) => {
@@ -281,3 +289,53 @@ function fishCard(spec: TimedEncounterSpec, id: string): HTMLElement {
     ...(g ? rods : [h("p", { class: "hint" }, "No fish here.")]),
   );
 }
+
+// Headbutt trees / Rock Smash (gen1recomp Encounter.treeSlot): the map names a
+// shared set (its common and rare lists: a chance in % per row); the rare list
+// is for the few trees the player's ID favors. Rocks use the common list.
+type TreeRow = { chance: number; level: number; species: string };
+function treeCard(spec: TimedEncounterSpec, id: string, mapKind: string, title: string, what: string): HTMLElement {
+  const t = spec.trees!;
+  const sets = kindTable(spec, t.sets) as Record<string, Record<string, TreeRow[]>>;
+  const current = kindTable(spec, mapKind)[id] as string | undefined;
+  const sel = selectInput(current ?? "", Object.keys(sets).sort(), (v) => setEntry(spec, mapKind, id, `${title} set`, () => (v ? (v as unknown as Rec) : undefined)), "None");
+  for (const o of sel.options) if (o.value) o.textContent = o.value.replace(/^TREEMON_SET_/, "").toLowerCase();
+  const dead = current && t.unused(store.project.version).includes(current);
+  const set = current ? sets[current] : undefined;
+  const users = current ? Object.values(kindTable(spec, mapKind)).filter((v) => v === current).length : 0;
+  const editRow = (list: string, i: number, label: string, mutate: (r: TreeRow) => void) =>
+    setEntry(spec, t.sets, current!, label, (e) => {
+      const d = e as Record<string, TreeRow[]>;
+      d[list] = d[list].map((r) => ({ ...r }));
+      mutate(d[list][i]);
+      return d as unknown as Rec;
+    });
+  const lists = set
+    ? (["common", "rare"] as const).filter((k) => set[k]?.length).map((k) => {
+        const rows = set[k];
+        const total = rows.reduce((n, r) => n + (Number(r.chance) || 0), 0);
+        return h(
+          "div",
+          { class: "fish-rod" },
+          h("span", { class: "field-label" }, mapKind === spec.trees!.rocks ? "Pokémon" : k === "common" ? "Most trees" : "Rare trees (a few, depending on the player's ID)"),
+          ...rows.map((row, i) =>
+            h("div", {},
+              slotRow(`${row.chance}%`, row, (label, mutate) => editRow(k, i, label, (r) => mutate(r))),
+              h("div", { class: "row nowrap chance-edit" },
+                h("span", { class: "muted" }, "chance %"),
+                numberInput(row.chance, (n) => editRow(k, i, "Tree chance", (r) => (r.chance = Math.max(0, Math.min(100, n)))), 0, 100)),
+            )),
+          total !== 100 ? h("p", { class: "hint warn" }, `The chances add up to ${total}%, not 100%: ${total < 100 ? "the rest finds nothing" : "the last rows are never picked"}.`) : null,
+        );
+      })
+    : [];
+  return h(
+    "section",
+    { class: "card" },
+    h("h4", {}, title),
+    field("Set", sel, current ? `${what} rolls from this set; ${users} map${users === 1 ? "" : "s"} share${users === 1 ? "s" : ""} it, so a change here changes them all.` : `${what} finds nothing.`),
+    dead ? h("p", { class: "hint warn" }, "Gold and Silver never use this set (only Crystal does): pick another for this game.") : null,
+    ...lists,
+  );
+}
+

@@ -44,6 +44,9 @@ build). Tauri 2 desktop app; the whole editor runs in the web view.
   Gen 2 encounters (`adapter.timedEncounters`, `src/ui/timedEncounterPanel.ts`): registry ids are kinds (grass,
   water, fishGroups, ...) holding every map/group; the panel edits one map's entries inside them (grass per
   MORN/DAY/NITE, water, the map's `fishGroup` and that group's rods), so a save patches only those entries.
+  Also headbutt trees / rock smash (`trees`/`rocks` map -> set name, `treeSets` shared lists with a % chance per row;
+  Gold/Silver never roll the CITY/NONE/UNUSED sets) and swarm tables (shown only where the game has one). The Bug
+  Contest list is not offered: the engine reads data.encounters, not gen2Encounters (ISSUES #5).
   Gen 2 trainers: a class record holds `trainers` [{ name, trainerType, party }]; `TrainerSpec.teams` reads/writes
   them as the editor's teams (trainerType follows the slots: item/moves), slots may hold an `item`; usage counts,
   AI, colors, portrait borrowing and new classes/teams are off (`usage`/`ai`/`colors`/`basePic`/`newTeams` false):

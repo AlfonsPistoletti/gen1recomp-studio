@@ -69,7 +69,16 @@ edited.type_chart = { "FIRE>STEEL": { multiplier: 10 } };
   const fish = clone(enc.fishGroups) as Record<string, Record<string, Rec[]>>;
   const group = Object.keys(fish)[0];
   fish[group].old[0].level = 42;
-  edited.encounters = { grass, fishGroups: fish };
+  // headbutt trees: a map's set, and a row of a shared set; a swarm table
+  const trees = clone(enc.trees) as Record<string, unknown>;
+  trees.ROUTE_29 = "TREEMON_SET_FOREST";
+  delete trees.ROUTE_30;
+  const sets = clone(enc.treeSets) as Record<string, Record<string, Rec[]>>;
+  sets.TREEMON_SET_FOREST.common[0].chance = 40;
+  const swarm = clone(enc.swarmGrass) as Record<string, Rec>;
+  const swarmMap = Object.keys(swarm)[0];
+  ((swarm[swarmMap].slots as Record<string, Rec[]>).DAY[0]).level = 33;
+  edited.encounters = { grass, fishGroups: fish, trees, treeSets: sets, swarmGrass: swarm };
 }
 edited.map_songs = { NEW_BARK_TOWN: Object.values(content.map_songs).find((s) => s !== content.map_songs.NEW_BARK_TOWN) as string };
 

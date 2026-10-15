@@ -6,7 +6,7 @@ import { addAsset, assetUrl, derivedPath, isCachePath } from "../core/assets.ts"
 import { clone } from "../core/merge.ts";
 import { canDerive } from "../core/reuse.ts";
 import { store } from "../core/store.ts";
-import type { PokemonSpec } from "../games/types.ts";
+import type { IconMotion, PokemonSpec } from "../games/types.ts";
 import { importArt, placeholderArt } from "./artImport.ts";
 import { clear, comboInput, field, h, numberInput, rerender, selectInput, onFocusLeave, toast } from "./dom.ts";
 import { colorSelect, defaultView, monPaletteName, paletteField, picColors } from "./picColors.ts";
@@ -328,6 +328,40 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
 
 // ------------------------------------------------------------------ editing
 
+// The menu icon as the party menu animates it (a selected, healthy Pokémon:
+// about 6/60 s a frame), drawn 4x. The timer stops once the card is gone.
+function iconPreview(url: string, name: string | undefined, motion?: (name: string | undefined, h: number) => IconMotion): HTMLCanvasElement {
+  const canvas = h("canvas", { width: 16, height: 17, class: "icon-frame" });
+  void loadImage(url).then((img) => {
+    if (!img) return;
+    const m = motion?.(name, img.height) ?? { rest: 0, alt: img.height > 16 ? 1 : 0, mirror: false, bob: false };
+    const ctx = canvas.getContext("2d")!;
+    let alt = false;
+    const draw = () => {
+      const frame = alt ? m.alt : m.rest;
+      const y = alt && m.bob ? 1 : 0;
+      ctx.clearRect(0, 0, 16, 17);
+      if (m.mirror) {
+        ctx.drawImage(img, 0, frame * 16, 8, 16, 0, y, 8, 16);
+        ctx.save();
+        ctx.translate(16, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(img, 0, frame * 16, 8, 16, 0, y, 8, 16);
+        ctx.restore();
+      } else {
+        ctx.drawImage(img, 0, frame * 16, 16, Math.min(16, img.height), 0, y, 16, Math.min(16, img.height));
+      }
+    };
+    draw();
+    const timer = window.setInterval(() => {
+      if (!canvas.isConnected) return clearInterval(timer);
+      alt = !alt;
+      draw();
+    }, 100);
+  });
+  return canvas;
+}
+
 function edit(id: string, label: string, mutate: (r: Rec) => void): void {
   store.editRecord<Rec>(REG, id, label, mutate);
   store.seal();
@@ -601,7 +635,7 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
       slot(
         "Menu icon",
         lacks(spec, "iconImport") ? [h("span", { class: "muted" }, icon.name ?? "—")] : [h("button", { class: "btn small", onclick: () => importTo("icon") }, "Import…"), iconSel],
-        iconPath ? h("div", { class: "icon-frame", style: `background-image:url("${spriteUrl(iconPath)}")` }) : null,
+        iconPath ? iconPreview(spriteUrl(iconPath), icon.image ? undefined : icon.name, spec.icon.motion) : null,
         icon.image ? "Own image, 2 frames" : "Game icon shape",
       ),
     ),

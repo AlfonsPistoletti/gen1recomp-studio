@@ -140,6 +140,9 @@ function editTilesetChecked(id: string, label: string, mutate: (t: { blocks: num
       d.palettes.length = d.tiles.length;
       checkLimits(base.blocks.length + d.blocks.length, d.first + d.tiles.length);
     }, { create: () => (q ? { first: sheetTiles(base), tiles: [], blocks: [], collision: [], palettes: [] } : { first: sheetTiles(base), tiles: [], blocks: [], walkable: [] }) });
+    // nothing added any more (the last own block deleted): drop the record, in the same undo step
+    const ext = store.table(EXTENSIONS)[id] as Record<string, unknown> | undefined;
+    if (ext && Object.entries(ext).every(([k, v]) => k === "first" || v === undefined || (Array.isArray(v) && v.length === 0))) store.follow(EXTENSIONS, id, undefined);
   } else {
     store.editRecord<TilesetDef>("tilesets", id, label, (d) => {
       d.walkable ??= [];
@@ -334,26 +337,34 @@ interface Cut {
 
 // `dedupe`: identical tiles are stored once (else every cell is its own
 // tile, in reading order, so the picture's layout survives)
-export function cutPicture(img: HTMLImageElement, trueColor: boolean, dedupe = true): Cut {
-  const cols = Math.floor(img.width / TILE);
-  const rows = Math.floor(img.height / TILE);
+// The picture on white, cropped to w x h, in the 4 shades (unless full
+// color); `brightness` shifts it before the shades are picked (-96 .. 96).
+function shadedCanvas(img: HTMLImageElement, w: number, h: number, trueColor: boolean, brightness = 0): HTMLCanvasElement {
   const c = document.createElement("canvas");
-  c.width = cols * TILE;
-  c.height = rows * TILE;
+  c.width = w;
+  c.height = h;
   const ctx = c.getContext("2d", { willReadFrequently: true })!;
   ctx.fillStyle = "#fff";
-  ctx.fillRect(0, 0, c.width, c.height);
+  ctx.fillRect(0, 0, w, h);
   ctx.drawImage(img, 0, 0);
-  const data = ctx.getImageData(0, 0, c.width, c.height);
+  if (trueColor) return c;
+  const data = ctx.getImageData(0, 0, w, h);
   const px = data.data;
-  if (!trueColor) {
-    for (let i = 0; i < px.length; i += 4) {
-      const lum = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
-      const g = SHADE_GRAY[3 - Math.min(3, Math.floor(lum / 64))];
-      px[i] = px[i + 1] = px[i + 2] = g;
-      px[i + 3] = 255;
-    }
+  for (let i = 0; i < px.length; i += 4) {
+    const lum = Math.max(0, Math.min(255, 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2] + brightness));
+    const g = SHADE_GRAY[3 - Math.min(3, Math.floor(lum / 64))];
+    px[i] = px[i + 1] = px[i + 2] = g;
+    px[i + 3] = 255;
   }
+  ctx.putImageData(data, 0, 0);
+  return c;
+}
+
+export function cutPicture(img: HTMLImageElement, trueColor: boolean, dedupe = true, brightness = 0): Cut {
+  const cols = Math.floor(img.width / TILE);
+  const rows = Math.floor(img.height / TILE);
+  const c = shadedCanvas(img, cols * TILE, rows * TILE, trueColor, brightness);
+  const px = c.getContext("2d", { willReadFrequently: true })!.getImageData(0, 0, c.width, c.height).data;
   const tiles: Cut["tiles"] = [];
   const byKey = new Map<string, number>();
   const grid: number[][] = [];
@@ -455,8 +466,17 @@ interface ImportPlan {
   fresh: Cut["tiles"];
   blocks: number[][];
   anims: { tile: number; frames: Cut["tiles"] }[];
+  // 60ths of a second per frame (default 20, the game's water)
+  period?: number;
   // new tiles that only fill a row (not walkable)
   filler?: Set<number>;
+}
+
+// frames of a strip: whole `size` squares side by side or stacked
+function framesOf(img: HTMLImageElement, size: number): { n: number; across: boolean } {
+  if (img.height === size && img.width % size === 0 && img.width >= size * 2) return { n: img.width / size, across: true };
+  if (img.width === size && img.height % size === 0 && img.height >= size * 2) return { n: img.height / size, across: false };
+  throw new Error(`The frames must be ${size}×${size} each, side by side or stacked (at least 2): this picture is ${img.width}×${img.height}.`);
 }
 
 export function pickFile(): Promise<File | null> {
@@ -611,7 +631,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       q ? null : h("button", {
         class: "btn small",
         disabled: !canAnimate(id),
-        title: canAnimate(id) ? "A block whose tiles move: a picture of its frames, each 32×32, side by side (or stacked)" : "The spinner puzzles' tileset can't get animations of its own",
+        title: canAnimate(id) ? "A block whose tiles move, from a picture of its frames" : "The spinner puzzles' tileset can't get animations of its own",
         onclick: () => void importAnimatedBlock(id),
       }, "+ Animated block"),
       h("button", { class: "btn small", title: "A new block: a copy of the selected one, or empty", onclick: () => addBlock(id) }, "+ New block"),
@@ -1424,7 +1444,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const keepFrames = (a: ImportPlan["anims"][number]): EngineAnimation => ({
       tile: a.tile,
       kind: "frames",
-      period: 20,
+      period: plan.period ?? 20,
       images: a.frames.map((f, k) => addAsset(mod, `${id.toLowerCase()}_${a.tile}_${k + 1}`, pngBytes(tileCanvas(f.px)))),
       sequence: a.frames.map((_f, k) => k + 1),
     });
@@ -1466,7 +1486,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         for (let t = plan.have; t < plan.have + plan.fresh.length; t++) if (!plan.filler?.has(t)) ext.walkable!.push(t);
         if (plan.anims.length) {
           const tiles = new Set(plan.anims.map((a) => a.tile));
-          ext.animated = [...(ext.animated ?? []).filter((a) => !tiles.has(a.tile)), ...plan.anims.map((a) => ({ tile: a.tile, period: 20, frames: a.frames.map((f) => f.key) }))];
+          ext.animated = [...(ext.animated ?? []).filter((a) => !tiles.has(a.tile)), ...plan.anims.map((a) => ({ tile: a.tile, period: plan.period ?? 20, frames: a.frames.map((f) => f.key) }))];
         }
       });
     }
@@ -1496,25 +1516,17 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
   };
 
-  // frames of a strip: whole `size` squares side by side or stacked
-  const framesOf = (img: HTMLImageElement, size: number): { n: number; across: boolean } => {
-    if (img.height === size && img.width % size === 0 && img.width >= size * 2) return { n: img.width / size, across: true };
-    if (img.width === size && img.height % size === 0 && img.height >= size * 2) return { n: img.height / size, across: false };
-    throw new Error(`The frames must be ${size}×${size} each, side by side or stacked (at least 2): this picture is ${img.width}×${img.height}.`);
-  };
-
   // One tile's animation from a strip of 8x8 frames; frame 1 becomes the tile.
   const animateTile = async (id: string, tile: number) => {
     if (!store.project.mod) return toast("Open a mod first: the frames are saved into it.", "error");
-    const file = await pickFile();
-    if (!file) return;
+    const st = await sheetState(id);
+    const res = await promptAnimation(TILE, `Animate tile #${tile}`, "The tile's frames, each 8×8, in one image side by side (for example 24×8 for 3 frames) or stacked (8×24). At least 2 frames; the first one is what the sheet shows.", st.trueColor);
+    if (!res) return;
     try {
-      const img = await loadFile(file);
-      framesOf(img, TILE);
-      const st = await sheetState(id);
-      const cut = cutPicture(img, st.trueColor);
-      const frames = cut.grid.flat().map((i) => cut.tiles[i]);
-      const plan: ImportPlan = { have: st.have, sheet: null, per: st.per, fresh: [], blocks: [], anims: [{ tile, frames }] };
+      const cut = cutPicture(res.img, st.trueColor, true, res.brightness);
+      const { n, across } = framesOf(res.img, TILE);
+      const frames = Array.from({ length: n }, (_v, f) => cut.tiles[across ? cut.grid[0][f] : cut.grid[f][0]]);
+      const plan: ImportPlan = { have: st.have, sheet: null, per: st.per, fresh: [], blocks: [], anims: [{ tile, frames }], period: res.period };
       // the sheet's copy of the tile shows frame 1 (where nothing animates)
       if (st.ed.own) {
         const all = sheetTileList(st.sheet!, st.per, st.have);
@@ -1548,13 +1560,13 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   // animated through its frames.
   const importAnimatedBlock = async (id: string) => {
     if (!store.project.mod) return toast("Open a mod first: the frames are saved into it.", "error");
-    const file = await pickFile();
-    if (!file) return;
+    const st = await sheetState(id);
+    const res = await promptAnimation(BLOCK, "Animated block", "A block whose tiles move, like water or flowers. Draw each frame of the block as a 32×32 picture and put them in one image, side by side (for example 96×32 for 3 frames) or stacked (32×96). At least 2 frames. Tiles that stay the same in every frame become ordinary tiles; each tile that changes becomes an animated tile of its own.", st.trueColor);
+    if (!res) return;
+    const { img, period } = res;
     try {
-      const img = await loadFile(file);
       const { n, across } = framesOf(img, BLOCK);
-      const st = await sheetState(id);
-      const cut = cutPicture(img, st.trueColor);
+      const cut = cutPicture(img, st.trueColor, true, res.brightness);
       const existing = existingKeys(st.sheet, st.per, st.have, st.trueColor);
       const fresh: Cut["tiles"] = [];
       const anims: ImportPlan["anims"] = [];
@@ -1585,7 +1597,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         }
       }
       if (!anims.length) toast("Nothing changes between the frames: imported as a still block.", "info");
-      commitImport(id, { have: st.have, sheet: st.sheet, per: st.per, fresh, blocks: [block], anims }, "Animated block");
+      commitImport(id, { have: st.have, sheet: st.sheet, per: st.per, fresh, blocks: [block], anims, period }, "Animated block");
       selBlock = (liveTileset(id)?.blocks.length ?? 1) - 1;
       void render();
       if (anims.length) toast(`New block #${selBlock}: ${anims.length} animated tile${anims.length === 1 ? "" : "s"}, ${n} frames each.`, "ok");
@@ -1598,16 +1610,16 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   // each whole 32x32 square becomes a block.
   const importTiles = async (id: string) => {
     if (!store.project.mod) return toast("Open a mod first: imported tiles are saved into it.", "error");
-    const res = await promptPicture("Import tiles", "Added below the sheet's tiles. Every whole 32×32 square also becomes a block.");
+    const st = await sheetState(id);
+    const res = await promptPicture("Import tiles", "Added below the sheet's tiles. Every whole 32×32 square also becomes a block.", st.trueColor);
     if (!res) return;
     try {
-      const img = await loadFile(res.file);
+      const img = res.img;
       if (img.width < TILE || img.height < TILE) throw new Error("The picture is smaller than one 8×8 tile.");
-      const st = await sheetState(id);
       // keep the layout: the picture's rows start on a fresh sheet row, the
       // rest of each row stays blank (only when it fits the sheet's width)
       if (!res.optimize && Math.floor(img.width / TILE) <= st.per) {
-        const cut = cutPicture(img, st.trueColor, false);
+        const cut = cutPicture(img, st.trueColor, false, res.brightness);
         const start = Math.ceil(st.have / st.per) * st.per;
         const fresh: Cut["tiles"] = Array.from({ length: start - st.have }, blankTile);
         const filler = new Set<number>(Array.from({ length: start - st.have }, (_v, i) => st.have + i));
@@ -1623,7 +1635,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         return;
       }
       if (!res.optimize) toast(`The picture is wider than the sheet (${st.per} tiles a row), so its tiles were packed.`, "info");
-      const cut = cutPicture(img, st.trueColor);
+      const cut = cutPicture(img, st.trueColor, true, res.brightness);
       const have = st.have;
       const existing = existingKeys(st.sheet, st.per, have, st.trueColor);
       const fresh: Cut["tiles"] = [];
@@ -1753,22 +1765,59 @@ function promptNewTileset(taken: string[]): Promise<{ id: string; file: File; tr
   });
 }
 
-// a picture to import, and whether to optimize it
-function promptPicture(title: string, hint: string): Promise<{ file: File; optimize: boolean } | null> {
+// What the tileset's color mode means for an import (set when a tileset is
+// made: the game's are 4 shades, an own one may be full color)
+function colorNote(trueColor: boolean): HTMLElement {
+  return h("p", { class: "hint" }, trueColor
+    ? "This tileset is full color: the picture keeps its colors."
+    : "This tileset uses the 4 Game Boy shades (the map's palette colors them): the picture is turned into them. Brightness moves where the shades split.");
+}
+
+function brightnessField(trueColor: boolean, onChange: (v: number) => void): HTMLElement {
+  const range = h("input", { type: "range", min: -96, max: 96, step: 4, value: 0 });
+  range.addEventListener("input", () => onChange(Number(range.value)));
+  return h("label", { class: "field", hidden: trueColor }, h("span", { class: "field-label" }, "Brightness"), range);
+}
+
+// a picture to import (shown in the shades it gets), and whether to optimize it
+function promptPicture(title: string, hint: string, trueColor: boolean): Promise<{ img: HTMLImageElement; optimize: boolean; brightness: number } | null> {
   return new Promise((resolve) => {
     const dialog = h("dialog", {});
     const file = h("input", { type: "file", accept: "image/png,image/gif,image/bmp,image/webp" });
     const optimize = h("input", { type: "checkbox" });
-    const close = (v: { file: File; optimize: boolean } | null) => {
+    const preview = h("div", { class: "import-preview" });
+    const go = h("button", { class: "btn primary", disabled: true }, "Import");
+    let img: HTMLImageElement | null = null;
+    let brightness = 0;
+    const redraw = () => {
+      preview.replaceChildren();
+      if (!img) return;
+      const c = shadedCanvas(img, img.width, img.height, trueColor, brightness);
+      c.className = "import-canvas";
+      // pixel art doubled, but never wider than the dialog
+      c.style.width = `${Math.min(img.width * 2, 480)}px`;
+      preview.append(c);
+    };
+    const close = (v: { img: HTMLImageElement; optimize: boolean; brightness: number } | null) => {
       dialog.close();
       dialog.remove();
       resolve(v);
     };
-    const go = () => {
+    file.addEventListener("change", async () => {
       const f = file.files?.[0];
-      if (!f) return toast("Pick a picture", "error");
-      close({ file: f, optimize: optimize.checked });
-    };
+      img = null;
+      go.disabled = true;
+      if (f) {
+        try {
+          img = await loadFile(f);
+          go.disabled = false;
+        } catch (err) {
+          toast(err instanceof Error ? err.message : String(err), "error");
+        }
+      }
+      redraw();
+    });
+    go.addEventListener("click", () => img && close({ img, optimize: optimize.checked, brightness }));
     dialog.addEventListener("cancel", (e) => {
       e.preventDefault();
       close(null);
@@ -1776,9 +1825,108 @@ function promptPicture(title: string, hint: string): Promise<{ file: File; optim
     dialog.append(
       h("h3", {}, title),
       field("Picture", file, hint),
+      colorNote(trueColor),
+      preview,
+      brightnessField(trueColor, (v) => {
+        brightness = v;
+        redraw();
+      }),
       h("label", { class: "inline-check" }, optimize, "Optimize: store repeated tiles once, reuse tiles the sheet already has, and pack them (fewer tiles, but your layout isn't kept)"),
       h("p", { class: "hint" }, "Without it, the picture is added as laid out, starting on a new row of the sheet."),
-      h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), h("button", { class: "btn primary", onclick: go }, "Import")),
+      h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), go),
+    );
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+}
+
+// An animation's frames (each `size`×`size`, side by side or stacked):
+// checked as soon as the picture is picked, then played in the shades it gets
+// at the chosen speed. For "+ Animated block" (32) and "Animate…" (8).
+function promptAnimation(size: number, title: string, intro: string, trueColor: boolean): Promise<{ img: HTMLImageElement; period: number; brightness: number } | null> {
+  return new Promise((resolve) => {
+    const dialog = h("dialog", {});
+    const file = h("input", { type: "file", accept: "image/png,image/gif,image/bmp,image/webp" });
+    const speed = h("select", {}, ...SPEEDS.map(([v, l]) => h("option", { value: String(v), selected: v === 20 }, l)));
+    const canvas = h("canvas", { width: size, height: size, class: "anim-preview" });
+    canvas.style.width = canvas.style.height = "96px";
+    const info = h("p", { class: "hint" }, "Pick a picture to see the animation here.");
+    const go = h("button", { class: "btn primary", disabled: true }, "Import");
+    let img: HTMLImageElement | null = null;
+    let sheet: HTMLCanvasElement | null = null;
+    let frames: { n: number; across: boolean } | null = null;
+    let brightness = 0;
+    let frame = 0;
+    let timer = 0;
+    const draw = () => {
+      const ctx = canvas.getContext("2d")!;
+      ctx.clearRect(0, 0, size, size);
+      if (!sheet || !frames) return;
+      ctx.drawImage(sheet, frames.across ? frame * size : 0, frames.across ? 0 : frame * size, size, size, 0, 0, size, size);
+    };
+    const reshade = () => {
+      sheet = img ? shadedCanvas(img, img.width, img.height, trueColor, brightness) : null;
+      draw();
+    };
+    // the game shows each frame for `period` 60ths of a second
+    const play = () => {
+      clearInterval(timer);
+      if (!frames) return;
+      const n = frames.n;
+      timer = window.setInterval(() => {
+        frame = (frame + 1) % n;
+        draw();
+      }, (Number(speed.value) * 1000) / 60);
+    };
+    const close = (v: { img: HTMLImageElement; period: number; brightness: number } | null) => {
+      clearInterval(timer);
+      dialog.close();
+      dialog.remove();
+      resolve(v);
+    };
+    file.addEventListener("change", async () => {
+      const f = file.files?.[0];
+      img = null;
+      frames = null;
+      go.disabled = true;
+      clearInterval(timer);
+      if (f) {
+        try {
+          const loaded = await loadFile(f);
+          frames = framesOf(loaded, size);
+          img = loaded;
+          frame = 0;
+          info.className = "hint";
+          info.textContent = `${frames.n} frames, ${frames.across ? "side by side" : "stacked"}.`;
+          go.disabled = false;
+        } catch (err) {
+          frames = null;
+          info.className = "hint warn";
+          info.textContent = err instanceof Error ? err.message : String(err);
+        }
+      }
+      reshade();
+      play();
+    });
+    speed.addEventListener("change", play);
+    go.addEventListener("click", () => img && close({ img, period: Number(speed.value), brightness }));
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      close(null);
+    });
+    dialog.append(
+      h("h3", {}, title),
+      h("p", { class: "hint" }, intro),
+      field("Picture", file),
+      field("Speed", speed),
+      colorNote(trueColor),
+      h("div", { class: "anim-preview-wrap" }, canvas),
+      info,
+      brightnessField(trueColor, (v) => {
+        brightness = v;
+        reshade();
+      }),
+      h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), go),
     );
     document.body.append(dialog);
     dialog.showModal();

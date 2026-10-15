@@ -260,6 +260,23 @@ export interface TownSpec {
   benchText(label: string): string;
   // which maps may get a landing spot (outdoor ones)
   isTown(map: MapDef): boolean;
+  // a game trainer's header (line of sight, text keys): fixed game data, shown
+  // so its lines can be reworded; null when the game has none for it
+  gameTrainer?(ctx: GameContext, map: MapDef, entity: Record<string, unknown>): GameTrainerHeader | null;
+}
+
+export interface IconMotion {
+  rest: number; // 16x16 frame shown at rest
+  alt: number; // and the one it switches to
+  mirror: boolean; // only the left half, mirrored onto the right
+  bob: boolean; // nudges one pixel down instead of switching frames
+}
+
+export interface GameTrainerHeader {
+  battle?: string; // spots the player
+  won?: string; // in the battle, when it loses
+  after?: string; // talked to after losing
+  range?: number;
 }
 
 // ------------------------------------------------------------------ trainers
@@ -441,6 +458,9 @@ export interface PokemonSpec {
     // icons live in this registry (species id -> sheet name) instead of the
     // pokemon record's `icon`; an imported image becomes a sheet record there
     registry?: string;
+    // how the party menu animates an icon (`name` unset: the mod's own image),
+    // from its sheet's height; unset: frame 1 <-> frame 2 of a 16-wide strip
+    motion?(name: string | undefined, sheetHeight: number): IconMotion;
   };
 }
 

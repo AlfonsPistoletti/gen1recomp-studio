@@ -552,7 +552,20 @@ function trainerFields(map: MapDef, entity: EntityRecord, index: number, setText
   const team = numberInput(Number(entity.trainerParty ?? 1), (v) => rebuild("Trainer team", undefined, (e) => (e.trainerParty = Math.max(1, v))), 1, 99);
   out.push(h("div", { class: "row nowrap" }, cls, h("span", { class: "muted" }, "team"), team, h("button", { class: "btn small ghost", onclick: () => nav.openTrainer(String(entity.trainerClass), Number(entity.trainerParty ?? 1)) }, "Team →")));
   if (game) {
-    out.push(h("p", { class: "hint" }, "One of the game's trainers: its line of sight and battle texts come from the game's own data, which mods can't change."));
+    // its header (sight, which lines) is fixed game data; the lines' wording is ordinary text
+    const header = spec()?.gameTrainer?.(store.ctx, map, entity);
+    if (header) {
+      const line = (label: string, key?: string) => (key ? [h("span", { class: "field-label" }, label), textEditor(key, { rows: 3, compact: true, label: key })] : []);
+      out.push(
+        h("div", { class: "kv" }, h("span", {}, "Line of sight"), h("span", {}, header.range ? `${header.range} cell${header.range === 1 ? "" : "s"}` : "0 (only when talked to)")),
+        ...line("Before the battle", header.battle),
+        ...line("In the battle, when it loses", header.won),
+        ...line("When talked to after losing", header.after),
+      );
+    }
+    out.push(h("p", { class: "hint" }, header
+      ? "One of the game's trainers: its line of sight and which lines it says are the game's own data, which mods can't change. The lines' wording can be changed here."
+      : "One of the game's trainers: its line of sight and battle texts come from the game's own data, which mods can't change."));
     return out;
   }
   if (!setup) {

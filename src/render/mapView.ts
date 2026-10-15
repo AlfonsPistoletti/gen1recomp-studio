@@ -639,6 +639,16 @@ export class MapView {
         if (layer.numbered) this.badge(e.x * CELL, e.y * CELL, String(i + 1), layer.color);
       });
     }
+    // several entities on one cell (Route 22's two rivals): a count in the corner
+    const stacked = new Map<string, { x: number; y: number; n: number }>();
+    for (const layer of store.adapter.layers) {
+      for (const e of store.entities(map, layer.key)) {
+        const c = stacked.get(`${e.x},${e.y}`) ?? { x: e.x, y: e.y, n: 0 };
+        c.n++;
+        stacked.set(`${e.x},${e.y}`, c);
+      }
+    }
+    for (const c of stacked.values()) if (c.n > 1) this.countBadge(c.x, c.y, c.n);
     // Pokémon Center PCs and the town's landing spot (the field registry)
     const towns = store.adapter.towns;
     if (towns) {
@@ -733,6 +743,28 @@ export class MapView {
     ctx.fillRect(x, y, w, size + 2 / this.zoom);
     ctx.fillStyle = "#fff";
     ctx.fillText(text, x + 2 / this.zoom, y + 1 / this.zoom);
+  }
+
+  // a filled circle with a number at a cell's top-right corner
+  private countBadge(cx: number, cy: number, n: number): void {
+    if (this.zoom < 1.5) return;
+    const ctx = this.ctx;
+    const r = 6 / this.zoom;
+    const x = (cx + 1) * CELL - r;
+    const y = cy * CELL + r;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "#e11d48";
+    ctx.fill();
+    ctx.lineWidth = 1 / this.zoom;
+    ctx.strokeStyle = "#fff";
+    ctx.stroke();
+    ctx.font = `700 ${8 / this.zoom}px system-ui, sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = "#fff";
+    ctx.fillText(String(n), x, y + 0.5 / this.zoom);
+    ctx.textAlign = "start";
   }
 
   private drawToolPreview(map: MapDef): void {

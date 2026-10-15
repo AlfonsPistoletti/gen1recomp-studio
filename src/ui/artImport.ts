@@ -134,7 +134,10 @@ export function importArt(initial: ArtTarget, opts: { trueColor: boolean }): Pro
     const brightRow = h("label", { class: "field" }, h("span", { class: "field-label" }, "Brightness"), bright);
     const use = h("button", { class: "btn primary", disabled: true }, "Use image");
 
+    // a sheet of frames (menu icons) also plays, frame after frame
+    let timer = 0;
     const redraw = () => {
+      clearInterval(timer);
       preview.replaceChildren();
       brightRow.hidden = trueColor;
       use.disabled = !img;
@@ -142,6 +145,20 @@ export function importArt(initial: ArtTarget, opts: { trueColor: boolean }): Pro
       const canvas = render(img, target, !trueColor, brightness);
       canvas.className = "art-canvas";
       preview.append(canvas);
+      const frames = target.frames ?? 1;
+      if (frames > 1) {
+        const anim = h("canvas", { width: target.width, height: target.height, class: "art-canvas", title: "How it moves in the game" });
+        const ctx = anim.getContext("2d")!;
+        let f = 0;
+        const show = () => {
+          ctx.clearRect(0, 0, target.width, target.height);
+          ctx.drawImage(canvas, 0, f * target.height, target.width, target.height, 0, 0, target.width, target.height);
+          f = (f + 1) % frames;
+        };
+        show();
+        timer = window.setInterval(show, 250);
+        preview.append(anim);
+      }
     };
     const take = async (f: File | undefined) => {
       if (!f) return;
@@ -176,6 +193,7 @@ export function importArt(initial: ArtTarget, opts: { trueColor: boolean }): Pro
       redraw();
     });
     const close = (result: ArtResult | null) => {
+      clearInterval(timer);
       dialog.close();
       dialog.remove();
       resolve(result);

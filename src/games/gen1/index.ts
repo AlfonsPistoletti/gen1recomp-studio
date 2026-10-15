@@ -8,7 +8,7 @@
 import { GEN1_IMAGES } from "./images.ts";
 import { blockAt } from "../../core/geometry.ts";
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GameTrainerHeader, GlobalNumber, IconMotion, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../../lua/itemEffectRuntime.ts";
@@ -319,6 +319,7 @@ const pokemon: PokemonSpec = {
     width: 16,
     height: 16,
     frames: 2,
+    motion: iconMotion,
     names: (ctx) => Object.keys(iconData(ctx).icons ?? {}).sort(),
     path: (ctx, name) => iconData(ctx).icons?.[name],
     resolve: (ctx, r) => {
@@ -347,6 +348,23 @@ const ENCOUNTER_BUCKETS = [51, 102, 141, 166, 191, 216, 229, 242, 253, 256];
 // their grass table on every step, not only on grass; a map marked outdoor
 // (or on OVERWORLD without the mark) never does
 // (gen1recomp OverworldState.rollsIndoorEncounters, Map.isOutdoor).
+// The party menu's icon animation, restated from gen1recomp PartyMenu
+// (iconFrames, frameFor, mirrorsIcon, drawIcon): [rest, alt] frame per icon;
+// the sprite-sheet icons (16x96) rest on walk-down and switch to standing.
+const ICON_FRAMES: Record<string, [number, number]> = {
+  BUG: [1, 0], GRASS: [1, 0], SNAKE: [0, 1], QUADRUPED: [0, 1],
+  MON: [3, 0], FAIRY: [3, 0], BIRD: [3, 0], WATER: [0, 3], PIKACHU: [0, 3],
+};
+function iconMotion(name: string | undefined, h: number): IconMotion {
+  // every game icon but HELIX shows only its left half, mirrored; a mod's
+  // own image is drawn whole
+  const mirror = name !== undefined && name !== "HELIX";
+  if (name === "BALL" || name === "HELIX") return { rest: 0, alt: 0, mirror, bob: true };
+  if (h <= 16) return { rest: 0, alt: 0, mirror, bob: false };
+  const [rest, alt] = (name && ICON_FRAMES[name]) || [0, h >= 64 ? 3 : 1];
+  return { rest, alt, mirror, bob: false };
+}
+
 export function isOutdoorMap(map: MapDef): boolean {
   const o = (map as { outdoor?: unknown }).outdoor;
   return typeof o === "boolean" ? o : map.tileset === "OVERWORLD";
@@ -518,6 +536,16 @@ const towns: TownSpec = {
   // Teleport/Dig/Escape Rope land outside: OVERWORLD (or a map marked outdoor)
   // gen1recomp Map.isFlyTown: outdoors, or the PLATEAU tileset (Indigo Plateau)
   isTown: (map) => isOutdoorMap(map) || map.tileset === "PLATEAU",
+  // trainer_headers.lua: map label -> object index -> header. Lua's list form
+  // (keys 1..n) arrives as a 0-based array, the sparse form as string keys.
+  gameTrainer: (ctx, map, entity) => {
+    const all = ctx.data.extra.trainerHeaders as Record<string, unknown> | undefined;
+    const byIndex = typeof map.label === "string" ? all?.[map.label] : undefined;
+    const idx = Number(entity.index);
+    if (!byIndex || !Number.isInteger(idx)) return null;
+    const row = Array.isArray(byIndex) ? byIndex[idx - 1] : (byIndex as Record<string, unknown>)[String(idx)];
+    return (row as GameTrainerHeader | undefined) ?? null;
+  },
 };
 
 // ------------------------------------------------------------------ trainers
@@ -756,13 +784,14 @@ export const gen1: GameAdapter = {
   startMap: "PALLET_TOWN",
 
   async load(read, version): Promise<Dataset> {
-    const [maps, tilesets, sprites, pal, fieldData, icons, ...tables] = await Promise.all([
+    const [maps, tilesets, sprites, pal, fieldData, icons, trainerHeaders, ...tables] = await Promise.all([
       read("maps.lua") as Promise<Record<string, MapDef>>,
       read("tilesets.lua") as Promise<Record<string, TilesetDef>>,
       read("sprites.lua") as Promise<Record<string, SpriteDef>>,
       read("palettes.lua") as Promise<PaletteData>,
       read("field.lua") as Promise<Field>,
       read("icons.lua") as Promise<IconData>,
+      read("trainer_headers.lua").catch(() => ({})) as Promise<Record<string, unknown>>,
       ...content.map((c) => (c.file ? (read(c.file) as Promise<Record<string, unknown>>) : Promise.resolve({}))),
     ]);
     for (const m of Object.values(maps)) gen1.normalizeMap(m);
@@ -772,7 +801,7 @@ export const gen1: GameAdapter = {
     contentTables.sprites = { ...sprites };
     // only what the editor reads from the big field table
     const fieldExtra: Field = { waterTilesets: fieldData.waterTilesets, indoorEncounters: fieldData.indoorEncounters, ledges: fieldData.ledges };
-    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, field: fieldExtra, icons } };
+    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, field: fieldExtra, icons, trainerHeaders } };
   },
 
   // Empty Lua tables arrive as []; give each field the shape it has in use.

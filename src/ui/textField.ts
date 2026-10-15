@@ -7,7 +7,8 @@ import { h } from "./dom.ts";
 // step per pause (merged edits, sealed on blur). With `commands`, buttons
 // insert {PLAYER}, {DONE}, ... and a legend explains them.
 
-export function textEditor(key: string, opts: { rows?: number; label?: string; compact?: boolean; commands?: boolean } = {}): HTMLElement {
+// `revert` (default on): a "Back to the game's text" button while a game text is changed
+export function textEditor(key: string, opts: { rows?: number; label?: string; compact?: boolean; commands?: boolean; revert?: boolean } = {}): HTMLElement {
   const current = store.table("text")[key];
   const original = typeof current === "string" ? current : "";
   const mode = lineMode(original);
@@ -38,11 +39,27 @@ export function textEditor(key: string, opts: { rows?: number; label?: string; c
   };
   renderPreview();
 
+  const base = store.baseTable("text")[key];
+  const back = h("button", {
+    class: "btn small danger",
+    onclick: () => {
+      if (typeof base !== "string") return;
+      store.revertRecord("text", key, `${key}: the game's text`);
+      store.seal();
+      area.value = toEditable(base);
+      renderPreview();
+      showBack();
+    },
+  }, "Back to the game's text");
+  const showBack = () => (back.hidden = opts.revert === false || typeof base !== "string" || store.table("text")[key] === base);
+  showBack();
+
   const save = () => {
     renderPreview();
     // untouched strings keep their exact separators
     const next = area.value === shown ? original : fromEditable(area.value, mode);
     store.setRecord("text", key, `Edit text ${key}`, next, true);
+    showBack();
   };
   area.addEventListener("input", save);
   area.addEventListener("blur", () => store.seal());
@@ -112,6 +129,7 @@ export function textEditor(key: string, opts: { rows?: number; label?: string; c
     h("span", { class: "hint" }, "One line per row; a blank line starts a new page. {PLAYER}, {RIVAL} … are filled in by the game."),
     warn,
     boxes,
+    back,
     legend,
   );
 }

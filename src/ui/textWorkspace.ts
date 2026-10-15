@@ -114,7 +114,7 @@ export function mountTextWorkspace(left: HTMLElement, center: HTMLElement, right
     const busy = main.contains(document.activeElement) && document.activeElement !== document.body;
     if (force || !busy) {
       clear(main);
-      main.append(h("section", { class: "card" }, textEditor(current, { rows: 10, commands: true })));
+      main.append(h("section", { class: "card" }, textEditor(current, { rows: 10, commands: true, revert: false })));
     } else {
       main.dataset.deferred = "1"; // redraw once focus leaves (onFocusLeave)
     }

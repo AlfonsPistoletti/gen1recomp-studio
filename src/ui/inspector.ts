@@ -3,7 +3,7 @@
 // declares its fields.
 
 import { OPPOSITE, resizeBlocks } from "../core/geometry.ts";
-import { clone } from "../core/merge.ts";
+import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import { DIRECTIONS, type Direction, type EntityRecord, type MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec } from "../games/types.ts";
@@ -528,6 +528,7 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
     { class: "row" },
     h("button", { class: "btn small", onclick: () => duplicateEntity(layer, index) }, "Duplicate"),
     h("button", { class: "btn small danger", onclick: () => deleteSelection() }, "Delete"),
+    ...revertEntityButton(map, layer, index, record),
   );
   // what the NPC/sign says goes right under the fields, before the raw extras
   const says =
@@ -607,6 +608,30 @@ function duplicateEntity(layer: EntityLayer, index: number): void {
     newIndex = list.length - 1;
   });
   store.select({ layer: layer.key, index: newIndex });
+}
+
+// The game's version of an entity: people/objects by their `index` (the game's
+// object number), warps and signs by their place in the list (a warp's number
+// is its place: destWarp points at it). Places are only trusted while nothing
+// was deleted from the list (additions go at the end).
+function baseEntity(map: MapDef, layer: EntityLayer, index: number, record: EntityRecord): EntityRecord | undefined {
+  const base = store.base[map.id];
+  if (!base) return undefined;
+  const baseList = store.entities(base, layer.key);
+  if (typeof record.index === "number" && baseList.some((e) => typeof e.index === "number")) return baseList.find((e) => e.index === record.index);
+  return store.entities(map, layer.key).length >= baseList.length ? baseList[index] : undefined;
+}
+
+function revertEntityButton(map: MapDef, layer: EntityLayer, index: number, record: EntityRecord): HTMLElement[] {
+  const original = baseEntity(map, layer, index, record);
+  if (!original || deepEqual(original, record)) return [];
+  return [h("button", {
+    class: "btn small danger",
+    title: "Put this one back the way the game has it (texts are reverted on their own)",
+    onclick: () => editMap(`Revert ${layer.singular.toLowerCase()}`, (d) => {
+      store.entities(d, layer.key)[index] = clone(original);
+    }),
+  }, "Revert to base")];
 }
 
 export function deleteSelection(): void {

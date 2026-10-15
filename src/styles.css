@@ -826,11 +826,11 @@ svg.icon { display: block; flex: none; pointer-events: none; }
 .art-thumb { width: 112px; height: 112px; display: flex; align-items: flex-end; justify-content: center; background: #f4f4ec; border-radius: 6px; overflow: hidden; }
 .art-thumb img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
 /* first 16x16 frame of a sheet of any length, at 4x */
-.icon-frame { width: 64px; height: 64px; margin: auto; background-size: 64px auto; background-position: top left; background-repeat: no-repeat; image-rendering: pixelated; }
+.icon-frame { width: 64px; height: 68px; margin: auto; image-rendering: pixelated; }
 .art-dialog { width: min(560px, calc(100vw - 32px)); }
 .art-drop { border: 1px dashed var(--line-2); border-radius: 8px; padding: 16px; text-align: center; color: var(--muted); margin-bottom: 10px; }
 .art-drop.over { border-color: var(--accent); color: var(--text); }
-.art-preview { display: grid; place-items: center; min-height: 140px; background: #f4f4ec; border-radius: 8px; margin-bottom: 10px; }
+.art-preview { display: flex; justify-content: center; align-items: center; gap: 24px; min-height: 140px; background: #f4f4ec; border-radius: 8px; margin-bottom: 10px; }
 .art-canvas { width: auto; height: 224px; image-rendering: pixelated; }
 .art-modes { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .art-modes label { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
@@ -993,3 +993,9 @@ dialog.modal { min-width: 420px; }
 .menu.sort-menu { width: 200px; }
 /* a slot row's text that spans the picture, name and level columns */
 .slot-row > .slot-wide { grid-column: 2 / -1; }
+/* "+ Animated block" dialog: the frames played at the chosen speed */
+.anim-preview-wrap { display: flex; justify-content: center; margin: 8px 0; }
+.anim-preview { image-rendering: pixelated; background: #f3f1e6; border-radius: 4px; }
+/* "+ Import tiles": the picture in the shades it gets */
+.import-preview { display: flex; justify-content: center; margin: 8px 0; max-height: 320px; overflow: auto; }
+.import-canvas { image-rendering: pixelated; }

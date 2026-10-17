@@ -37,6 +37,7 @@ const NAMES: Record<string, [string, string]> = {
   trainers: ["Trainers", "trainer"],
   ai_classes: ["Trainer AI", "trainer AI"],
   text: ["Texts", "text"],
+  rom_text: ["Game texts", "game text"],
   constants: ["Global settings", "global setting"],
   type_chart: ["Type chart", "type chart entry"],
 };
@@ -135,7 +136,8 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     case "ai_classes":
       return store.table("trainers")[id] ? () => nav.openTrainer(id) : null;
     case "text":
-      return removed ? null : () => nav.openText(id);
+    case "rom_text":
+      return removed ? null : () => nav.openText(id, registry);
     case "palettes":
       return store.table("palettes")[id] ? () => nav.openPalette(id) : null;
     case "image_overrides":

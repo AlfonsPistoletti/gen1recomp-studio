@@ -98,6 +98,9 @@ const content: ContentSpec[] = [
   { registry: "type_chart", file: "type_chart.lua", editable: true, build: typeChartRecords },
   // script text by key ("55:515e"); new keys (a studio trainer's texts) work too
   { registry: "text", file: "text.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([, v]) => typeof v === "string")) },
+  // named engine texts (battle, menus, Mom …): rom_text merges into data.text,
+  // the table gen1recomp RomText reads
+  { registry: "rom_text", file: "rom_text.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([, v]) => typeof v === "string")) },
   // palettes.lua subtables are the registry's ids (trainers, pokemon, ...);
   // the studio edits trainers (a new class's portrait colors)
   { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => k === "trainers" && !!v && typeof v === "object")) },
@@ -150,6 +153,10 @@ function typeChartRecords(file: Record<string, unknown>): Record<string, unknown
 const palettes = (ctx: GameContext) => (ctx.data.extra.palettes ?? {}) as Palettes;
 // event flags the game's data uses (see load)
 const usedFlags = new Set<number>();
+// scripts.lua (decoded script rows by pointer) and the texts each script
+// shows, worked out on first ask (scriptTexts)
+let scriptRows: Record<string, unknown> = {};
+const scriptTextMemo = new Map<string, string[]>();
 // constants/event_flags.asm: NUM_EVENTS = $800 (gen1recomp Save.EVENT_BYTES)
 const NUM_EVENTS = 0x800;
 
@@ -572,7 +579,33 @@ export const gen2: GameAdapter = {
   manifestGame: "gen2",
   startMap: "NEW_BARK_TOWN",
   viewOnly: { registries: ["tilesets", "sprites"], reason: "Gen 2 tilesets and sprites can be looked at, not changed yet." },
-  workspaces: ["maps", "pokemon", "moves", "items", "trainers", "graphics", "global"],
+  workspaces: ["maps", "pokemon", "moves", "items", "trainers", "text", "graphics", "global"],
+  textSets: [{ registry: "text", label: "Script texts" }, { registry: "rom_text", label: "Game texts" }],
+  scriptTexts(ctx, key) {
+    if (!(key in scriptRows)) return undefined;
+    const known = scriptTextMemo.get(key);
+    if (known) return known;
+    const text = ctx.data.content.text ?? {};
+    const out = new Set<string>();
+    const seen = new Set<string>();
+    // a row names texts (writetext, trainer lines, ...) and other scripts
+    // (scall, jump, ...) by the same kind of pointer string
+    const walk = (k: string) => {
+      if (seen.has(k)) return;
+      seen.add(k);
+      JSON.stringify(scriptRows[k], (_p, v: unknown) => {
+        if (typeof v === "string") {
+          if (typeof text[v] === "string") out.add(v);
+          else if (v in scriptRows) walk(v);
+        }
+        return v;
+      });
+    };
+    walk(key);
+    const list = [...out];
+    scriptTextMemo.set(key, list);
+    return list;
+  },
   graphicsViews: ["tilesets"],
   // pokecrystal constants/collision_constants.asm (the codes a block's quarter
   // takes); walk/water/wall from gen1recomp's CollPermissions table
@@ -613,6 +646,8 @@ export const gen2: GameAdapter = {
       ...content.map((c) => (c.file ? (read(c.file) as Promise<Record<string, unknown>>) : Promise.resolve({}))),
     ]);
     const scripts = ((await read("scripts.lua").catch(() => null)) ?? {}) as Record<string, unknown>;
+    scriptRows = scripts;
+    scriptTextMemo.clear();
     // gen1recomp World:resolveSprite: object sprite $F0+slot = the slot's
     // sprite (a new game's: initial_events.lua sprites) by number in
     // constants.spriteOrder (1-based); `variablesprite` script rows change it

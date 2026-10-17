@@ -89,6 +89,15 @@ edited.icons = {
   CYNDAQUIL: "ICON_BULBASAUR",
 };
 edited.cries = { CHIKORITA: { base: "BAYLEEF" } };
+// the two text sets: a script text (ROM pointer key) and a named engine text
+{
+  // a map person's script leads to the texts it shows (Text workspace labels)
+  const nb = base.NEW_BARK_TOWN as unknown as { objects: { scriptKey?: string }[] };
+  const shown = adapterFor(version)!.scriptTexts!({ data: project.data, maps: base, records: {} }, nb.objects[0].scriptKey!) ?? [];
+  check("script texts are found through map scripts", shown.length > 0 && shown.every((k) => typeof content.text[k] === "string"), shown.join(", "));
+}
+check("rom_text loaded", typeof content.rom_text?._BallDontBeAThiefText === "string");
+edited.rom_text = { _BallDontBeAThiefText: "Hands off that" + String.fromCharCode(10) + "ball!{PROMPT}" };
 edited.map_songs = { NEW_BARK_TOWN: Object.values(content.map_songs).find((s) => s !== content.map_songs.NEW_BARK_TOWN) as string };
 
 // maps, the way the map tools edit them (through the adapter)
@@ -150,6 +159,7 @@ check("sparse held item written as [2]", source.includes('[2] = "BERRY"'));
 check("encounters patched per map, not whole", /encounters:patch\("grass", \{\s+ROUTE_29 = /.test(source) && source.includes("ROUTE_30 = mod.DELETE") && !source.includes("ROUTE_31 ="));
 check("dex entry saved as a patch of what changed", /dexEntry = \{ kind = "TESTLEAF" \}/.test(source));
 check("icons: species overridden by name, own sheet registered", source.includes('icons:override("CYNDAQUIL", "ICON_BULBASAUR")') && source.includes('icons:register("ICON_STUDIO_CHIKORITA"'));
+check("rom_text saved as an override", source.includes('rom_text:override("_BallDontBeAThiefText"'));
 check("pokemon saved as a patch", source.includes('pokemon:patch("CHIKORITA"') && !source.includes("spriteFront"));
 
 {

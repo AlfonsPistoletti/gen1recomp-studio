@@ -35,7 +35,7 @@ export const nav = {
   openTrainer: (_id: string, _team?: number): void => {},
   openMove: (_id: string): void => {},
   openItem: (_id: string): void => {},
-  openText: (_key: string): void => {},
+  openText: (_key: string, _registry?: string): void => {},
   // an event: a studio_events id, or game:<MAP>:talk:<TEXT> for the game's own
   openEvent: (_id: string): void => {},
   openGlobal: (_section: string): void => {},

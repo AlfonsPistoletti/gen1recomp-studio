@@ -8,8 +8,10 @@ import { h } from "./dom.ts";
 // insert {PLAYER}, {DONE}, ... and a legend explains them.
 
 // `revert` (default on): a "Back to the game's text" button while a game text is changed
-export function textEditor(key: string, opts: { rows?: number; label?: string; compact?: boolean; commands?: boolean; revert?: boolean } = {}): HTMLElement {
-  const current = store.table("text")[key];
+// `registry`: the text registry the key lives in (default "text"; Gen 2 also has "rom_text")
+export function textEditor(key: string, opts: { rows?: number; label?: string; compact?: boolean; commands?: boolean; revert?: boolean; registry?: string } = {}): HTMLElement {
+  const reg = opts.registry ?? "text";
+  const current = store.table(reg)[key];
   const original = typeof current === "string" ? current : "";
   const mode = lineMode(original);
   const shown = toEditable(original);
@@ -39,26 +41,26 @@ export function textEditor(key: string, opts: { rows?: number; label?: string; c
   };
   renderPreview();
 
-  const base = store.baseTable("text")[key];
+  const base = store.baseTable(reg)[key];
   const back = h("button", {
     class: "btn small danger",
     onclick: () => {
       if (typeof base !== "string") return;
-      store.revertRecord("text", key, `${key}: the game's text`);
+      store.revertRecord(reg, key, `${key}: the game's text`);
       store.seal();
       area.value = toEditable(base);
       renderPreview();
       showBack();
     },
   }, "Back to the game's text");
-  const showBack = () => (back.hidden = opts.revert === false || typeof base !== "string" || store.table("text")[key] === base);
+  const showBack = () => (back.hidden = opts.revert === false || typeof base !== "string" || store.table(reg)[key] === base);
   showBack();
 
   const save = () => {
     renderPreview();
     // untouched strings keep their exact separators
     const next = area.value === shown ? original : fromEditable(area.value, mode);
-    store.setRecord("text", key, `Edit text ${key}`, next, true);
+    store.setRecord(reg, key, `Edit text ${key}`, next, true);
     showBack();
   };
   area.addEventListener("input", save);

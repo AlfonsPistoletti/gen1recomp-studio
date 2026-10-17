@@ -718,6 +718,14 @@ export interface GameAdapter {
   // game images a mod can replace (Graphics > Images)
   images?: ImageSpec;
 
+  // the Text workspace's sets when a game has several text registries (Gen 2:
+  // script texts and named engine texts); unset: the "text" registry, with
+  // Gen 1's "On maps" filter, "+ New" and "Used by"
+  textSets?: { registry: string; label: string }[];
+  // the "text" keys a script shows (its rows, followed through calls and
+  // jumps), undefined when `key` is no script: the Text workspace's labels and
+  // Used by for a game whose texts are named after their place in the ROM (Gen 2)
+  scriptTexts?(ctx: GameContext, key: string): string[] | undefined;
   // times of day the map view can show (Gen 2: morning, day, night); the
   // chosen one reaches paletteKeys as ctx.time. Unset: no choice offered.
   times?: { key: string; label: string }[];

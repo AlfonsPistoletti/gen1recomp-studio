@@ -860,6 +860,14 @@ export const gen1: GameAdapter = {
       duplicate: (map, copy) => {
         copy.index = nextObjectIndex(map);
       },
+      // a mod's own kind (studio_extensions.json): an object the game keeps
+      // as is (extra fields pass, Schemas f.partial); NPC.new needs a sprite
+      custom: {
+        create: (map, x, y) => {
+          const index = nextObjectIndex(map);
+          return { index, name: `${map.id}_OBJ_${index}`, sprite: "SPRITE_POKE_BALL", movement: "STAY", range: "NONE", x, y };
+        },
+      },
       // an item ball: any object with `item` is picked up (OverworldController
       // talkTo); its text id is never shown
       variants: [{

@@ -24,6 +24,21 @@ contains the game's own data or art.
 3. **Start it,** pick your gen1recomp folder if asked, choose a game and click **+ New mod…**
    in the mod picker.
 
+## Working with your own Lua
+
+The studio and hand-written Lua work side by side in the same mod:
+
+- When it opens a mod, the studio reads what your `main.lua` registers and patches and shows it in its
+  editors, so you can keep editing on top of your own changes.
+- The studio only writes its own files (`studio_content.lua`, `studio_*.lua`). It never touches `main.lua`
+  or your other Lua files. Don't edit `studio_content.lua` by hand: it's rewritten on every save.
+- Keep `require("mods.<your mod>.studio_content")(mod)` as the last line of `main.lua`, so the game ends up
+  with what the studio shows. If your Lua and the studio change the same record, the one loaded last wins.
+- Put `require("src.…")` of engine modules inside the functions that use them: the studio reads `main.lua`
+  in a sandbox that only loads your mod's own files.
+- Your mod can add its own map kinds, painted areas and event commands to the studio:
+  see [Extending the studio](https://github.com/AlfonsPistoletti/gen1recomp-studio/wiki/Extending-the-studio).
+
 ## Help
 
 - [Wiki](https://github.com/AlfonsPistoletti/gen1recomp-studio/wiki): every editor explained, with screenshots.

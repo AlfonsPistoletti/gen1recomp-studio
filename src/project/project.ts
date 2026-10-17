@@ -7,6 +7,7 @@
 // Saving diffs the editor's records against Base and rewrites only
 // studio_content.lua, so hand-written mod code is never touched.
 
+import { loadExtensions, NO_EXTENSIONS, type Extensions } from "./extensions.ts";
 import { applyOps, clone, deepEqual, diffDeep, diffRecord, isPlainObject, OVERRIDE, splitReplaced } from "../core/merge.ts";
 import { MOD_MAP_INDEX_BASE, type MapDef, type ModInfo, type RegistryOp, type SaveResult } from "../core/types.ts";
 import type { Dataset, GameAdapter } from "../games/types.ts";
@@ -32,6 +33,8 @@ export interface Project {
   warnings: string[];
   // the manifest's assets_transforms file, if the mod has one
   transforms: string | null;
+  // kinds and commands the mod and its dependencies describe (extensions.ts)
+  extensions: Extensions;
 }
 
 // ------------------------------------------------------------------ dataset
@@ -223,7 +226,8 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
   }
   const manifest = modId ? await readManifest(host, modId) : null;
   const transforms = typeof manifest?.assets_transforms === "string" ? manifest.assets_transforms : null;
-  return { host, version, adapter, mod: modId, data, studio, tilesetImages, warnings, transforms };
+  const extensions = modId ? await loadExtensions(host, modId, (m) => warnings.push(m)) : NO_EXTENSIONS;
+  return { host, version, adapter, mod: modId, data, studio, tilesetImages, warnings, transforms, extensions };
 }
 
 // ------------------------------------------------------------------ save

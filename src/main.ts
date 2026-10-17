@@ -1,4 +1,7 @@
-import wasmUrl from "wasmoon/dist/glue.wasm?url";
+import wasmUrl from "wasmoon/dist/glue.wasm?url";
+import { startAreaBrush } from "./ui/mapAreas.ts";
+import { extKinds } from "./ui/extFields.ts";
+import { extIcon } from "./render/extIcons.ts";
 import { imageAliases, OVERRIDES, saveAssets, saveOverrides, syncTransforms } from "./core/assets.ts";
 import { liveTileset, sheetRecipes, tilesetIds } from "./core/tilesets.ts";
 import { gbcAvailable, loadGbc, setGbc } from "./core/gbc.ts";
@@ -22,7 +25,7 @@ import { differencesMarkdown, mountChangesMenu } from "./ui/changesMenu.ts";
 import { Brush, DoorOpen, Footprints, Package, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
 import { $, clear, dropdown, field, h, icon, numberInput, setComboLabels, toast, errorText } from "./ui/dom.ts";
-import { addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
+import { addCustom, addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
 import { mountMapList } from "./ui/mapList.ts";
 import { nav, WORKSPACES, type GraphicsView, type WorkspaceId } from "./ui/nav.ts";
 import { mountEncounterPane } from "./ui/encounterPanel.ts";
@@ -297,6 +300,17 @@ function toggleColors(): void {
   remember(COLORS_KEY, store.colorMode);
 }
 const colorButton = h("button", { class: "toggle icon-tool", "aria-label": "RED++ colors", onclick: toggleColors }, icon(Palette));
+// the time of day the map view shows (games with times of day: Gen 2)
+const timeSelect = h("select", { class: "time-select", title: "Time of day the maps are shown in (a map that sets its own keeps it)" });
+timeSelect.addEventListener("change", () => store.setTimeOfDay(timeSelect.value));
+function updateTimeSelect(): void {
+  const times = store.project ? store.adapter.times : undefined;
+  timeSelect.hidden = !times;
+  if (!times) return;
+  if (!times.some((t) => t.key === store.timeOfDay)) store.timeOfDay = times[0].key;
+  timeSelect.replaceChildren(...times.map((t) => h("option", { value: t.key, selected: t.key === store.timeOfDay }, t.label)));
+}
+
 function updateColorButton(): void {
   const ok = gbcAvailable();
   colorButton.disabled = !ok;
@@ -307,6 +321,7 @@ function updateColorButton(): void {
 }
 store.on((reason) => {
   if (reason === "project" || reason === "colors") updateColorButton();
+  if (reason === "project") updateTimeSelect();
   // an edit of a registry this game only shows (Gen 2 maps), once per gesture
   if (reason === "viewonly" && !viewOnlyShown) {
     viewOnlyShown = true;
@@ -328,6 +343,24 @@ function renderAddButtons(): void {
       h("button", { class: "btn small add-btn", title: `Add a ${name.toLowerCase()} at the cursor or view centre`, "aria-label": `Add ${name}`, onclick: () => addAt(layer.key) },
         "+", glyph ? icon(glyph) : ` ${name}`),
     );
+    // the mods' own area kinds: arm the area brush
+    if (layer.custom) {
+      for (const k of extKinds().filter((x) => x.place === "cells")) {
+        addGroup.append(
+          h("button", { class: "btn small add-btn area-btn", "data-kind": k.id, title: `Paint ${k.label.toLowerCase()} (from the mod ${k.from}): drag on the map, right-drag erases`, "aria-label": `Paint ${k.label}`, style: `color:${k.color}`, onclick: () => startAreaBrush(k.id) },
+            icon(Brush), icon(extIcon(k.icon)[1])),
+        );
+      }
+    }
+    // the mods' own placed kinds (studio_extensions.json)
+    if (layer.custom) {
+      for (const k of extKinds().filter((x) => x.place === "object")) {
+        addGroup.append(
+          h("button", { class: "btn small add-btn", title: `Add a ${k.label.toLowerCase()} (from the mod ${k.from}) at the cursor or view centre`, "aria-label": `Add ${k.label}`, style: `color:${k.color}`, onclick: () => addAt(layer.key, `ext:${k.id}`) },
+            "+", icon(extIcon(k.icon)[1])),
+        );
+      }
+    }
     for (const v of layer.variants ?? []) {
       const vglyph = ADD_ICONS[v.id];
       addGroup.append(
@@ -342,6 +375,7 @@ const zoomLabel = h("span", { class: "zoom-label" });
 $("#toolbar").append(
   h("div", { class: "seg" }, ...toolButtons),
   h("div", { class: "seg" }, ...overlayButtons, colorButton),
+  timeSelect,
   addGroup,
 );
 
@@ -418,6 +452,7 @@ $("#viewport").append(
 
 function addAt(layer: string, variant?: string): void {
   const { cx, cy } = view.centerCell();
+  if (variant?.startsWith("ext:")) return addCustom(variant.slice(4), cx, cy);
   addEntity(layer, cx, cy, variant);
 }
 
@@ -427,6 +462,7 @@ function refreshToolbar(): void {
     b.disabled = store.toolLocked;
   }
   for (const b of overlayButtons) b.classList.toggle("active", store.overlays[b.dataset.overlay as keyof Overlays]);
+  for (const b of addGroup.querySelectorAll<HTMLElement>(".area-btn")) b.classList.toggle("active", store.tool === "area" && store.areaBrush?.kind === b.dataset.kind);
   zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`;
   $("#viewport").dataset.tool = store.tool;
 }

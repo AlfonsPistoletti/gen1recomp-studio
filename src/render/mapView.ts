@@ -3,7 +3,9 @@
 // surface. Each map is rendered once into its own canvas (from the block
 // atlas) and only re-rendered when its record changes; a frame is a handful
 // of drawImage calls plus overlays for the map being edited.
-
+
+import { extIcon } from "./extIcons.ts";
+import { cellAt, cellsOf, extKind, paintCell } from "../core/customCells.ts";
 import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../core/geometry.ts";
 import { store, type Selection, type Stamp } from "../core/store.ts";
 import { EXTENSIONS, liveTileset, mapAnimations, perRow, sheetTiles, tilesetKey, tilesetUrl } from "../core/tilesets.ts";
@@ -53,6 +55,7 @@ export interface HoverInfo {
 type Drag =
   | { kind: "pan"; sx: number; sy: number; camX: number; camY: number }
   | { kind: "paint"; lastBx: number; lastBy: number }
+  | { kind: "area"; lastCx: number; lastCy: number; erase: boolean }
   | { kind: "tile"; lastTx: number; lastTy: number }
   | { kind: "tilepick"; mapId: string; tx: number; ty: number }
   | { kind: "rect"; bx: number; by: number }
@@ -607,11 +610,36 @@ export class MapView {
   private drawEntities(map: MapDef): void {
     const ctx = this.ctx;
     const lw = 1.5 / this.zoom;
+    // painted areas of mods' own kinds, under everything else
+    for (const [kindId, cells] of Object.entries(cellsOf(map))) {
+      const kind = extKind(kindId);
+      ctx.fillStyle = kind?.color ?? "#888888";
+      ctx.globalAlpha = 0.35;
+      for (const c of cells) ctx.fillRect(c.x * CELL, c.y * CELL, CELL, CELL);
+      ctx.globalAlpha = 1;
+    }
+    const cs = store.cellSelection;
+    if (cs) {
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2 / this.zoom;
+      ctx.strokeRect(cs.x * CELL - 1, cs.y * CELL - 1, CELL + 2, CELL + 2);
+    }
     // warps and triggers under signs under NPCs, the way they stack in game
     for (const layer of byKind(store.adapter.layers, ["warp", "trigger", "sign", "npc"])) {
       store.entities(map, layer.key).forEach((e, i) => {
         ctx.lineWidth = lw;
-        if (layer.kind === "npc") {
+        const kind = layer.custom ? extKind((e.custom as { kind?: unknown } | undefined)?.kind) : undefined;
+        if (kind) {
+          // a mod's own kind: its icon in its color on a tinted cell
+          ctx.globalAlpha = 0.35;
+          ctx.fillStyle = kind.color;
+          ctx.fillRect(e.x * CELL, e.y * CELL, CELL, CELL);
+          ctx.globalAlpha = 1;
+          ctx.strokeStyle = kind.color;
+          ctx.strokeRect(e.x * CELL + lw / 2, e.y * CELL + lw / 2, CELL - lw, CELL - lw);
+          const [name, node] = extIcon(kind.icon);
+          this.markerIcon(name, node, kind.color, e);
+        } else if (layer.kind === "npc") {
           // an event preview moves NPCs around (and hides or shows them)
           const a = this.preview?.actors[`npc${String(e.index)}`];
           if (!a) this.drawNpc(layer, e);
@@ -969,6 +997,14 @@ export class MapView {
       else if (multi) this.cellPick = pick;
       return;
     }
+    // a mod's area kind: paint cells with the brush's values, right-drag erases
+    if (store.tool === "area" && store.areaBrush && h.inside) {
+      const erase = e.button === 2;
+      paintCell(store.currentMap, store.areaBrush.kind, erase ? null : store.areaBrush.values, h.cx, h.cy);
+      this.drag = { kind: "area", lastCx: h.cx, lastCy: h.cy, erase };
+      this.invalidate();
+      return;
+    }
     // the tile brush picks the tile under the cursor (right-drag: an area)
     if ((e.altKey || e.button === 2) && store.tool === "tile") {
       this.drag = { kind: "tilepick", mapId: h.mapId, tx: h.tx, ty: h.ty };
@@ -988,7 +1024,10 @@ export class MapView {
     }
     if (tool === "select") {
       const hit = this.entityAt(h.cx, h.cy);
-      store.select(hit);
+      // no entity there: a painted cell of a mod's area kind, if any
+      const painted = hit ? null : cellAt(store.map, h.cx, h.cy);
+      if (painted) store.selectCell({ kind: painted.kind, x: h.cx, y: h.cy });
+      else store.select(hit);
       if (hit) {
         const ent = store.entities(store.map, hit.layer)[hit.index];
         this.drag = { kind: "move", sel: hit, offX: h.cx - ent.x, offY: h.cy - ent.y };
@@ -1037,6 +1076,19 @@ export class MapView {
       }
       d.lastBx = tx;
       d.lastBy = ty;
+    } else if (d?.kind === "area" && h && store.areaBrush) {
+      const map = store.map;
+      const tx = Math.max(0, Math.min(h.cx, map.width * 2 - 1));
+      const ty = Math.max(0, Math.min(h.cy, map.height * 2 - 1));
+      let x = d.lastCx;
+      let y = d.lastCy;
+      while (x !== tx || y !== ty) {
+        x += Math.sign(tx - x);
+        y += Math.sign(ty - y);
+        paintCell(store.currentMap, store.areaBrush.kind, d.erase ? null : store.areaBrush.values, x, y);
+      }
+      d.lastCx = tx;
+      d.lastCy = ty;
     } else if (d?.kind === "tile" && h) {
       const map = store.map;
       const tx = Math.max(0, Math.min(h.tx, map.width * 4 - 1));

@@ -2,6 +2,9 @@
 // Forms are generated from the adapter's FieldSpecs, so a new game only
 // declares its fields.
 
+import { areaBrushPanel, cellPanel } from "./mapAreas.ts";
+import { extKind, extKindCard } from "./extFields.ts";
+import { fieldDefault } from "../project/extensions.ts";
 import { OPPOSITE, resizeBlocks } from "../core/geometry.ts";
 import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
@@ -41,10 +44,21 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
       return;
     }
     rerender(body, () => {
+      if (store.tool === "area") {
+        title.textContent = `Paint · ${extKind(store.areaBrush?.kind)?.label ?? "area"}`;
+        return areaBrushPanel();
+      }
+      const cellSel = store.cellSelection;
+      const cell = cellSel ? cellPanel(map, cellSel) : null;
+      if (cellSel && cell) {
+        title.textContent = extKind(cellSel.kind)?.label ?? "Painted cell";
+        return cell;
+      }
       const sel = store.selection;
       const layer = sel ? store.adapter.layers.find((l) => l.key === sel.layer) : undefined;
       if (sel && layer && store.entities(map, layer.key)[sel.index]) {
-        title.textContent = `${layer.singular} ${sel.index + 1}`;
+        const own = extKind((store.entities(map, layer.key)[sel.index].custom as Rec | undefined)?.kind);
+        title.textContent = `${own?.label ?? layer.singular} ${sel.index + 1}`;
         return entityForm(map, layer, sel.index, view);
       }
       title.textContent = `Map · ${map.id}`;
@@ -58,7 +72,7 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
     }
   };
   store.on((reason, _id, registry) => {
-    if (["project", "map", "edit", "selection"].includes(reason)) schedule();
+    if (["project", "map", "edit", "selection", "tool"].includes(reason)) schedule();
     const towns = store.adapter?.towns;
     if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === "studio_roofs" || registry === "palettes" || registry === "encounters" || registry === "field" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
   });
@@ -132,6 +146,8 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
       // an item ball's item is edited in its Role (mapTown.ts)
       const claimed = claimedKeys(all);
       if (isItemBall(record)) claimed.add("item");
+      // a known mod kind's values are edited in its own card
+      if (extKind((record.custom as Rec | undefined)?.kind)) claimed.add("custom");
       return extrasField(spec, record, edit, claimed);
     }
   }
@@ -552,6 +568,12 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
     ? roleSection(map, record, layer.kind, index, (id) => store.edit(map.id, "Text id", (d) => (store.entities(d, layer.key)[index].text = id)), (label, mutate) => store.edit(map.id, label, (d) => mutate(store.entities(d, layer.key)[index])))
     : null;
   if (role) fields.splice(says ? fields.indexOf(says) : fields.length, 0, role);
+  // a mod's own kind (studio extensions): its fields first
+  const kind = extKind((record.custom as Rec | undefined)?.kind);
+  if (kind) {
+    fields.unshift(extKindCard(kind, record.custom as Rec, (key, v) =>
+      edit(`${kind.label}: ${key}`, (e) => (e.custom = { ...(e.custom as Rec), [key]: v }))));
+  }
   return [pos, ...fields, actions];
 }
 
@@ -580,6 +602,28 @@ function trainerSection(record: EntityRecord): HTMLElement | null {
 }
 
 // ---------------------------------------------------------------- actions
+
+// a mod's own placed kind (studio extensions): the layer's plain record with
+// `custom = { kind, <field defaults> }`, hidden in the game unless it is visible
+export function addCustom(kindId: string, cx: number, cy: number): void {
+  const kind = extKind(kindId);
+  const layer = store.adapter.layers.find((l) => l.custom);
+  if (!kind || !layer?.custom) return;
+  let index = 0;
+  store.edit(store.currentMap, `Add ${kind.label.toLowerCase()}`, (d) => {
+    const list = store.entities(d, layer.key);
+    const rec = layer.custom!.create(d, cx, cy);
+    if (kind.sprite) rec.sprite = kind.sprite;
+    if (!kind.visible) rec.hidden = true;
+    rec.custom = { kind: kind.id, ...Object.fromEntries(kind.fields.map((f) => [f.key, fieldDefault(f)])) };
+    list.push(rec);
+    d[layer.key] = list;
+    index = list.length - 1;
+  });
+  store.seal();
+  store.setTool("select");
+  store.select({ layer: layer.key, index });
+}
 
 export function addEntity(layerKey: string, cx: number, cy: number, variantId?: string): void {
   const layer = store.adapter.layers.find((l) => l.key === layerKey);

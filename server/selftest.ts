@@ -394,5 +394,26 @@ if (mods.some((m) => m.id === "bills_garden") && (await nodeHost.readText("game"
   check("no warnings running bills_garden", bills.warnings.length === 0, bills.warnings.join("; "));
 }
 
+// studio_extensions.json: good entries load (ids namespaced), bad ones are skipped with a warning
+{
+  const { parseExtensions } = await import("../src/project/extensions.ts");
+  const warnings: string[] = [];
+  const ext = parseExtensions(JSON.stringify({
+    kinds: [
+      { id: "spawner", place: "object", fields: [{ key: "level", type: "int", min: 1 }, { key: "x", type: "int" }, { key: "odd", type: "nope" }] },
+      { id: "zone", place: "cells", fields: [{ key: "mode", type: "select" }] },
+      { id: "bad id" },
+    ],
+    commands: [{ verb: "lib:go", params: [{ key: "species", type: "species" }] }, { label: "no verb" }],
+  }), "lib", (m) => warnings.push(m));
+  check("extensions: kinds namespaced", ext.kinds.map((k) => k.id).join() === "lib:spawner,lib:zone", ext.kinds.map((k) => k.id).join());
+  check("extensions: reserved and unknown fields skipped", ext.kinds[0].fields.map((f) => f.key).join() === "level" && ext.kinds[1].fields.length === 0);
+  check("extensions: commands need a verb", ext.commands.length === 1 && ext.commands[0].params[0].type === "species");
+  check("extensions: every problem warned", warnings.length === 5, warnings.join(" | "));
+  const none: string[] = [];
+  parseExtensions("{ not json", "lib", (m) => none.push(m));
+  check("extensions: bad JSON is one warning", none.length === 1);
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);

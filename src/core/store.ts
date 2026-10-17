@@ -11,7 +11,7 @@ import type { Project } from "../project/project.ts";
 import { clone, deepEqual } from "./merge.ts";
 import type { EntityRecord, MapDef } from "./types.ts";
 
-export type Tool = "select" | "brush" | "rect" | "fill" | "tile";
+export type Tool = "select" | "brush" | "rect" | "fill" | "tile" | "area";
 
 // `layer` is the adapter layer key (the map field holding the list)
 export type Selection = { layer: string; index: number } | null;
@@ -129,7 +129,7 @@ export class Store {
   }
 
   get ctx(): GameContext {
-    return { data: this.project.data, maps: this.maps, records: this.records };
+    return { data: this.project.data, maps: this.maps, records: this.records, time: this.timeOfDay };
   }
 
   refreshPalettes(): void {
@@ -176,11 +176,30 @@ export class Store {
 
   select(selection: Selection): void {
     this.selection = selection;
+    this.cellSelection = null;
     this.emit("selection");
   }
 
+  // a painted cell of a mod's area kind (mapAreas.ts), selected with Select
+  cellSelection: { kind: string; x: number; y: number } | null = null;
+  selectCell(cell: { kind: string; x: number; y: number }): void {
+    this.selection = null;
+    this.cellSelection = cell;
+    this.emit("selection");
+  }
+  // the area tool's kind and values
+  areaBrush: { kind: string; values: Record<string, unknown> } | null = null;
+
   setColorMode(mode: "sgb" | "redpp"): void {
     this.colorMode = mode;
+    this.emit("colors");
+  }
+
+  // the time of day the map view shows (games with `adapter.times`)
+  timeOfDay = "DAY";
+  setTimeOfDay(time: string): void {
+    this.timeOfDay = time;
+    this.refreshPalettes();
     this.emit("colors");
   }
 

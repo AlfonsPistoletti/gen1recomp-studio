@@ -7,7 +7,9 @@
 // { x?, y?, once?, rows }); the editor parses them into blocks and compiles
 // every edit back (src/core/eventBlocks.ts). The game's own events are shown
 // read-only, with "Edit a copy" to override one.
-
+
+import { fieldDefault, type ExtCommand } from "../project/extensions.ts";
+import { extFieldInput } from "./extFields.ts";
 import { clone } from "../core/merge.ts";
 import { compile, parse, type Block, type Verbs } from "../core/eventBlocks.ts";
 import { store } from "../core/store.ts";
@@ -33,8 +35,26 @@ export interface StudioEvent {
 
 export type EventKind = "talk" | "step" | "enter";
 
+// the game's commands plus the ones the mod and its dependencies define
+// (studio_extensions.json, category "Mods"); their rows are { verb, params... }
+// and the defining mod registers the verb (mod.commands:register)
+let merged: { base: EventSpec; ext: ExtCommand[]; out: EventSpec } | null = null;
 function spec(): EventSpec | undefined {
-  return store.adapter?.events;
+  const base = store.adapter?.events;
+  const ext = store.project?.extensions.commands ?? [];
+  if (!base || !ext.length) return base;
+  if (merged?.base === base && merged.ext === ext) return merged.out;
+  const commands: EventCommand[] = ext.map((c) => ({
+    id: `ext:${c.verb}`,
+    verb: c.verb,
+    label: c.label,
+    category: "Mods",
+    help: c.help ?? `A command of the mod ${c.from}.`,
+    params: c.params.map((p) => ({ key: p.key, label: p.label, type: "ext", default: fieldDefault(p), ext: p })),
+    describe: (a) => `${c.label}${c.params.length ? `: ${c.params.map((p) => String(a[p.key] ?? "")).join(", ")}` : ""}`,
+  }));
+  merged = { base, ext, out: { ...base, categories: [...base.categories, "Mods"], commands: [...base.commands, ...commands] } };
+  return merged.out;
 }
 
 function events(): Record<string, StudioEvent> {
@@ -844,6 +864,9 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       }
       case "number":
         input = numberInput(Number(value ?? p.default ?? 0), (v) => set(Math.max(p.min ?? -1e9, Math.min(p.max ?? 1e9, v))), p.min, p.max);
+        break;
+      case "ext":
+        input = p.ext ? extFieldInput(p.ext, value ?? p.default, set) : h("span", {});
         break;
       case "path": {
         // walks from where the walker stands at this point of the event

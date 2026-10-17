@@ -25,6 +25,8 @@ export interface GameContext {
   data: Dataset;
   maps: Record<string, MapDef>;
   records: Record<string, Record<string, unknown>>;
+  // the time of day the map view shows (one of `GameAdapter.times`)
+  time?: string;
 }
 
 // A content registry the adapter loads besides maps/tilesets/sprites. Mod
@@ -578,7 +580,8 @@ export type EventParamType =
   | "together" // walk options: { wait = false } (don't wait), stepFrames (NPC speed)
   | "cellX" // a map cell (x, then a "cellY" param right after)
   | "cellY"
-  | "trade"; // an in-game trade, by its number (field.trades)
+  | "trade" // an in-game trade, by its number (field.trades)
+  | "ext"; // a mod command's parameter (studio extensions): `ext` says its field type
 
 export interface EventParam {
   key: string;
@@ -587,6 +590,7 @@ export interface EventParam {
   default?: unknown;
   min?: number;
   max?: number;
+  ext?: import("../project/extensions.ts").ExtField;
 }
 
 // One command the event editor offers.
@@ -627,6 +631,9 @@ export interface EntityLayer {
   // ready-made kinds of this layer with their own add button (an item ball)
   variants?: { id: string; label: string; create(map: MapDef, cx: number, cy: number, ctx: GameContext): EntityRecord }[];
   sprite?(record: EntityRecord, mapId: string): SpriteRef | null;
+  // this layer holds the mods' own placed kinds (studio extensions): the
+  // plain record such an entity starts from, before its `custom` table
+  custom?: { create(map: MapDef, cx: number, cy: number): EntityRecord };
 }
 
 // ------------------------------------------------------------------ adapter
@@ -700,6 +707,9 @@ export interface GameAdapter {
   // game images a mod can replace (Graphics > Images)
   images?: ImageSpec;
 
+  // times of day the map view can show (Gen 2: morning, day, night); the
+  // chosen one reaches paletteKeys as ctx.time. Unset: no choice offered.
+  times?: { key: string; label: string }[];
   // palette key per map (what an atlas is colored with)
   paletteKeys(ctx: GameContext): Record<string, string>;
   // tiles a map draws from another image than its tileset's sheet (Gen 2's

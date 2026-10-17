@@ -167,8 +167,11 @@ const WALKS = new Set([2, 4, 5, 0x24]);
 
 // PAL_OW_* in order (constants/sprite_data_constants.asm)
 const OW_PALETTES = ["RED", "BLUE", "GREEN", "BROWN", "PINK", "EMOTE", "TREE", "ROCK"];
-// the map view shows the day colors
-const TIME = "DAY";
+// the time of day a map is drawn in: the one it pins (its header's PALETTE_*,
+// gen1recomp Palettes.daytimeFor), else the one the view shows. A PALETTE_DARK
+// cave is drawn as after Flash (night), since pitch black can't be edited.
+const PINNED: Record<string, string> = { PALETTE_DAY: "DAY", PALETTE_NITE: "NITE", PALETTE_MORN: "MORN", PALETTE_DARK: "NITE" };
+const daytimeOf = (map: MapDef, time: string | undefined) => PINNED[String(map.palette ?? "")] ?? time ?? "DAY";
 const asList = (v: unknown) => (Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : []);
 
 // Crystal tilesets carry GBC attributes per tile id (`tileAttrs`, 1-based
@@ -820,10 +823,11 @@ export const gen2: GameAdapter = {
     return { walkable: COLL_PERMISSIONS[coll % 256] === 0, warp, label: `coll $${coll.toString(16).padStart(2, "0")}` };
   },
 
-  // one key per environment and map group (the roof colors), day palettes
+  times: [{ key: "MORN", label: "Morning" }, { key: "DAY", label: "Day" }, { key: "NITE", label: "Night" }],
+  // one key per environment, map group (the roof colors) and time of day
   paletteKeys(ctx) {
     const out: Record<string, string> = {};
-    for (const [id, m] of Object.entries(ctx.maps)) out[id] = `${String(m.environment ?? "TOWN")}|${Number(m.group ?? 0)}`;
+    for (const [id, m] of Object.entries(ctx.maps)) out[id] = `${String(m.environment ?? "TOWN")}|${Number(m.group ?? 0)}|${daytimeOf(m, ctx.time)}`;
     return out;
   },
   // gen1recomp src/world/gen2/Palettes.lua bgSet: the environment's 8 bg
@@ -832,11 +836,12 @@ export const gen2: GameAdapter = {
   // two middle colors from roofs[map group]. Darkest first, like Gen 1's.
   tileColors(ctx, tileset, key) {
     const p = palettes(ctx);
-    const [env, group] = key.split("|");
+    const [env, group, time = "DAY"] = key.split("|");
     const row = p.environments?.[env] ?? p.environments?.TOWN;
-    const ids = row?.[TIME] ?? row?.DAY ?? [];
+    const ids = row?.[time] ?? row?.DAY ?? [];
     const set = Array.from({ length: 8 }, (_, slot) => (p.bg?.[(ids[slot] ?? 1) - 1] ?? MONO).map((c) => [c[0], c[1], c[2]] as Rgb));
-    const roof = (env === "TOWN" || env === "ROUTE") ? p.roofs?.[group]?.mornDay : undefined;
+    const roofs = p.roofs?.[group];
+    const roof = env === "TOWN" || env === "ROUTE" ? (time === "NITE" ? roofs?.nite : roofs?.mornDay) : undefined;
     const roofSlot = (p.roofSlot ?? 7) - 1;
     if (roof?.[0] && roof[1] && set[roofSlot]) set[roofSlot] = [set[roofSlot][0], [roof[0][0], roof[0][1], roof[0][2]], [roof[1][0], roof[1][1], roof[1][2]], set[roofSlot][3]];
     const darkFirst = set.map((pal) => [...pal].reverse());
@@ -857,8 +862,9 @@ export const gen2: GameAdapter = {
   // gen1recomp src/world/gen2/Palettes.lua spritePalette: the object's own
   // palette when it sets one (its low three bits), else the sprite's
   // (paletteId, or its PAL_OW_* name); one of the daytime's 8 OBJ palettes
-  spriteColors(ctx, _key, sprite, entity) {
-    const set = palettes(ctx).objects?.[TIME];
+  spriteColors(ctx, key, sprite, entity) {
+    const objects = palettes(ctx).objects;
+    const set = objects?.[key.split("|")[2] ?? "DAY"] ?? objects?.DAY;
     const own = typeof entity?.palette === "number" && entity.palette !== 0 ? entity.palette % 8 : undefined;
     const byName = typeof sprite?.palette === "string" ? OW_PALETTES.indexOf(sprite.palette.replace(/^PAL_OW_/, "")) : -1;
     const id = own ?? (typeof sprite?.paletteId === "number" ? sprite.paletteId : Math.max(0, byName));

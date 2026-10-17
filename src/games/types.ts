@@ -356,6 +356,17 @@ export interface TrainerSpec {
   uses?(ctx: GameContext, classId: string): Map<number, { mapId: string; index: number }[]>;
   // false: no AI panel / colors choice / portrait borrowing (Gen 2 for now)
   ai?: boolean;
+  // Gen 2: a class's AI is bits in its `attributes` bytes (move layers in the
+  // little-endian word at aiByte, switching in the word at switchByte, 0-based)
+  // plus its `items` list (what it may use in battle, tried in `items` order)
+  aiAttributes?: {
+    aiByte: number;
+    switchByte: number;
+    layers: { bit: number; label: string; about: string }[];
+    switching: { bit: number; label: string; about: string }[];
+    items: string[];
+    itemSlots: number;
+  };
   colors?: boolean;
   basePic?: boolean;
   // a class's portrait colors (lightest first) when the game has its own

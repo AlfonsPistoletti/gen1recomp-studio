@@ -514,6 +514,31 @@ const trainers: TrainerSpec = {
     return pair?.length === 2 ? [[255, 255, 255], pair[0], pair[1], [0, 0, 0]].map((c) => [c[0], c[1], c[2]] as Rgb) : null;
   },
   ai: false,
+  // gen1recomp src/battle/gen2/Ai.lua: FLAGS (TRNATTR_AI_MOVE_WEIGHTS, attribute
+  // bytes 4-5), SWITCH_FLAGS / SWITCH_CHANCES (bytes 6-7), ITEM_ORDER (AI_TryItem)
+  aiAttributes: {
+    aiByte: 3,
+    switchByte: 5,
+    layers: [
+      { bit: 0x0001, label: "Basic", about: "Avoids moves that would do nothing: a status move on a Pokémon that already has one, an effect that already landed." },
+      { bit: 0x0002, label: "Setup", about: "Uses stat-changing moves on its first turn, and hardly ever later." },
+      { bit: 0x0004, label: "Types", about: "Prefers super-effective moves, avoids not-very-effective ones and never uses moves the target is immune to." },
+      { bit: 0x0008, label: "Offensive", about: "Avoids moves that do no damage." },
+      { bit: 0x0010, label: "Smart", about: "Move-by-move tactics: healing when low, Dream Eater on a sleeping target, and many more." },
+      { bit: 0x0020, label: "Opportunist", about: "Stops stalling (Toxic, Reflect, Substitute …) when its Pokémon is nearly fainted." },
+      { bit: 0x0040, label: "Aggressive", about: "Prefers the move that hits hardest." },
+      { bit: 0x0080, label: "Cautious", about: "Usually stops using lasting moves (Toxic, Leech Seed …) after its first turn." },
+      { bit: 0x0100, label: "Status", about: "Never uses a status move on a target that already has that status." },
+      { bit: 0x0200, label: "Risky", about: "Goes for a knockout whenever one is possible." },
+    ],
+    switching: [
+      { bit: 0x0001, label: "Often", about: "Switches out half the time when its Pokémon is at a disadvantage, nearly always when it's badly off." },
+      { bit: 0x0004, label: "Sometimes", about: "Switches out a fifth of the time at a disadvantage, half the time when badly off." },
+      { bit: 0x0002, label: "Rarely", about: "Switches out only now and then (8–21%)." },
+    ],
+    items: ["FULL_RESTORE", "MAX_POTION", "HYPER_POTION", "SUPER_POTION", "POTION", "X_ACCURACY", "FULL_HEAL", "GUARD_SPEC", "DIRE_HIT", "X_ATTACK", "X_DEFEND", "X_SPEED", "X_SPECIAL"],
+    itemSlots: 2,
+  },
   colors: false,
   basePic: false,
 };

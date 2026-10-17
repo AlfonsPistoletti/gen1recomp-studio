@@ -679,7 +679,65 @@ function aiId(trainerId: string): string {
   return typeof r?.aiClass === "string" ? r.aiClass : trainerId;
 }
 
+// Gen 2: the AI bits in the class's attribute bytes and its items list
+function attributeAiForm(a: NonNullable<TrainerSpec["aiAttributes"]>, id: string, r: Rec): HTMLElement[] {
+  const bytes = Array.isArray(r.attributes) ? (r.attributes as number[]) : [];
+  const word = (at: number) => (Number(bytes[at]) || 0) + (Number(bytes[at + 1]) || 0) * 256;
+  // only the bits shown here change; the others (item-use flags …) are kept
+  const setWord = (label: string, at: number, mutate: (w: number) => number) =>
+    edit(id, label, (d) => {
+      const next = Array.isArray(d.attributes) ? [...(d.attributes as number[])] : [];
+      while (next.length < Math.max(7, at + 2)) next.push(0);
+      const w = mutate((Number(next[at]) || 0) + (Number(next[at + 1]) || 0) * 256);
+      next[at] = w & 0xff;
+      next[at + 1] = (w >> 8) & 0xff;
+      d.attributes = next;
+    });
+  const ai = word(a.aiByte);
+  const layers = a.layers.map((l) => {
+    const box = h("input", { type: "checkbox", checked: (ai & l.bit) !== 0 });
+    box.addEventListener("change", () => setWord(`AI: ${l.label}`, a.aiByte, (w) => (box.checked ? w | l.bit : w & ~l.bit)));
+    return h("label", { class: "ai-layer" }, box, h("span", {}, h("strong", {}, l.label), h("span", { class: "hint" }, l.about)));
+  });
+  const sw = word(a.switchByte);
+  const mask = a.switching.reduce((m, x) => m | x.bit, 0);
+  const current = a.switching.find((x) => (sw & x.bit) !== 0);
+  const switchSel = h("select", {},
+    h("option", { value: "0", selected: !current }, "Never"),
+    ...a.switching.map((x) => h("option", { value: String(x.bit), selected: current === x }, x.label)));
+  switchSel.addEventListener("change", () => setWord("AI: switching", a.switchByte, (w) => (w & ~mask) | Number(switchSel.value)));
+  const items = Array.isArray(r.items) ? (r.items as string[]) : [];
+  const itemSel = (slot: number) => {
+    const value = items[slot] ?? "";
+    const sel = h("select", {}, h("option", { value: "", selected: !value }, "(none)"), ...a.items.map((i) => h("option", { value: i, selected: value === i }, i.replace(/_/g, " "))));
+    if (value && !a.items.includes(value)) sel.prepend(h("option", { value, selected: true }, `${value} (never used)`));
+    sel.addEventListener("change", () => edit(id, "AI item", (d) => {
+      const next = Array.from({ length: a.itemSlots }, (_, i) => (i === slot ? sel.value : ((d.items as string[] | undefined)?.[i] ?? "")));
+      const kept = next.filter(Boolean);
+      if (kept.length) d.items = kept;
+      else delete d.items;
+    }));
+    return sel;
+  };
+  return [
+    h("section", { class: "card" },
+      h("h4", {}, "Move choice"),
+      h("p", { class: "hint" }, "Without any layer the trainer picks a random move. Shared by every trainer of this class."),
+      ...layers),
+    h("section", { class: "card" },
+      h("h4", {}, "Switching"),
+      field("Switches out", switchSel, current?.about ?? "Never switches its Pokémon out."),
+    ),
+    h("section", { class: "card" },
+      h("h4", {}, "Items"),
+      h("p", { class: "hint" }, "What the class may use in battle, each once per battle, only while its highest-level Pokémon is out. Healing items when the Pokémon is below half HP, Full Heal against a status, the X items on its first turn."),
+      ...Array.from({ length: a.itemSlots }, (_, i) => field(`Item ${i + 1}`, itemSel(i))),
+    ),
+  ];
+}
+
 function aiForm(s: TrainerSpec, id: string, r: Rec): HTMLElement[] {
+  if (s.aiAttributes) return attributeAiForm(s.aiAttributes, id, r);
   if (s.ai === false) return [h("p", { class: "hint" }, "This game sets a class's AI in its attribute bytes, which the studio doesn't edit yet.")];
   const out: HTMLElement[] = [];
   // move choice layers

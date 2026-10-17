@@ -132,6 +132,12 @@ check("vanilla warps carry no map-group numbers", !JSON.stringify(base).includes
   const extras = s.classExtras!("BEAUTY", "STUDIO_CLASS", ctx);
   check("new class gets the source's colors", extras.length === 1 && !!((extras[0].value as Rec).STUDIO_CLASS));
   edited.palettes = { trainers: extras[0].value as Rec };
+  // the AI in the attribute bytes (move layers 4-5, switching 6-7) and the items list
+  const ai = adapter.trainers!.aiAttributes!;
+  const attrs = [...(beauty.attributes as number[])];
+  attrs[ai.aiByte] = 0x1f; attrs[ai.aiByte + 1] = 0x02; attrs[ai.switchByte] = (attrs[ai.switchByte] & ~0x07) | 0x01;
+  beauty.attributes = attrs;
+  beauty.items = ["FULL_RESTORE", "X_SPEED"];
   edited.trainers = { BEAUTY: beauty, STUDIO_CLASS: fresh };
 }
 const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: editedMaps, ...edited });

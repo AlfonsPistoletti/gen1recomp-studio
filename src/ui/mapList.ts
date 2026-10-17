@@ -1,5 +1,5 @@
 import { mapChanged } from "./mapReset.ts";
-import { store } from "../core/store.ts";
+import { afterStroke, store } from "../core/store.ts";
 import type { MapView } from "../render/mapView.ts";
 import { Swords } from "lucide";
 import { clear, h, icon, listFocus, listKeys } from "./dom.ts";
@@ -85,10 +85,12 @@ export function mountMapList(host: HTMLElement, view: MapView, onNewMap: () => v
   });
   // a brush stroke emits an edit per block; rebuild the list once per frame
   let queued = false;
+  const afterBrush = afterStroke(render);
   store.on((reason, _id, registry) => {
     // events, music, rules, ... of a map count as its changes too
     const wildChanged = reason === "content" && !!registry;
     if (!(["project", "map", "edit", "saved"].includes(reason) || wildChanged) || queued) return;
+    if (store.midStroke(reason)) return afterBrush();
     queued = true;
     requestAnimationFrame(() => {
       queued = false;

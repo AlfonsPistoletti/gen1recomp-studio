@@ -7,6 +7,7 @@ import type { Facing } from "../games/types.ts";
 import type { SpriteDef, TilesetDef } from "../core/types.ts";
 import { createElement, type IconNode } from "lucide";
 import type { Rgb } from "./color.ts";
+import { deepEqual, equalExcept } from "../core/merge.ts";
 
 export const TILE = 8;
 export const CELL = 16;
@@ -117,6 +118,9 @@ export interface BlockAtlas {
 }
 
 const atlasCache = new Map<string, Promise<BlockAtlas>>();
+// the newest atlas per tileset/palette/sheet and the tileset it was drawn
+// from: a change of blocks only (the tile brush) redraws just those blocks
+const lastAtlas = new Map<string, { tileset: TilesetDef; atlas: Promise<BlockAtlas> }>();
 
 // `colorsFor(tile)` gives the four colors (darkest first) one 8x8 tile is
 // drawn with, so per-tile palettes (Gen 2) and one map palette (Gen 1) go
@@ -125,13 +129,19 @@ export function blockAtlas(tileset: TilesetDef, url: string, paletteKey: string,
   const key = `${tileset.id}|${paletteKey}|${url}|${tileset.blocks.length}|${version}`;
   let p = atlasCache.get(key);
   if (!p) {
-    p = buildAtlas(tileset, url, colorsFor);
+    const line = `${tileset.id}|${paletteKey}|${url}`;
+    const prev = lastAtlas.get(line);
+    const reuse = prev && equalExcept(prev.tileset as unknown as Record<string, unknown>, tileset as unknown as Record<string, unknown>, "blocks");
+    p = reuse ? prev.atlas.then((old) => buildAtlas(tileset, url, colorsFor, { atlas: old, blocks: prev.tileset.blocks || [] })) : buildAtlas(tileset, url, colorsFor);
     atlasCache.set(key, p);
+    lastAtlas.set(line, { tileset: { ...tileset, blocks: (tileset.blocks || []).map((b) => [...(b || [])]) }, atlas: p });
   }
   return p;
 }
 
-async function buildAtlas(tileset: TilesetDef, url: string, colorsFor: (tile: number) => Rgb[]): Promise<BlockAtlas> {
+// `prev`: an atlas of the same tileset whose blocks were `prev.blocks`;
+// only blocks that differ from those are drawn again
+async function buildAtlas(tileset: TilesetDef, url: string, colorsFor: (tile: number) => Rgb[], prev?: { atlas: BlockAtlas; blocks: number[][] }): Promise<BlockAtlas> {
   const sheet = await shades(url);
   const blocks = tileset.blocks || [];
   const rows = Math.max(1, Math.ceil(blocks.length / ATLAS_COLUMNS));
@@ -139,13 +149,17 @@ async function buildAtlas(tileset: TilesetDef, url: string, colorsFor: (tile: nu
   canvas.width = ATLAS_COLUMNS * BLOCK;
   canvas.height = rows * BLOCK;
   const ctx = canvas.getContext("2d")!;
-  const out = ctx.createImageData(canvas.width, canvas.height);
+  const redraw = prev ? blocks.map((b, i) => !deepEqual(b, prev.blocks[i])) : null;
+  if (prev) ctx.drawImage(prev.atlas.canvas, 0, 0);
+  // a full build fills one image; a partial one a block-sized image per block
+  const out = ctx.createImageData(redraw ? BLOCK : canvas.width, redraw ? BLOCK : canvas.height);
   const dst = out.data;
   const perRow = tileset.tilesPerRow || (sheet ? Math.floor(sheet.width / TILE) : 16);
   const realTiles = sheet ? Math.floor(sheet.width / TILE) * Math.floor(sheet.height / TILE) : 0;
   blocks.forEach((block, index) => {
-    const bx = (index % ATLAS_COLUMNS) * BLOCK;
-    const by = Math.floor(index / ATLAS_COLUMNS) * BLOCK;
+    if (redraw && !redraw[index]) return;
+    const bx = redraw ? 0 : (index % ATLAS_COLUMNS) * BLOCK;
+    const by = redraw ? 0 : Math.floor(index / ATLAS_COLUMNS) * BLOCK;
     (block || []).forEach((tile, slot) => {
       const dx = bx + (slot % 4) * TILE;
       const dy = by + Math.floor(slot / 4) * TILE;
@@ -155,7 +169,7 @@ async function buildAtlas(tileset: TilesetDef, url: string, colorsFor: (tile: nu
       const sy = Math.floor(tile / perRow) * TILE;
       for (let y = 0; y < TILE; y++) {
         for (let x = 0; x < TILE; x++) {
-          const o = ((dy + y) * canvas.width + dx + x) * 4;
+          const o = ((dy + y) * out.width + dx + x) * 4;
           // ROM padding past the end of the sheet: obvious on sight
           let c = INVALID;
           if (valid && tileset.trueColor) {
@@ -172,8 +186,9 @@ async function buildAtlas(tileset: TilesetDef, url: string, colorsFor: (tile: nu
         }
       }
     });
+    if (redraw) ctx.putImageData(out, ...atlasRect(index));
   });
-  ctx.putImageData(out, 0, 0);
+  if (!redraw) ctx.putImageData(out, 0, 0);
   return { canvas, count: blocks.length };
 }
 
@@ -189,6 +204,7 @@ const spriteCache = new Map<string, HTMLCanvasElement | null>();
 // palette's colors change they must be drawn again
 export function clearColorCaches(): void {
   atlasCache.clear();
+  lastAtlas.clear();
   spriteCache.clear();
 }
 const spritePending = new Set<string>();

@@ -8,7 +8,7 @@
 
 import type { GameAdapter, GameContext } from "../games/types.ts";
 import type { Project } from "../project/project.ts";
-import { clone, deepEqual } from "./merge.ts";
+import { clone, deepEqual, equalExcept } from "./merge.ts";
 import type { EntityRecord, MapDef } from "./types.ts";
 
 export type Tool = "select" | "brush" | "rect" | "fill" | "tile" | "area";
@@ -66,6 +66,10 @@ export class Store {
   base: Record<string, MapDef> = {};
   maps: Record<string, MapDef> = {};
   palettes: Record<string, string> = {};
+  // the last "edit" changed only the map's `blocks`, or a paint stroke is
+  // held on the map (`brushing`, set by the map view): see midStroke
+  blocksOnly = false;
+  brushing = false;
   currentMap = "PALLET_TOWN";
   tool: Tool = "select";
   stamp: Stamp = { w: 1, h: 1, blocks: [0] };
@@ -370,17 +374,25 @@ export class Store {
     if (top) top.sealed = true;
   }
 
+  // a step of a paint stroke (blocks, or the tile brush's tileset blocks):
+  // panels that don't show blocks refresh once it is over (afterStroke)
+  midStroke(reason: string): boolean {
+    return (reason === "edit" && this.blocksOnly) || (this.brushing && (reason === "edit" || reason === "content"));
+  }
+
   private put(registry: string, id: string, value: unknown): void {
     const table = (this.records[registry] ??= {});
+    const prev = table[id] as Record<string, unknown> | undefined;
     if (value === undefined) delete table[id];
     else table[id] = value;
     if (registry !== "maps") {
       this.emit("content", id, registry);
       return;
     }
+    this.blocksOnly = !!prev && !!value && equalExcept(prev, value as Record<string, unknown>, "blocks");
     // palettes can hang off any field (Gen 1 interiors inherit through
-    // warps); recomputing is cheap enough to do on every edit
-    this.refreshPalettes();
+    // warps), but not off blocks
+    if (!this.blocksOnly) this.refreshPalettes();
     if (!this.maps[this.currentMap]) this.currentMap = this.fallbackMap();
     this.emit("edit", id);
   }
@@ -464,3 +476,13 @@ export class Store {
 }
 
 export const store = new Store();
+
+// runs `fn` once edits stop coming for a moment: a panel refresh for
+// blocks-only edits waits until the brush stroke is over
+export function afterStroke(fn: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return () => {
+    clearTimeout(timer);
+    timer = setTimeout(fn, 250);
+  };
+}

@@ -12,7 +12,7 @@ import { fieldDefault, type ExtCommand } from "../project/extensions.ts";
 import { extFieldInput } from "./extFields.ts";
 import { clone } from "../core/merge.ts";
 import { compile, parse, type Block, type Verbs } from "../core/eventBlocks.ts";
-import { store } from "../core/store.ts";
+import { afterStroke, store } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EventCommand, EventParam, EventRow, EventSpec } from "../games/types.ts";
 import type { GameScripts } from "../lua/vm.ts";
@@ -280,6 +280,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
     });
   };
   onFocusLeave(main, schedule);
+  const afterBrush = afterStroke(() => schedule());
   store.on((reason, id, registry) => {
     const s = spec();
     if (reason === "project") {
@@ -291,7 +292,8 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       if (registry === s.registry && current && !current.startsWith("game:") && !events()[current]) current = null;
       schedule();
     } else if (reason === "edit") {
-      schedule();
+      if (store.midStroke(reason)) afterBrush();
+      else schedule();
     } else if (reason === "reveal" && s && registry === s.registry && id) {
       nav.openEvent(id);
     }

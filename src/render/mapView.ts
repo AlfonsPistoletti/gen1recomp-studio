@@ -798,8 +798,9 @@ export class MapView {
   private drawToolPreview(map: MapDef): void {
     const h = this.hoverInfo();
     const ctx = this.ctx;
-    if (this.drag?.kind === "rect" && h) {
-      const r = rectOf(this.drag.bx, this.drag.by, clampB(h.bx, map.width), clampB(h.by, map.height));
+    const at = this.strokePos();
+    if (this.drag?.kind === "rect" && at) {
+      const r = rectOf(this.drag.bx, this.drag.by, clampB(at.bx, map.width), clampB(at.by, map.height));
       this.drawStampFill(r.x, r.y, r.w, r.h, 0.65);
       outline(ctx, r.x * BLOCK, r.y * BLOCK, r.w * BLOCK, r.h * BLOCK, this.zoom, "#ffd34d");
       return;
@@ -866,6 +867,23 @@ export class MapView {
 
   private screenToWorld(sx: number, sy: number): { wx: number; wy: number } {
     return { wx: this.camX + sx / this.zoom, wy: this.camY + sy / this.zoom };
+  }
+
+  // the pointer in the current map's block / cell / tile coordinates, also
+  // outside it (over a neighbor or the void); strokes clamp these to the map
+  private strokePos(): { bx: number; by: number; cx: number; cy: number; tx: number; ty: number } | null {
+    if (!this.hover) return null;
+    const p = this.placedOf(store.currentMap);
+    const lx = this.hover.wx - (p?.x ?? 0);
+    const ly = this.hover.wy - (p?.y ?? 0);
+    return {
+      bx: Math.floor(lx / BLOCK_PX),
+      by: Math.floor(ly / BLOCK_PX),
+      cx: Math.floor(lx / CELL),
+      cy: Math.floor(ly / CELL),
+      tx: Math.floor(lx / TILE),
+      ty: Math.floor(ly / TILE),
+    };
   }
 
   private mapUnder(wx: number, wy: number): Placed | undefined {
@@ -1033,9 +1051,11 @@ export class MapView {
         this.drag = { kind: "move", sel: hit, offX: h.cx - ent.x, offY: h.cy - ent.y };
       }
     } else if (tool === "brush") {
+      store.brushing = true;
       this.paintAt(h.bx, h.by);
       this.drag = { kind: "paint", lastBx: h.bx, lastBy: h.by };
     } else if (tool === "tile") {
+      store.brushing = true;
       this.paintTileAt(h.tx, h.ty);
       this.drag = { kind: "tile", lastTx: h.tx, lastTy: h.ty };
     } else if (tool === "rect") {
@@ -1062,11 +1082,14 @@ export class MapView {
     const h = this.hoverInfo();
     this.onHover(h);
     if (this.pathOverlay && this.pickDone) this.invalidate();
-    if (d?.kind === "paint" && h) {
+    // a stroke stays on its map: over a neighbor, the pointer counts in the
+    // current map's coordinates (the neighbor's own ones drew a line across)
+    const at = this.strokePos();
+    if (d?.kind === "paint" && at) {
       // walk the segment so a fast stroke leaves no gaps
       const map = store.map;
-      const tx = clampB(h.bx, map.width);
-      const ty = clampB(h.by, map.height);
+      const tx = clampB(at.bx, map.width);
+      const ty = clampB(at.by, map.height);
       let x = d.lastBx;
       let y = d.lastBy;
       while (x !== tx || y !== ty) {
@@ -1076,10 +1099,10 @@ export class MapView {
       }
       d.lastBx = tx;
       d.lastBy = ty;
-    } else if (d?.kind === "area" && h && store.areaBrush) {
+    } else if (d?.kind === "area" && at && store.areaBrush) {
       const map = store.map;
-      const tx = Math.max(0, Math.min(h.cx, map.width * 2 - 1));
-      const ty = Math.max(0, Math.min(h.cy, map.height * 2 - 1));
+      const tx = Math.max(0, Math.min(at.cx, map.width * 2 - 1));
+      const ty = Math.max(0, Math.min(at.cy, map.height * 2 - 1));
       let x = d.lastCx;
       let y = d.lastCy;
       while (x !== tx || y !== ty) {
@@ -1089,10 +1112,10 @@ export class MapView {
       }
       d.lastCx = tx;
       d.lastCy = ty;
-    } else if (d?.kind === "tile" && h) {
+    } else if (d?.kind === "tile" && at) {
       const map = store.map;
-      const tx = Math.max(0, Math.min(h.tx, map.width * 4 - 1));
-      const ty = Math.max(0, Math.min(h.ty, map.height * 4 - 1));
+      const tx = Math.max(0, Math.min(at.tx, map.width * 4 - 1));
+      const ty = Math.max(0, Math.min(at.ty, map.height * 4 - 1));
       let x = d.lastTx;
       let y = d.lastTy;
       while (x !== tx || y !== ty) {
@@ -1119,12 +1142,13 @@ export class MapView {
   }
 
   private pointerUp(): void {
+    store.brushing = false;
     const d = this.drag;
     if (d?.kind === "rect") {
-      const h = this.hoverInfo();
-      if (h) {
+      const at = this.strokePos();
+      if (at) {
         const map = store.map;
-        const r = rectOf(d.bx, d.by, clampB(h.bx, map.width), clampB(h.by, map.height));
+        const r = rectOf(d.bx, d.by, clampB(at.bx, map.width), clampB(at.by, map.height));
         const s = store.stamp;
         store.edit(store.currentMap, "Rectangle", (draft) => {
           for (let y = 0; y < r.h; y++) {

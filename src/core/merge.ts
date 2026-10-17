@@ -73,6 +73,14 @@ export function applyOps<T>(table: Record<string, T>, ops: RegistryOp[], registr
   }
 }
 
+// equal records apart from field `skip` (not compared)
+export function equalExcept(a: Record<string, unknown>, b: Record<string, unknown>, skip: string): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  keys.delete(skip);
+  for (const k of keys) if (a[k] !== b[k] && !deepEqual(a[k], b[k])) return false;
+  return true;
+}
+
 export function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a)) {

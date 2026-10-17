@@ -93,15 +93,17 @@ export function mountTextWorkspace(left: HTMLElement, center: HTMLElement, right
       // the workspace is hidden they wait until it shows (no rebuild per stroke)
       if (reason === "edit" && sets()) {
         scriptUses = null;
-        if (!left.offsetParent) labelsStale = true;
+        if (!leftShown) labelsStale = true;
         else return true;
       }
       return reason === "content" && (registry === "text_pointers" || registry === reg) && id !== undefined;
     },
   });
 
+  let leftShown = false;
   new IntersectionObserver((seen) => {
-    if (labelsStale && seen.some((e) => e.isIntersecting)) {
+    leftShown = seen.some((e) => e.isIntersecting);
+    if (labelsStale && leftShown) {
       labelsStale = false;
       list.render();
       render();

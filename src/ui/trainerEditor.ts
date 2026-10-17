@@ -6,7 +6,7 @@
 import { addAsset, derivedPath, isCachePath } from "../core/assets.ts";
 import { canDerive } from "../core/reuse.ts";
 import { clone } from "../core/merge.ts";
-import { store } from "../core/store.ts";
+import { afterStroke, store } from "../core/store.ts";
 import type { TrainerSlot, TrainerSpec } from "../games/types.ts";
 import { importArt } from "./artImport.ts";
 import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
@@ -340,6 +340,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     });
   };
   for (const el of [main, side]) onFocusLeave(el, schedule);
+  const afterBrush = afterStroke(() => schedule());
   store.on((reason, id, registry) => {
     const s = spec();
     if (reason === "project") {
@@ -356,7 +357,8 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     } else if (reason === "content" && s && (registry === s.registry || registry === s.aiClasses?.registry || registry === "pokemon")) {
       schedule();
     } else if (reason === "edit") {
-      schedule(); // map NPCs may now use another team
+      if (store.midStroke(reason)) afterBrush();
+      else schedule(); // map NPCs may now use another team
     } else if (reason === "reveal" && s && (registry === s.registry || registry === s.aiClasses?.registry) && id) {
       nav.openTrainer(registry === s.registry ? id : Object.keys(trainers()).find((t) => aiId(t) === id) ?? id);
     }

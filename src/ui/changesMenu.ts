@@ -2,7 +2,7 @@
 // dropdown listing them grouped by registry. Each entry opens its page.
 
 import { FileDiff } from "lucide";
-import { store } from "../core/store.ts";
+import { afterStroke, store } from "../core/store.ts";
 import { h, clear, dropdown, icon } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { eventTitle, splitEventId } from "./eventEditor.ts";
@@ -281,8 +281,10 @@ export function mountChangesMenu(): HTMLElement {
     button.setAttribute("aria-label", `Changes: ${label}`);
     if (!panel.hidden) render();
   };
+  const afterBrush = afterStroke(refresh);
   store.on((reason) => {
-    if (["edit", "content", "project", "saved", "map"].includes(reason)) refresh();
+    if (store.midStroke(reason)) afterBrush();
+    else if (["edit", "content", "project", "saved", "map"].includes(reason)) refresh();
   });
   refresh();
   return root;

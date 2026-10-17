@@ -7,7 +7,7 @@ import { extKind, extKindCard } from "./extFields.ts";
 import { fieldDefault } from "../project/extensions.ts";
 import { OPPOSITE, resizeBlocks } from "../core/geometry.ts";
 import { clone, deepEqual } from "../core/merge.ts";
-import { store } from "../core/store.ts";
+import { afterStroke, store } from "../core/store.ts";
 import { DIRECTIONS, type Direction, type EntityRecord, type MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec } from "../games/types.ts";
 import type { MapView } from "../render/mapView.ts";
@@ -71,8 +71,10 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
       requestAnimationFrame(render);
     }
   };
+  const afterBrush = afterStroke(schedule);
   store.on((reason, _id, registry) => {
-    if (["project", "map", "edit", "selection", "tool"].includes(reason)) schedule();
+    if (store.midStroke(reason)) afterBrush();
+    else if (["project", "map", "edit", "selection", "tool"].includes(reason)) schedule();
     const towns = store.adapter?.towns;
     if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === "studio_roofs" || registry === "palettes" || registry === "encounters" || registry === "field" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
   });

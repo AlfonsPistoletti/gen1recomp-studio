@@ -122,8 +122,24 @@ export function mountRecordList(host: HTMLElement, opts: RecordListOptions): Rec
     }
   });
   let queued = false;
+  // a list in a hidden workspace catches up when it is shown, not on every
+  // map edit made elsewhere
+  let stale = false;
+  // tracked here: reading offsetParent per event would force a layout
+  let shown = false;
+  new IntersectionObserver((seen) => {
+    shown = seen.some((e) => e.isIntersecting);
+    if (stale && shown) {
+      stale = false;
+      render();
+    }
+  }).observe(list);
   store.on((reason, id, registry) => {
     if (queued || !(reason === "project" || reason === "saved" || opts.refreshOn(reason, id, registry))) return;
+    if (!shown) {
+      stale = true;
+      return;
+    }
     queued = true;
     requestAnimationFrame(() => {
       queued = false;

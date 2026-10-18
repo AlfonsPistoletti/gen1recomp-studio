@@ -763,7 +763,17 @@ export const gen2: GameAdapter = {
       return v;
     });
     const marts = await (read("marts.lua") as Promise<{ lists?: string[][] }>).catch(() => ({}) as { lists?: string[][] });
-    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists) } };
+    // events' sounds, songs and specials go by their place in these lists
+    const lists = constants as { sfxOrder?: string[]; musicOrder?: string[]; specialOrder?: string[] };
+    return {
+      maps, tilesets, sprites, content: contentTables,
+      extra: {
+        palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists),
+        sfxOrder: asList(lists.sfxOrder), musicOrder: asList(lists.musicOrder), specialOrder: asList(lists.specialOrder),
+        // the game's scripts, shown read-only (and copied) in Events
+        scripts,
+      },
+    };
   },
 
   // Empty Lua tables arrive as []; the lists the view reads become arrays

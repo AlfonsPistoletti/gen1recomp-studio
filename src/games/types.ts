@@ -576,6 +576,7 @@ export type EventParamType =
   | "text" // a line of text, or a text key ("_SomeText")
   | "flag"
   | "flagNumber" // Gen 2: an event flag by number (0-2047)
+  | "goldObject" // Gen 2: the player (0) or a person of the event's map (its index + 1)
   | "item"
   | "species"
   | "number"
@@ -621,6 +622,14 @@ export interface EventCommand {
   // arguments back from a row (null: not this command's row); unset: by key
   pack?(args: Record<string, unknown>, ctx: GameContext): Record<string, unknown>;
   unpack?(row: Record<string, unknown>, ctx: GameContext): Record<string, unknown> | null;
+  // Gen 2: a command written as several rows (a battle), and found again in
+  // them (its arguments and how many rows it took), instead of pack/unpack
+  rows?(args: Record<string, unknown>, ctx: GameContext): Record<string, unknown>[];
+  match?(rows: Record<string, unknown>[], at: number, ctx: GameContext): { args: Record<string, unknown>; length: number } | null;
+  // Gen 2: the If row that reads this check, and its opposite (unset:
+  // iftrue / iffalse): checkmoney answers 0 more, 1 the amount, 2 less
+  // (no `value`: the command's own "value" argument)
+  branch?: { op: string; not: string; value?: number };
 }
 
 // What the Events workspace needs to know about a generation.
@@ -640,6 +649,11 @@ export interface EventSpec {
   parse?(rows: EventRow[], ctx: GameContext): import("../core/eventBlocks.ts").Block[];
   // Gen 2: a script a Role made (a person's text, a nurse, a shop), not an event
   preset?(rows: EventRow[]): boolean;
+  // Gen 2: the game's script of this key as one row list (branches and jumps
+  // to other keys read in as nested lists), for showing / copying it
+  gameRows?(ctx: GameContext, key: string): EventRow[] | null;
+  // Gen 2: a game row the editor has no form for, in words (`help`: what it is for)
+  describeRaw?(row: Record<string, unknown>, ctx: GameContext): { text: string; help: string };
 }
 
 export interface EntityLayer {

@@ -70,6 +70,27 @@ export function inlineEvents(all = false): Record<string, InlineEvent> {
   return out;
 }
 
+// Entities that still run one of the game's scripts (a key): id -> key, with
+// the same ids as inline events (a trainer's game script is its "after" talk)
+export function inlineGameEvents(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [mapId, map] of Object.entries(store.maps)) {
+    const npc = layerOf("npc");
+    for (const e of npc ? store.entities(map, npc.key) : []) {
+      if (typeof e.scriptKey === "string") out[`${mapId}:${e.trainer ? "after" : "talk"}:obj${e.index}`] = e.scriptKey;
+    }
+    const sign = layerOf("sign");
+    (sign ? store.entities(map, sign.key) : []).forEach((e, k) => {
+      if (typeof e.scriptKey === "string") out[`${mapId}:talk:sign${k}`] = e.scriptKey;
+    });
+    const trig = layerOf("trigger");
+    (trig ? store.entities(map, trig.key) : []).forEach((e, k) => {
+      if (typeof e.scriptKey === "string") out[`${mapId}:step:${k}`] = e.scriptKey;
+    });
+  }
+  return out;
+}
+
 // Event texts are `text` records STUDIO_EVENT_<n> (Gold's writetext takes a
 // key, no literal line). A new one is made when a command needs it and
 // written with the next event write, in the same undo step; ones no event

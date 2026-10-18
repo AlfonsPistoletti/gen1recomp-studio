@@ -232,6 +232,32 @@ for (const [registry, records] of Object.entries(edited)) {
   const back = gparse(rows as never, ctx);
   check("Gold event blocks round-trip", deepEqual(back, blocks), JSON.stringify(back));
   check("Gold event rows round-trip", deepEqual(gcompile(back, ctx), rows));
+  // the second set of commands: battles (several rows each), money with its
+  // own If row, people, sounds
+  const more = [
+    { t: "if", cond: ["checkmoney", 1000], not: false, then: [
+      { t: "cmd", row: ["takemoney", 1000] },
+      { t: "cmd", row: ["#trainerbattle", "YOUNGSTER", 2, "T_WIN"] },
+      { t: "cmd", row: ["#heal"] },
+    ], else: [{ t: "cmd", row: ["showemote", 2, "question", 15] }] },
+    { t: "cmd", row: ["#wildbattle", "SUDOWOODO", 20] },
+    { t: "cmd", row: ["turnobject", 0, "left"] },
+    { t: "cmd", row: ["playsound", "Sfx_Item"] },
+    { t: "cmd", row: ["playmusic", "Music_Route1"] },
+  ] as never;
+  const moreRows = gcompile(more, ctx) as unknown as Record<string, unknown>[];
+  const text = JSON.stringify(moreRows);
+  check("Has money reads HAVE_LESS (ifnotequal 2)", text.includes('"op":"ifnotequal","value":2'), text.slice(0, 200));
+  check("a trainer battle closes the text box around its rows", text.includes('{"op":"closetext"},{"op":"winlosstext","winText":"T_WIN"},{"op":"loadtrainer"'));
+  check("money is 3 big-endian bytes", text.includes('"op":"takemoney","args":[0,0,3,232]'));
+  check("Gold event battles, money and people round-trip", deepEqual(gparse(moreRows as never, ctx), more), JSON.stringify(gparse(moreRows as never, ctx)).slice(0, 400));
+  // the game's own events: New Bark's teacher (three flag checks) reads in
+  // with its branches as nested lists, and as If blocks
+  const { GEN2_EVENTS } = await import("../src/games/gen2/events.ts");
+  const teacher = GEN2_EVENTS.gameRows!(ctx, "48:406f") as unknown as Record<string, unknown>[] | null;
+  check("a game script reads in with its branches", !!teacher && teacher.some((r) => r.op === "iftrue" && Array.isArray(r.script)), JSON.stringify(teacher).slice(0, 200));
+  const tb = gparse((teacher ?? []) as never, ctx) as { t: string }[];
+  check("a game script shows as If blocks", tb.filter((b) => b.t === "if").length >= 1 && !JSON.stringify(tb).includes('"#raw",{"op":"iftrue"'), JSON.stringify(tb).slice(0, 300));
   // what a Role writes is no event (people's text, nurse, shop, bookshelf)
   const { presetOf } = await import("../src/games/gen2/events.ts");
   check("Role scripts are presets, events are not",

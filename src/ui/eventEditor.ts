@@ -25,7 +25,7 @@ import { arrows } from "../games/gen1/events.ts";
 import { followerPath, STEP } from "../core/eventBlocks.ts";
 import { mountRecordList } from "./recordList.ts";
 import { introFlags } from "./introEditor.ts";
-import { createStepInline, inlineEvents, inlineTalkers, inlineTarget, newEventText, writeInline } from "../core/inlineEvents.ts";
+import { createStepInline, inlineEvents, inlineGameEvents, inlineTalkers, inlineTarget, newEventText, writeInline } from "../core/inlineEvents.ts";
 
 export interface StudioEvent {
   x?: number;
@@ -135,7 +135,8 @@ export function eventTitle(id: string): string {
     return `After battle: NPC ${t ? String(t.e.index) : key.replace(/^obj/, "")}`;
   }
   if (kind === "step") {
-    const e = events()[id];
+    // Gen 2: the trigger itself says where it is (game triggers have no event yet)
+    const e = spec()?.inline ? inlineTarget(mapId, "step", key)?.e : events()[id];
     return `Step: ${e ? `${e.x}, ${e.y}` : key}`;
   }
   return "On entering the map";
@@ -187,6 +188,15 @@ export function gameTalkEvent(mapId: string, textId: string): EventRow[] | false
   return gameCache?.[mapId]?.talk?.[textId];
 }
 
+// a game event's rows: Gen 1's from data/scripts, Gen 2's from the dataset's
+// scripts (the entity's key, read in whole); false: code, not rows
+function gameRowsOf(s: EventSpec, id: string): EventRow[] | false | undefined {
+  const info = splitEventId(id);
+  if (!s.inline) return gameTalkEvent(info.mapId, info.key);
+  const key = inlineGameEvents()[`${info.mapId}:${info.kind}:${info.key}`];
+  return key ? (s.gameRows?.(store.ctx, key) ?? false) : undefined;
+}
+
 // ------------------------------------------------------------------ workspace
 
 export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
@@ -206,6 +216,9 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
         .sort()
         .map((id) => ({ id, label: `${orphan(id) ? "⚠ " : ""}${eventTitle(id)}`, meta: splitEventId(id).mapId, search: id, edited: true, isNew: !s.inline && store.baseTable(s.registry)[id] === undefined }));
       const game: { id: string; label: string; meta: string; search: string; edited: boolean; folded: boolean }[] = [];
+      if (s.inline) {
+        for (const id of Object.keys(inlineGameEvents())) game.push({ id: `game:${id}`, label: eventTitle(`game:${id}`), meta: splitEventId(`game:${id}`).mapId, search: id, edited: false, folded: true });
+      }
       for (const [mapId, m] of Object.entries(gameCache ?? {})) {
         for (const [text, rows] of Object.entries(m.talk)) {
           const id = `game:${mapId}:talk:${text}`;
@@ -245,7 +258,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       const s = spec();
       if (!s || !current) return;
       const info = splitEventId(current);
-      const rows = info.game ? gameTalkEvent(info.mapId, info.key) || [] : events()[current]?.rows ?? [];
+      const rows = info.game ? gameRowsOf(s, current) || [] : events()[current]?.rows ?? [];
       const ev = events()[current];
       let start: { x: number; y: number; facing: string } | null = null;
       if (info.kind === "step" && ev && typeof ev.x === "number") start = { x: ev.x, y: ev.y ?? 0, facing: "up" };
@@ -444,14 +457,17 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
   const map = store.maps[info.mapId];
 
   if (info.game) {
-    const rows = gameTalkEvent(info.mapId, info.key);
-    const t = talker(info.mapId, info.key);
+    const rows = gameRowsOf(s, id);
+    const t = s.inline ? inlineTarget(info.mapId, info.kind, info.key) : talker(info.mapId, info.key);
+    const what = info.kind === "step" ? `the player steps on trigger ${t ? t.index + 1 : "?"} on ${info.mapId}`
+      : info.kind === "after" ? `the player talks to trainer NPC ${t ? String(t.e.index) : "?"} on ${info.mapId} (after its battle)`
+      : t ? `the player talks to ${isSignLayer(t.layer) ? "sign" : "NPC"} ${isSignLayer(t.layer) ? t.index + 1 : (t.e.index ?? t.index + 1)} on ${info.mapId}` : `${info.key} on ${info.mapId}`;
     out.push(
       h(
         "section",
         { class: "card" },
         h("h4", {}, "The game's own event"),
-        h("p", { class: "hint" }, `Runs when the player talks to ${t ? `${t.layer === "signs" ? "sign" : "NPC"} ${t.index + 1} on ${info.mapId}` : `${info.key} on ${info.mapId}`}.`),
+        h("p", { class: "hint" }, `Runs when ${what}.`),
         h(
           "div",
           { class: "row" },
@@ -461,7 +477,7 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
                 class: "btn small primary-ish",
                 title: "Makes a studio event with the same commands; it runs instead of the game's",
                 onclick: () => {
-                  const nid = createEvent(info.mapId, "talk", info.key, { rows: clone(rows) });
+                  const nid = createEvent(info.mapId, info.kind, info.key, { rows: clone(rows) });
                   if (nid) nav.openEvent(nid);
                 },
               }, "Edit a copy")
@@ -554,6 +570,7 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
   const root = blocksOf(s, id, ev.rows ?? []);
   currentRoot = root;
   currentMap = info.mapId;
+  currentEvent = id;
   const commit = (label: string) => editEv(label, (d) => {
     d.rows = compileBlocks(s, root);
     lastCompiled = { id, rows: clone(d.rows), blocks: clone(root) };
@@ -589,6 +606,11 @@ function freshRow(c: EventCommand, mapId: string): EventRow {
     if (p.default !== undefined) args[p.key] = p.default;
     else if (p.type === "text" && spec()?.inline) args[p.key] = newEventText();
     else if (p.type === "flagNumber") args[p.key] = store.adapter.trainers?.objectTrainer?.freeFlag(store.ctx) ?? 0;
+    else if (p.type === "goldObject") {
+      // the event's own person (Gold numbers people index + 1), else the player
+      const own = /:(?:talk|after):obj(\d+)$/.exec(currentEvent);
+      args[p.key] = own ? Number(own[1]) + 1 : 0;
+    }
     else if (p.type === "map") args[p.key] = mapId;
     else if (p.type === "flag") args[p.key] = `${(store.project.mod ?? "MOD").toUpperCase()}_FLAG`;
     else if (p.type === "song") args[p.key] = Object.keys(store.table("music")).sort()[0];
@@ -623,7 +645,7 @@ function describe(s: EventSpec, b: Block): string {
   switch (b.t) {
     case "cmd": {
       const c = findCommand(s, b.row);
-      if (!c && b.row[0] === "#raw") return `Game command: ${String((b.row[1] as { op?: unknown } | undefined)?.op ?? "?")}`;
+      if (!c && b.row[0] === "#raw") return s.describeRaw?.(b.row[1] as Record<string, unknown>, store.ctx).text ?? `Game command: ${String((b.row[1] as { op?: unknown } | undefined)?.op ?? "?")}`;
       return c ? c.describe(shown(c, argsOf(c, b.row))) : `${String(b.row[0])} ${b.row.slice(1).map((a) => JSON.stringify(a)).join(" ")}`;
     }
     case "stop":
@@ -784,7 +806,12 @@ function blockEditor(s: EventSpec, mapId: string, b: Block, commit: Commit): HTM
           toast(`Not a command: ${errorText(err)}`, "error");
         }
       });
-      box.append(h("p", { class: "hint" }, "A command the studio has no form for; edit it as data."), raw);
+      const what = b.row[0] === "#raw" ? s.describeRaw?.(b.row[1] as Record<string, unknown>, store.ctx) : undefined;
+      box.append(
+        ...(what?.help ? [h("p", { class: "hint" }, what.help)] : []),
+        h("p", { class: "hint" }, "One of the game's commands the studio has no form for; it runs as it is (edit it as data only if you know the command)."),
+        raw,
+      );
     } else {
       const args = argsOf(c, b.row);
       box.append(...paramFields(s, mapId, c.params, args, ro, () => {
@@ -950,6 +977,18 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "number":
         input = numberInput(Number(value ?? p.default ?? 0), (v) => set(Math.max(p.min ?? -1e9, Math.min(p.max ?? 1e9, v))), p.min, p.max);
         break;
+      case "goldObject": {
+        // Gold's object numbers: 0 the player, a person its index + 1
+        const map = store.maps[mapId];
+        const people = map ? store.entities(map, "objects") : [];
+        const sel = selectInput(String(value ?? 0), ["0", ...people.map((e) => String(Number(e.index) + 1))], (v) => set(Number(v)));
+        for (const o of sel.options) {
+          const e = people.find((x) => String(Number(x.index) + 1) === o.value);
+          o.textContent = o.value === "0" ? "the player" : `NPC ${String(e?.index)}${typeof e?.sprite === "string" ? ` · ${e.sprite.replace(/^SPRITE_/, "")}` : ""}`;
+        }
+        input = sel;
+        break;
+      }
       case "flagNumber": {
         // Gen 2 event flags are numbers; a free one is past every flag the game uses
         const free = () => store.adapter.trainers?.objectTrainer?.freeFlag(store.ctx) ?? null;
@@ -1118,6 +1157,8 @@ let addAfter: string | null = null;
 // the step event's cell: where the player stands when it starts
 let eventCell: { x: number; y: number } | null = null;
 let currentRoot: Block[] = [];
+// the open event's id (Gen 2: a new "who" picks the event's own person)
+let currentEvent = "";
 let currentMap = "";
 
 type Pos = { x: number; y: number };
@@ -1229,7 +1270,7 @@ function helpPanel(s: EventSpec, id: string, selected: string | null): HTMLEleme
   );
   if (!selected) return out;
   const info = splitEventId(id);
-  const rows = info.game ? gameTalkEvent(info.mapId, info.key) || [] : events()[id]?.rows ?? [];
+  const rows = info.game ? gameRowsOf(s, id) || [] : events()[id]?.rows ?? [];
   // paths look like 2.t.0 (then), 2.e.1 (else), 3.b1.0 (choice branch 2)
   let list = info.game ? parseRows(s, rows) : blocksOf(s, id, rows);
   let b: Block | undefined;

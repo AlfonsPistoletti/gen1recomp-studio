@@ -3,6 +3,8 @@
 // interface, so Gen 2 and Gen 3 are new adapters rather than forks.
 
 import type { Rgb } from "../render/color.ts";
+import type { IntroStep } from "../lua/introRuntime.ts";
+import type { GameGift } from "../project/gameEvents.ts";
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../core/types.ts";
 
 export type GameId = "gen1" | "gen2" | "gen3";
@@ -421,6 +423,52 @@ export interface GlobalsSpec {
   // type effectiveness rows ("ATK>DEF" -> { multiplier } x10) and type
   // records ({ category }) in one registry
   typeChart?: { registry: string; multipliers: { value: number; label: string }[]; categories?: string[] };
+  // Gen 2's start values: one record { map, x, y, money } (no facing, the
+  // blackout point is the same cell); `note` says what the cell also is
+  start?: { registry: string; id: string; maxMoney: number; note: string; names?: { id: string; max: number; note: string } };
+  // Gen 2's starter balls (Gen 1's are restated in the UI): each ball's game
+  // species, its question text key and level; the question for a new species;
+  // the rival classes to open; which species a script can give
+  // Gen 2's Oak's speech (Gen 1's is restated in the UI): the game's steps, the
+  // ones that can't go, the registry holding the step texts, where the demo
+  // Pokémon is stored, the pictures and reveals the speech knows; flags false:
+  // answers set no flags (the game's events check numbered flags)
+  intro?: {
+    steps: (IntroStep & { label: string })[];
+    required: string[];
+    textRegistry: string;
+    demo: { registry: string; id: string; key: string; game: string };
+    pics: string[];
+    reveals: string[];
+    flags: boolean;
+  };
+  // the slot machine reels (unset: Gen 1's field.slotWheels): a record holding
+  // the three strips of symbol names, the symbols in menu order, the payouts
+  slots?: { registry: string; id: string; order: string[]; payouts: string; art?: Record<string, { sheet: string; x: number; y: number; w: number; h: number }> };
+  // Gen 2's gift Pokémon, read from the game's scripts (Gen 1's: gameGifts)
+  gifts?(ctx: GameContext): GameGift[];
+  // Gen 2's in-game trades (Gen 1's: field.trades, restated in tradeEditor):
+  // the list record, its dialogue key and values, the received mon's extras,
+  // who offers trade n (1-based); no "+ New trade"
+  trades?: {
+    registry: string;
+    id: string;
+    dialogKey: string;
+    dialogs: { value: string; label: string }[];
+    nickMax: number;
+    otMax: number;
+    offers(ctx: GameContext): Map<number, { label: string; map: string; layer: string; index: number }[]>;
+    // what the person says when offering this trade (its dialogue style's line)
+    offerLine(ctx: GameContext, trade: Record<string, unknown>): string;
+    dialogNote: string;
+  };
+  starters?: {
+    balls(ctx: GameContext): { ball: string; ask: string; level: number }[];
+    question(name: string, typeName: string): string;
+    rivals: { id: string; label: string }[];
+    canGive(rec: Record<string, unknown>): boolean;
+    note: string;
+  };
 }
 
 // ------------------------------------------------------------------ pokemon
@@ -462,6 +510,11 @@ export interface PokemonSpec {
   dexInline?: { lines: number; lineMax: number };
   // what this generation can't edit yet
   without?: ("newSpecies" | "dexEntry" | "cry" | "iconImport")[];
+  // records of other registries a copied species takes along (Gen 2: its
+  // menu icon row and its colors), as whole new values
+  speciesExtras?(sourceId: string, newId: string, ctx: GameContext): { registry: string; id: string; value: unknown }[];
+  // the same records without a deleted species (value undefined = remove)
+  dropExtras?(id: string, ctx: GameContext): { registry: string; id: string; value: unknown }[];
   // TM/HM moves in machine order, labelled "TM01 MEGA_PUNCH"
   machines(ctx: GameContext): { move: string; label: string }[];
   moveNames(ctx: GameContext): string[];
@@ -569,6 +622,14 @@ export type FieldSpec =
   // specialMaps: map ids that resolve at runtime (Gen 1 LAST_MAP); backWarp:
   // a warp number that does (Gen 2's 255: back where the player came from)
   | (FieldBase & { kind: "warpTarget"; mapKey: string; warpKey: string; specialMaps: string[]; backWarp?: number })
+  // the days of the week an entity is there (null: every day); set edits the
+  // draft map (Gen 2: the map's objects callback)
+  | (FieldBase & {
+      kind: "weekdays";
+      days: string[];
+      get(map: MapDef, index: number, ctx: GameContext): number[] | null;
+      set(map: MapDef, index: number, days: number[] | null, ctx: GameContext): void;
+    })
   // JSON for every key no other field (and not x/y) claims
   | (FieldBase & { kind: "extras" })
   // two fields side by side
@@ -681,6 +742,9 @@ export interface EntityLayer {
   singular: string; // "Warp"
   color: string; // marker color
   numbered?: boolean; // draw the 1-based index
+  // a marker of its own for some entities ("item": a hidden item, drawn like
+  // Gen 1's hidden items) instead of the layer's
+  marker?(e: EntityRecord): "item" | undefined;
   fields: FieldSpec[];
   create(map: MapDef, cx: number, cy: number, ctx: GameContext): EntityRecord;
   // fix up a duplicated record (fresh ids and the like)
@@ -761,6 +825,9 @@ export interface GameAdapter {
   // the Play-from-here helper's main.lua for this generation (unset: Gen 1's,
   // src/lua/playRuntime.ts playtestMain)
   playtestMain?(t: { map: string; x: number; y: number }): string;
+  // fixed Lua the save writes into studio_content.lua for the mod's edits
+  // (Gen 2: Pokédex entries for new species); "" = none
+  saveHelpers?(edited: Record<string, Record<string, unknown>>, bases: Record<string, Record<string, unknown>>): string;
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;

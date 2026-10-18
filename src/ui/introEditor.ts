@@ -6,7 +6,7 @@
 
 import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
-import { REQUIRED_INTRO, VANILLA_INTRO, type IntroStep } from "../lua/introRuntime.ts";
+import { REQUIRED_INTRO, VANILLA_INTRO as GEN1_INTRO, type IntroStep } from "../lua/introRuntime.ts";
 import { attachCombo, comboInput, field, h, selectInput, toast } from "./dom.ts";
 import { knownFlags } from "./eventEditor.ts";
 import { textEditor } from "./textField.ts";
@@ -19,8 +19,22 @@ const MAX_CHOICES = 4;
 const CHOICE_MAX = 10;
 
 type Speech = { steps: IntroStep[] };
-const vanilla = (id: string) => VANILLA_INTRO.find((s) => s.id === id);
-const speech = (): Speech => (store.table(INTRO)[ID] as Speech | undefined) ?? { steps: VANILLA_INTRO.map((s) => ({ id: s.id })) };
+
+// what differs by generation (GlobalsSpec.intro; Gen 1's restated here)
+const own = () => store.adapter?.globals?.intro;
+const cfg = () => own() ?? {
+  steps: GEN1_INTRO,
+  required: [...REQUIRED_INTRO],
+  textRegistry: "text",
+  demo: { registry: "field", id: "oakSpeech", key: "demoSpecies", game: store.project.version === "yellow" ? "PIKACHU" : "NIDORINO" },
+  pics: ["", "oak", "rival", "player", "pokemon", "trainer"],
+  reveals: ["", "fade", "wipe"],
+  flags: true,
+};
+const VANILLA = () => cfg().steps;
+const TEXT = () => cfg().textRegistry;
+const vanilla = (id: string) => VANILLA().find((s) => s.id === id);
+const speech = (): Speech => (store.table(INTRO)[ID] as Speech | undefined) ?? { steps: VANILLA().map((s) => ({ id: s.id })) };
 
 // a step as the game will run it: the game's own with the mod's keys on top
 function full(s: IntroStep): IntroStep & { label?: string } {
@@ -29,7 +43,7 @@ function full(s: IntroStep): IntroStep & { label?: string } {
 
 const KIND_LABEL: Record<string, string> = {
   say: "Oak says", choice: "Question", yesno: "Yes or no", pic: "Picture",
-  demo: "Shows a Pokémon", name: "Naming", shrink: "Shrinks away",
+  demo: "Shows a Pokémon", name: "Naming", shrink: "Shrinks away", initclock: "Setting the clock",
 };
 
 function set(label: string, mutate: (steps: IntroStep[]) => void): void {
@@ -41,25 +55,30 @@ function set(label: string, mutate: (steps: IntroStep[]) => void): void {
 
 // the Pokémon Oak shows: the game's (Yellow: Pikachu), or the mod's
 function demoSpecies(): string {
-  const cur = store.table("field").oakSpeech as { demoSpecies?: string } | undefined;
-  return cur?.demoSpecies ?? (store.project.version === "yellow" ? "PIKACHU" : "NIDORINO");
+  const d = cfg().demo;
+  const cur = store.table(d.registry)[d.id] as Record<string, unknown> | undefined;
+  return typeof cur?.[d.key] === "string" ? (cur[d.key] as string) : d.game;
 }
 
 // everything the speech changed, back to the game's in one step
 export function revertIntro(): void {
   store.group("Oak's speech: the game's", () => {
-    for (const k of Object.keys(store.table("text"))) if (k.startsWith(NEW_TEXT)) store.setRecord("text", k, "Oak's speech", undefined);
-    for (const s of VANILLA_INTRO) if (s.textKey && store.isRecordEdited("text", s.textKey)) store.setRecord("text", s.textKey, "Oak's speech", clone(store.baseTable("text")[s.textKey]));
+    const t = TEXT();
+    const d = cfg().demo;
+    for (const k of Object.keys(store.table(t))) if (k.startsWith(NEW_TEXT)) store.setRecord(t, k, "Oak's speech", undefined);
+    for (const s of VANILLA()) if (s.textKey && store.isRecordEdited(t, s.textKey)) store.setRecord(t, s.textKey, "Oak's speech", clone(store.baseTable(t)[s.textKey]));
     store.setRecord(INTRO, ID, "Oak's speech", undefined);
-    if (store.isRecordEdited("field", "oakSpeech")) store.setRecord("field", "oakSpeech", "Oak's speech", clone(store.baseTable("field").oakSpeech));
+    if (store.isRecordEdited(d.registry, d.id)) store.setRecord(d.registry, d.id, "Oak's speech", clone(store.baseTable(d.registry)[d.id]));
   });
   store.seal();
 }
 
 export function introEdited(): boolean {
-  return store.isRecordEdited(INTRO, ID) || store.isRecordEdited("field", "oakSpeech")
-    || VANILLA_INTRO.some((s) => s.textKey && store.isRecordEdited("text", s.textKey))
-    || Object.keys(store.table("text")).some((k) => k.startsWith(NEW_TEXT));
+  const t = TEXT();
+  const d = cfg().demo;
+  return store.isRecordEdited(INTRO, ID) || store.isRecordEdited(d.registry, d.id)
+    || VANILLA().some((s) => s.textKey && store.isRecordEdited(t, s.textKey))
+    || Object.keys(store.table(t)).some((k) => k.startsWith(NEW_TEXT));
 }
 
 // flags the speech's answers set (the event editor suggests them)
@@ -69,7 +88,6 @@ export function introFlags(): string[] {
 
 // ------------------------------------------------------------------ pictures
 
-const PIC_KINDS = ["", "oak", "rival", "player", "pokemon", "trainer"];
 const PIC_LABEL: Record<string, string> = { "": "No picture", oak: "Oak", rival: "The rival", player: "The player", pokemon: "A Pokémon…", trainer: "A trainer…" };
 
 function picKind(pic: IntroStep["pic"]): string {
@@ -83,26 +101,28 @@ function picEditor(s: IntroStep, i: number): HTMLElement {
   const kind = picKind(f.pic);
   const mons = Object.keys(store.table("pokemon")).sort();
   const trainers = Object.keys(store.table("trainers")).sort();
+  // Gen 2 names a Pokémon picture { type = "pokemon", id }
+  const monPic = (id: string): IntroStep["pic"] => (own() ? { type: "pokemon", id } : id);
   const setPic = (pic: IntroStep["pic"] | undefined) => set("Oak's speech: picture", (steps) => {
     if (pic === undefined) delete steps[i].pic;
     else steps[i].pic = pic;
   });
-  const sel = selectInput(kind, PIC_KINDS, (v) => {
-    if (v === "pokemon") setPic(mons.includes("MEW") ? "MEW" : mons[0]);
+  const sel = selectInput(kind, cfg().pics, (v) => {
+    if (v === "pokemon") setPic(monPic(mons.includes("MEW") ? "MEW" : mons[0]));
     else if (v === "trainer") setPic({ type: "trainer", id: trainers.includes("OPP_PROF_OAK") ? "OPP_PROF_OAK" : trainers[0] });
     else setPic(v || undefined);
   });
   for (const o of sel.options) o.textContent = PIC_LABEL[o.value] ?? o.value;
   const which = kind === "pokemon"
-    ? comboInput(typeof f.pic === "string" ? f.pic : f.pic?.id ?? "", "dl-species", mons, (v) => (store.table("pokemon")[v] ? setPic(v) : toast(`${v} is not a Pokémon`, "error")))
+    ? comboInput(typeof f.pic === "string" ? f.pic : f.pic?.id ?? "", "dl-species", mons, (v) => (store.table("pokemon")[v] ? setPic(monPic(v)) : toast(`${v} is not a Pokémon`, "error")))
     : kind === "trainer"
       ? selectInput(typeof f.pic === "object" ? f.pic.id ?? "" : "", trainers, (v) => setPic({ type: "trainer", id: v }))
       : null;
-  const reveal = selectInput(f.reveal ?? "", ["", "fade", "wipe"], (v) => set("Oak's speech: how it appears", (steps) => {
+  const reveal = selectInput(f.reveal ?? "", cfg().reveals, (v) => set("Oak's speech: how it appears", (steps) => {
     if (v) steps[i].reveal = v;
     else delete steps[i].reveal;
   }));
-  for (const o of reveal.options) o.textContent = ({ "": "Appears at once", fade: "Fades in", wipe: "Slides in" } as Record<string, string>)[o.value];
+  for (const o of reveal.options) o.textContent = ({ "": "Appears at once", fade: "Fades in", wipe: "Slides in", rotate: "Turns in" } as Record<string, string>)[o.value];
   const cry = h("input", { type: "checkbox", checked: f.cry === true, onchange: () => set("Oak's speech: cry", (steps) => {
     if (cry.checked) steps[i].cry = true;
     else delete steps[i].cry;
@@ -146,7 +166,7 @@ function answersEditor(s: IntroStep, i: number): HTMLElement {
           if (steps[i].flags) steps[i].flags = steps[i].flags!.filter((_, j) => j !== k);
         }) }, "✕")
       : null;
-    return h("div", { class: "row nowrap intro-answer" }, name, h("span", { class: "muted" }, "sets"), flag, remove);
+    return h("div", { class: "row nowrap intro-answer" }, name, ...(cfg().flags ? [h("span", { class: "muted" }, "sets"), flag] : []), remove);
   });
   const add = !yesno && labels.length < MAX_CHOICES
     ? h("button", { class: "btn small", onclick: () => set("Oak's speech: add answer", (steps) => (steps[i].choices = [...(steps[i].choices ?? []), `ANSWER ${labels.length + 1}`])) }, "+ Answer")
@@ -155,7 +175,7 @@ function answersEditor(s: IntroStep, i: number): HTMLElement {
     h("span", { class: "field-label" }, "Answers"),
     ...rows,
     add,
-    h("p", { class: "hint" }, `Answers fit ${CHOICE_MAX} letters. A flag remembers the answer in the save: events can check it (If → flag).`),
+    h("p", { class: "hint" }, cfg().flags ? `Answers fit ${CHOICE_MAX} letters. A flag remembers the answer in the save: events can check it (If → flag).` : `Answers fit ${CHOICE_MAX} letters. In this game an answer is shown but not remembered.`),
   );
 }
 
@@ -164,7 +184,7 @@ function answersEditor(s: IntroStep, i: number): HTMLElement {
 function newStep(kind: "say" | "choice" | "yesno" | "pic"): IntroStep {
   const used = new Set(speech().steps.map((s) => s.id));
   let n = 1;
-  while (used.has(`studio_${n}`) || store.table("text")[`${NEW_TEXT}${n}`] !== undefined) n++;
+  while (used.has(`studio_${n}`) || store.table(TEXT())[`${NEW_TEXT}${n}`] !== undefined) n++;
   const step: IntroStep = { id: `studio_${n}`, kind, pic: "oak" };
   if (kind !== "pic") step.textKey = `${NEW_TEXT}${n}`;
   if (kind === "choice") step.choices = ["YES", "NO"];
@@ -181,7 +201,7 @@ const FIRST_TEXT: Record<string, string> = {
 function insert(at: number, kind: "say" | "choice" | "yesno" | "pic"): void {
   const step = newStep(kind);
   store.group("Oak's speech: new step", () => {
-    if (step.textKey) store.setRecord("text", step.textKey, "Oak's speech", FIRST_TEXT[kind]);
+    if (step.textKey) store.setRecord(TEXT(), step.textKey, "Oak's speech", FIRST_TEXT[kind]);
     const next = clone(speech());
     // never after the shrink: it ends the speech
     const shrink = next.steps.findIndex((s) => s.id === "shrink");
@@ -194,7 +214,7 @@ function insert(at: number, kind: "say" | "choice" | "yesno" | "pic"): void {
 function remove(i: number): void {
   const s = speech().steps[i];
   store.group("Oak's speech: remove step", () => {
-    if (!vanilla(s.id) && s.textKey) store.setRecord("text", s.textKey, "Oak's speech", undefined);
+    if (!vanilla(s.id) && s.textKey) store.setRecord(TEXT(), s.textKey, "Oak's speech", undefined);
     const next = clone(speech());
     next.steps.splice(i, 1);
     store.setRecord(INTRO, ID, "Oak's speech", next);
@@ -233,26 +253,28 @@ function stepCard(s: IntroStep, i: number, count: number): HTMLElement {
     const mons = Object.keys(store.table("pokemon")).sort();
     body.push(field("Pokémon Oak shows", comboInput(demoSpecies(), "dl-species", mons, (v) => {
       if (!store.table("pokemon")[v]) return toast(`${v} is not a Pokémon`, "error");
-      const game = (store.baseTable("field").oakSpeech as { demoSpecies?: string } | undefined)?.demoSpecies;
-      store.editRecord<Record<string, unknown>>("field", "oakSpeech", "Oak's speech: Pokémon", (d) => {
-        if (v === (game ?? (store.project.version === "yellow" ? "PIKACHU" : "NIDORINO")) && !game) delete d.demoSpecies;
-        else d.demoSpecies = v;
+      const dm = cfg().demo;
+      const game = (store.baseTable(dm.registry)[dm.id] as Record<string, unknown> | undefined)?.[dm.key];
+      store.editRecord<Record<string, unknown>>(dm.registry, dm.id, "Oak's speech: Pokémon", (d) => {
+        if (v === (game ?? dm.game) && !game) delete d[dm.key];
+        else d[dm.key] = v;
       }, { create: () => ({}) });
       store.seal();
-    }), "Shown mirrored, with its cry, while Oak talks about Pokémon."));
+    }), own() ? "Shown with its cry while Oak talks about Pokémon." : "Shown mirrored, with its cry, while Oak talks about Pokémon."));
   }
   if (f.kind === "say" || f.kind === "choice" || f.kind === "yesno" || f.kind === "pic") body.push(picEditor(s, i));
-  if (f.textKey) body.push(textEditor(f.textKey, { rows: 4, label: "Text" }));
+  if (f.textKey && f.kind !== "shrink") body.push(textEditor(f.textKey, { rows: 4, label: "Text", registry: TEXT() }));
   if (f.kind === "choice" || f.kind === "yesno") body.push(answersEditor(s, i));
   if (f.kind === "name") body.push(h("p", { class: "hint" }, "The naming screen, with the names from New game. It can be moved but not removed."));
   if (isShrink) body.push(h("p", { class: "hint" }, "Ends the speech: the player's picture shrinks into the overworld. Always last."));
+  if (f.kind === "initclock") body.push(h("p", { class: "hint" }, "The game asks for the time of day. It can be moved but not removed."));
   return h("section", { class: "card intro-step" },
     h("div", { class: "card-head" },
       h("h4", {}, `${i + 1}. ${title}`, h("span", { class: "hint intro-kind" }, KIND_LABEL[f.kind ?? "say"] ?? "")),
       h("div", { class: "row nowrap" },
         h("button", { class: "btn small ghost", title: "Move up", disabled: i === 0 || isShrink, onclick: () => move(-1) }, "↑"),
         h("button", { class: "btn small ghost", title: "Move down", disabled: i >= lastMovable || isShrink, onclick: () => move(1) }, "↓"),
-        h("button", { class: "btn small ghost danger", title: REQUIRED_INTRO.has(s.id) ? "The game needs this step" : "Remove this step", disabled: REQUIRED_INTRO.has(s.id), onclick: () => remove(i) }, "✕"),
+        h("button", { class: "btn small ghost danger", title: cfg().required.includes(s.id) ? "The game needs this step" : "Remove this step", disabled: cfg().required.includes(s.id), onclick: () => remove(i) }, "✕"),
       ),
     ),
     ...body,

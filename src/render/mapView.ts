@@ -645,7 +645,10 @@ export class MapView {
           if (!a) this.drawNpc(layer, e);
           else if (!a.hidden) this.drawNpc(layer, { ...e, x: a.x, y: a.y, movement: "STAY", range: a.facing.toUpperCase(), hidden: false });
         }
-        else if (layer.kind === "sign") {
+        else if (layer.marker?.(e) === "item") {
+          const [name, icon, color] = HIDDEN_ICONS.item;
+          this.markerIcon(name, icon, color, e);
+        } else if (layer.kind === "sign") {
           ctx.globalAlpha = 0.5;
           ctx.fillStyle = layer.color;
           ctx.fillRect(e.x * CELL + 3, e.y * CELL + 3, CELL - 6, CELL - 6);
@@ -1049,6 +1052,8 @@ export class MapView {
       if (hit) {
         const ent = store.entities(store.map, hit.layer)[hit.index];
         this.drag = { kind: "move", sel: hit, offX: h.cx - ent.x, offY: h.cy - ent.y };
+        // like a paint stroke: the panels refresh once the drag is over
+        store.brushing = true;
       }
     } else if (tool === "brush") {
       store.brushing = true;
@@ -1125,10 +1130,10 @@ export class MapView {
       }
       d.lastTx = tx;
       d.lastTy = ty;
-    } else if (d?.kind === "move" && h) {
+    } else if (d?.kind === "move" && at) {
       const map = store.map;
-      const nx = clamp(h.cx - d.offX, 0, map.width * 2 - 1);
-      const ny = clamp(h.cy - d.offY, 0, map.height * 2 - 1);
+      const nx = clamp(at.cx - d.offX, 0, map.width * 2 - 1);
+      const ny = clamp(at.cy - d.offY, 0, map.height * 2 - 1);
       const ent = store.entities(map, d.sel.layer)[d.sel.index];
       if (ent && (ent.x !== nx || ent.y !== ny)) {
         store.edit(store.currentMap, `Move ${d.sel.layer}`, (draft) => {
@@ -1144,6 +1149,8 @@ export class MapView {
   private pointerUp(): void {
     store.brushing = false;
     const d = this.drag;
+    // skipped during the drag (a position never changes a map's colors)
+    if (d?.kind === "move") store.refreshPalettes();
     if (d?.kind === "rect") {
       const at = this.strokePos();
       if (at) {
@@ -1186,6 +1193,11 @@ export class MapView {
   }
 
   private endDrag(): void {
+    // a cancelled pointer ends a stroke too (the panels wait for it)
+    if (store.brushing) {
+      store.brushing = false;
+      if (this.drag?.kind === "move") store.refreshPalettes();
+    }
     if (this.drag && this.drag.kind !== "pan") store.seal();
     this.drag = null;
     this.canvas.style.cursor = this.spaceDown ? "grab" : "";

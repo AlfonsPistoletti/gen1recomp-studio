@@ -16,6 +16,11 @@ export const TRADES_REGISTRY = "field";
 export const TRADES_ID = "trades";
 const NICK_MAX = 10;
 
+// Gen 2's trades (GlobalsSpec.trades): own list record, dialogue values, extras
+const own = () => store.adapter?.globals?.trades;
+const REG = () => own()?.registry ?? TRADES_REGISTRY;
+const ID = () => own()?.id ?? TRADES_ID;
+
 export interface Trade {
   give: string;
   get: string;
@@ -25,21 +30,21 @@ export interface Trade {
 }
 
 export function trades(): Trade[] {
-  const t = store.table(TRADES_REGISTRY)[TRADES_ID];
+  const t = store.table(REG())[ID()];
   return Array.isArray(t) ? (t as Trade[]) : [];
 }
 
 function baseCount(): number {
-  const t = store.baseTable(TRADES_REGISTRY)[TRADES_ID];
+  const t = store.baseTable(REG())[ID()];
   return Array.isArray(t) ? t.length : 0;
 }
 
 export function tradesEdited(): boolean {
-  return store.isRecordEdited(TRADES_REGISTRY, TRADES_ID);
+  return store.isRecordEdited(REG(), ID());
 }
 
 function editTrades(label: string, mutate: (list: Trade[]) => void): void {
-  store.editRecord<Trade[]>(TRADES_REGISTRY, TRADES_ID, label, mutate, { create: () => [] });
+  store.editRecord<Trade[]>(REG(), ID(), label, mutate, { create: () => [] });
   store.seal();
 }
 
@@ -115,6 +120,7 @@ function offerText(t: Trade): string {
 }
 
 export function tradeCards(): HTMLElement[] {
+  if (own()) return tradeCards2(own()!);
   const list = trades();
   const base = baseCount();
   const cards = list.map((t, i) => {
@@ -166,4 +172,51 @@ export function tradeCards(): HTMLElement[] {
       h("span", { class: "hint" }, "A new trade is offered by an NPC whose event runs the Trade command with its number. The received Pokémon keeps the level of the one sent."),
     ),
   ];
+}
+
+// Gen 2: the game's trades only (a new one needs a `trade` command in a script),
+// with the received Pokémon's held item and original trainer
+function tradeCards2(cfg: NonNullable<ReturnType<typeof own>>): HTMLElement[] {
+  const list = trades();
+  const base = store.baseTable(cfg.registry)[cfg.id] as Trade[] | undefined;
+  const offered = cfg.offers(store.ctx);
+  const items = Object.keys(store.table("items")).sort();
+  return list.map((t, i) => {
+    const n = i + 1;
+    const text = (key: string, label: string, max: number) => {
+      const input = h("input", { type: "text", value: String(t[key] ?? ""), maxLength: max, spellcheck: false });
+      input.addEventListener("change", () => {
+        const v = input.value.trim().toUpperCase().slice(0, max);
+        if (!v) return toast(`${label} can't be empty`, "error");
+        editTrades(`Trade #${n}: ${label.toLowerCase()}`, (l) => (l[i][key] = v));
+      });
+      return field(label, input);
+    };
+    const cur = String(t[cfg.dialogKey] ?? "");
+    const dialogs = cfg.dialogs.some((d) => d.value === cur) || !cur ? cfg.dialogs : [...cfg.dialogs, { value: cur, label: cur }];
+    const dialog = h("select", {}, ...dialogs.map((d) => h("option", { value: d.value, selected: cur === d.value }, d.label)));
+    dialog.addEventListener("change", () => editTrades(`Trade #${n}: dialogue`, (l) => (l[i][cfg.dialogKey] = dialog.value)));
+    const item = h("select", {}, h("option", { value: "", selected: !t.item }, "No item"), ...items.map((x) => h("option", { value: x, selected: x === t.item }, String((store.table("items")[x] as { name?: unknown }).name ?? x))));
+    item.addEventListener("change", () => editTrades(`Trade #${n}: held item`, (l) => (item.value ? (l[i].item = item.value) : delete l[i].item)));
+    const who = offered.get(n) ?? [];
+    const game = base?.[i];
+    return h("section", { class: "card trade-card" },
+      h("div", { class: "card-head" }, h("h4", {}, `Trade #${n}`)),
+      h("div", { class: "row wrap trade-row" },
+        field("The NPC wants", speciesSelect(t.give, (v) => editTrades(`Trade #${n}: wants`, (l) => (l[i].give = v)), false)),
+        h("span", { class: "trade-arrow" }, "⇄"),
+        field("The player gets", speciesSelect(t.get, (v) => editTrades(`Trade #${n}: gives`, (l) => (l[i].get = v)), false)),
+        text("nickname", "Nickname", cfg.nickMax),
+        field("Held item", item),
+        text("otName", "Original trainer", cfg.otMax),
+        field("Dialogue", dialog, cfg.dialogNote),
+      ),
+      cfg.offerLine(store.ctx, t) ? h("p", { class: "hint trade-offer" }, `“${cfg.offerLine(store.ctx, t)}”`) : null,
+      h("div", { class: "row wrap" },
+        h("span", { class: "hint" }, who.length ? "Offered by:" : "No map person runs this trade."),
+        ...who.map((o) => h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(o.map, o.layer, o.index) }, o.label)),
+      ),
+      game && !deepEqual(game, t) ? h("button", { class: "btn small danger", onclick: () => editTrades(`Trade #${n}: the game's`, (l) => (l[i] = clone(game))) }, "Back to the game's trade") : null,
+    );
+  });
 }

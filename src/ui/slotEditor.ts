@@ -15,19 +15,24 @@ interface Symbols {
   symbols?: Record<string, { sheet: string; x: number; y: number; w: number; h: number }>;
 }
 
+// Gen 2 (GlobalsSpec.slots): its own record, symbols by name, no art
+const own = () => store.adapter?.globals?.slots;
+const REG = () => own()?.registry ?? "field";
+const ID = () => own()?.id ?? SLOTS_ID;
+
 export function slotsEdited(): boolean {
-  return store.isRecordEdited("field", SLOTS_ID);
+  return store.isRecordEdited(REG(), ID());
 }
 
 const wheels = (): string[][] => {
-  const w = store.table("field")[SLOTS_ID];
+  const w = store.table(REG())[ID()];
   return Array.isArray(w) ? (w as string[][]) : [];
 };
 
 export function slotCards(): HTMLElement[] {
   const list = wheels();
-  const art = (store.table("field").slotSymbols ?? {}) as Symbols;
-  const order = art.order ?? ["7", "BAR", "CHERRY", "FISH", "BIRD", "MOUSE"];
+  const art = (own() ? { symbols: own()!.art } : (store.table("field").slotSymbols ?? {})) as Symbols;
+  const order = own()?.order ?? art.order ?? ["7", "BAR", "CHERRY", "FISH", "BIRD", "MOUSE"];
   if (list.length !== 3) return [h("p", { class: "hint" }, "This game has no slot machine wheels.")];
   const { host, version } = store.project;
   // a symbol as its picture (16x16 from the cache's sheet; CSS draws it at 2x)
@@ -42,7 +47,7 @@ export function slotCards(): HTMLElement[] {
     return el;
   };
   const set = (w: number, i: number, sym: string) => {
-    store.editRecord<string[][]>("field", SLOTS_ID, `Slot wheel ${w + 1}`, (d) => {
+    store.editRecord<string[][]>(REG(), ID(), `Slot wheel ${w + 1}`, (d) => {
       d[w][i] = sym;
       // the wraparound copy of the first three
       d[w] = [...d[w].slice(0, LEN), ...d[w].slice(0, 3)];
@@ -64,9 +69,9 @@ export function slotCards(): HTMLElement[] {
   });
   return [
     ...cards,
-    h("p", { class: "hint" }, "Click a symbol to swap it. Left to right is the order the wheel turns. More of a symbol on a wheel lets it line up more often. Payouts stay the game's: 7-7-7 pays 300, BAR 100, CHERRY 8, the rest 15; whether a spin may win at all is decided by the engine's luck rolls."),
+    h("p", { class: "hint" }, `Click a symbol to swap it. Left to right is the order the wheel turns. More of a symbol on a wheel lets it line up more often. Payouts stay the game's: ${own()?.payouts ?? "7-7-7 pays 300, BAR 100, CHERRY 8, the rest 15"}; whether a spin may win at all is decided by the engine's luck rolls.`),
     slotsEdited()
-      ? h("div", {}, h("button", { class: "btn small danger", onclick: () => store.revertRecord("field", SLOTS_ID, "Slot wheels: the game's") }, "Back to the game's wheels"))
+      ? h("div", {}, h("button", { class: "btn small danger", onclick: () => store.revertRecord(REG(), ID(), "Slot wheels: the game's") }, "Back to the game's wheels"))
       : h("span", {}),
   ];
 }

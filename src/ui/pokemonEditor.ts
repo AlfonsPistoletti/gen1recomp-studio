@@ -258,18 +258,20 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (!mod) return toast("Choose or create a mod first: a new Pokémon is saved into it", "error");
     const front = reusable(rec.spriteFront);
     const back = reusable(rec.spriteBack);
-    const size = Number(rec.frontSize ?? 7) * 8;
+    const size = Number(rec[spec.keys?.picSize ?? "frontSize"] ?? 7) * 8;
     rec.spriteFront = front ?? addAsset(mod, `${res.id}_front`, placeholderArt(size, size));
     rec.spriteBack = back ?? addAsset(mod, `${res.id}_back`, placeholderArt(spec.backSize, spec.backSize));
     if (!front || !back) delete rec.trueColor;
-    if (rec.icon === undefined) {
+    // Gen 2: the icon is the icons registry's row (speciesExtras)
+    if (rec.icon === undefined && !spec.icon.registry) {
       const icon = spec.icon.resolve(store.ctx, src);
       if (icon.name) rec.icon = icon.name;
       else if (icon.image) rec.icon = { image: icon.image, frames: spec.icon.frames };
     }
     const dex = rec.dexEntry as Rec | undefined;
     let textKey: string | undefined;
-    if (dex && typeof dex.text === "string") {
+    // Gen 2's text is inline in the entry, copied as it is
+    if (dex && typeof dex.text === "string" && !spec.dexInline) {
       const text = store.table("text");
       const base = `_${res.id.toLowerCase().replace(/(^|_)(\w)/g, (_m, _s, c: string) => c.toUpperCase())}DexEntry`;
       textKey = base;
@@ -283,6 +285,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
       // the game plays cries[<species id>]: start with the source's cry
       const cry = cryFor(res.source);
       if (cry) store.setRecord("cries", res.id, "New cry", cry);
+      for (const x of spec.speciesExtras?.(res.source, res.id, store.ctx) ?? []) store.setRecord(x.registry, x.id, `New Pokémon ${res.id}`, x.value);
     });
     open(res.id);
   };
@@ -290,8 +293,15 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
   // only species this mod adds; anything still pointing at it is listed first
   const deleteSpecies = (id: string) => {
     const uses: string[] = [];
-    for (const [mapId, wild] of Object.entries(store.table("encounters") as Record<string, Rec>)) {
-      for (const t of Object.values(wild)) if ((t as { slots?: { species: string }[] })?.slots?.some((s) => s.species === id)) uses.push(`wild Pokémon on ${mapId}`);
+    // any species field under a record: Gen 1 records are maps holding slot lists,
+    // Gen 2's are kinds (grass, water, ...) holding maps with time-of-day lists
+    const holds = (v: unknown): boolean =>
+      Array.isArray(v) ? v.some(holds) : !!v && typeof v === "object" && Object.entries(v).some(([k, x]) => (k === "species" ? x === id : holds(x)));
+    for (const [rid, rec] of Object.entries(store.table("encounters") as Record<string, Rec>)) {
+      const gen2 = store.adapter.timedEncounters;
+      if (!gen2) {
+        if (holds(rec)) uses.push(`wild Pokémon on ${rid}`);
+      } else for (const [mapId, block] of Object.entries(rec)) if (holds(block)) uses.push(`wild Pokémon on ${mapId} (${rid})`);
     }
     const into = keys(store.adapter.pokemon).into;
     for (const [mid, m] of Object.entries(species())) if ((m.evolutions as Evolution[] | undefined)?.some((e) => e[into] === id)) uses.push(`evolution of ${mid}`);
@@ -303,6 +313,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (!confirm(msg)) return;
     const key = (species()[id]?.dexEntry as Rec | undefined)?.text;
     store.group(`Delete ${id}`, () => {
+      for (const x of store.adapter.pokemon?.dropExtras?.(id, store.ctx) ?? []) store.setRecord(x.registry, x.id, `Delete ${id}`, x.value);
+      if (store.table("cries")[id] !== undefined && store.baseTable("cries")[id] === undefined) store.setRecord("cries", id, `Delete ${id}`, undefined);
       store.setRecord(REG, id, `Delete ${id}`, undefined);
       if (typeof key === "string" && store.baseTable("text")[key] === undefined) store.setRecord("text", key, "Delete dex text", undefined);
     });

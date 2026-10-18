@@ -921,6 +921,9 @@ function copyMap(src: MapDef, mapId: string, index: number): void {
 // ---------------------------------------------------------------- save / validate
 
 async function save(): Promise<void> {
+  // a field still being typed in commits on blur (its change event fires
+  // now), so Ctrl+S or the Save button never drops the last edit
+  (document.activeElement as HTMLElement | null)?.blur?.();
   if (!currentMod) {
     toast("Choose a mod to save into, or create one", "error");
     modSelect.focus();

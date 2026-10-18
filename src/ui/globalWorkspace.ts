@@ -80,16 +80,17 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (!s) return null;
   if (registry === s.typeChart?.registry) return "types";
   if (registry === store.adapter.towns?.prizeRegistry) return "prizes";
-  if (registry === TRADES_REGISTRY && id === TRADES_ID && s.sections.some((x) => x.id === "trades")) return "trades";
+  if (((registry === TRADES_REGISTRY && id === TRADES_ID) || (s.trades && registry === s.trades.registry && id === s.trades.id)) && s.sections.some((x) => x.id === "trades")) return "trades";
   if (registry === STARTERS) return "starters";
   if (registry === GIFTS) return "gifts";
   const shared = sharedListSection(registry, id);
   if (shared) return shared;
   if (registry === "constants" && id === "badges") return "badges";
-  if (registry === INTRO || (registry === "field" && id === "oakSpeech")) return "intro";
+  if (registry === INTRO || (registry === "field" && id === "oakSpeech") || (s.intro && registry === s.intro.textRegistry)) return "intro";
   if (registry === "field" && id === "fishing") return "wild";
   if (registry === "field" && id === "boot") return "names";
-  if (registry === "field" && id === SLOTS_ID) return "slots";
+  if (s.start && registry === s.start.registry && (id === s.start.id || id === s.start.names?.id)) return "start";
+  if ((registry === "field" && id === SLOTS_ID) || (s.slots && registry === s.slots.registry && id === s.slots.id)) return "slots";
   if ((registry === MUSIC || registry === SFX) && s.sections.some((x) => x.id === "sounds")) return "sounds";
   const odds = store.adapter.encounters?.sharedOdds;
   if (odds && registry === odds.registry && id === odds.id) return "wild";
@@ -122,6 +123,7 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (section === "intro") return "Oak's speech";
   if (registry === "field" && id === "fishing") return "Old Rod and Good Rod";
   if (registry === "field" && id === "boot") return "New game start";
+  if (section === "start") return id === s.start?.names?.id ? "Player names" : "New game start";
   if (registry === "field" && id === SLOTS_ID) return "Slot machine wheels";
   if (registry === MUSIC) return `Song: ${songLabel(id)}`;
   if (registry === SFX) return `Sound: ${id}`;
@@ -147,7 +149,7 @@ function sectionChanged(id: string): boolean {
   if (timed?.trees && id === "treesets" && store.isRecordEdited(timed.registry, timed.trees.sets)) return true;
   if (id === "names" && store.isRecordEdited("field", "boot")) return true;
   if (id === "intro" && introEdited()) return true;
-  if (id === "starters" && (Object.keys(store.table(STARTERS)).length > 0 || STARTER_BALLS.some((b) => store.isRecordEdited("text", b.ask)))) return true;
+  if (id === "starters" && (Object.keys(store.table(STARTERS)).length > 0 || starterBalls().some((b) => store.isRecordEdited("text", b.ask)))) return true;
   if (id === "gifts" && Object.keys(store.table(GIFTS)).length > 0) return true;
   if (id === "badges" && store.isRecordEdited("constants", "badges")) return true;
   if (id === "slots" && slotsEdited()) return true;
@@ -243,8 +245,8 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
-    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
-    if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || sharedListSection(registry ?? "", _id ?? "") || registry === "constants" || registry === s.typeChart?.registry || registry === prizes)) nav.setWorkspace("global");
+    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || registry === s.trades?.registry || registry === s.slots?.registry || registry === s.hmBadges?.registry || registry === "statuses" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
+    if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || sharedListSection(registry ?? "", _id ?? "") || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === s.start?.registry)) nav.setWorkspace("global");
   });
 }
 
@@ -423,12 +425,17 @@ let giftList: GameGift[] | null = null;
 const SHARED_TEXTS = new Set(["_BoxIsFullText"]);
 
 function giftCards(): HTMLElement[] {
-  if (!giftList) return [h("p", { class: "hint" }, "Reading the game's scripts…")];
-  if (!giftList.length) return [h("p", { class: "hint" }, "The gifts are read from the game's scripts, which only a gen1recomp source checkout has.")];
+  // Gen 2: read from the dataset's scripts (no checkout needed)
+  const own = spec()?.gifts?.(store.ctx);
+  const giftList_ = own ?? giftList;
+  if (!giftList_) return [h("p", { class: "hint" }, "Reading the game's scripts…")];
+  if (!giftList_.length) return [h("p", { class: "hint" }, own ? "No gift Pokémon were found in this game's scripts." : "The gifts are read from the game's scripts, which only a gen1recomp source checkout has.")];
+  // Gen 2 gives by species number: only species with one
+  const givable = (id: string) => !own || typeof (store.table("pokemon")[id] as { index?: unknown } | undefined)?.index === "number";
   const mons = store.table("pokemon") as Record<string, { name?: string }>;
-  const ids = Object.keys(mons).sort();
+  const ids = Object.keys(mons).filter(givable).sort();
   const name = (s: string) => String(mons[s]?.name ?? s);
-  return giftList.map((g) => {
+  return giftList_.map((g) => {
     const key = `${g.map}:${g.species}`;
     const rec = store.table(GIFTS)[key] as Starter | undefined;
     const cur: Starter = { species: rec?.species ?? g.species, level: rec?.level ?? g.level };
@@ -449,13 +456,16 @@ function giftCards(): HTMLElement[] {
       h("div", { class: "row two" },
         field("Pokémon", comboInput(cur.species, "dl-species", ids, (v) => {
           if (!mons[v]) return toast(`${v} is not a Pokémon`, "error");
+          if (!givable(v)) return toast(`${v} has no species number, and a script can only give a Pokémon by its number`, "error");
           put(`Gift ${g.species}: ${v}`, { ...cur, species: v });
         })),
         field("Level", numberInput(cur.level, (n) => put(`Gift ${g.species}: level`, { ...cur, level: Math.max(1, Math.min(100, Math.trunc(n))) }), 1, 100)),
       ),
       h("div", { class: "row wrap" },
-        npc >= 0 && layer ? h("button", { class: "btn small", onclick: () => nav.selectEntity(g.map, layer.key, npc) }, "Show on map") : null,
-        ...texts.map((t) => h("button", { class: "btn small ghost", title: "Open this text (Text)", onclick: () => nav.openText(t) }, t.replace(/^_/, "").replace(/Text$/, ""))),
+        g.at ? h("button", { class: "btn small", onclick: () => nav.selectEntity(g.map, g.at!.layer, g.at!.index) }, "Show on map")
+          : npc >= 0 && layer ? h("button", { class: "btn small", onclick: () => nav.selectEntity(g.map, layer.key, npc) }, "Show on map") : null,
+        // Gen 2's text keys are ROM pointers: the button shows the text's start
+        ...texts.map((t) => h("button", { class: "btn small ghost", title: "Open this text (Text)", onclick: () => nav.openText(t) }, t.includes(":") ? `“${String(store.table("text")[t]).split(/[\n{]/)[0].slice(0, 18)}…”` : t.replace(/^_/, "").replace(/Text$/, ""))),
       ),
       cur.species !== g.species
         ? h("div", { class: "notice" },
@@ -480,21 +490,31 @@ function starterQuestion(species: string): string {
   const mon = store.table("pokemon")[species] as { name?: string; types?: string[] } | undefined;
   const type = mon?.types?.[0] ?? "";
   const typeName = (store.table("type_chart")[type] as { name?: string } | undefined)?.name ?? type.replace(/_TYPE$/, "");
+  const own = spec()?.starters;
+  if (own) return own.question(String(mon?.name ?? species), typeName);
   return `So! You want the\n${typeName.toLowerCase()} POKéMON,\v${String(mon?.name ?? species)}?`;
 }
 
 // the game gives each ball at level 5
 const BALL_LEVEL = 5;
 
+// the balls of this game: Gen 2's from the adapter (read from its scripts),
+// Gen 1's restated (STARTER_BALLS)
+type Ball = { ball: string; ask: string; level: number; rivalTeam?: number };
+function starterBalls(): Ball[] {
+  const g = spec()?.starters;
+  return g ? g.balls(store.ctx) : STARTER_BALLS.map((b) => ({ ...b, level: BALL_LEVEL }));
+}
+
 // a ball to `next` (undefined: the game's), and Oak's question when the
 // species changes; one undo step. The rival's teams are left alone: the
 // card asks the user to change them (Trainers).
-function setBall(ball: string, ask: string, next: Starter | undefined, label: string): void {
+function setBall(ball: string, ask: string, next: Starter | undefined, label: string, level = BALL_LEVEL): void {
   const rec = store.table(STARTERS)[ball] as Starter | undefined;
-  const from: Starter = { species: rec?.species ?? ball, level: rec?.level ?? BALL_LEVEL };
-  const to: Starter = next ?? { species: ball, level: BALL_LEVEL };
+  const from: Starter = { species: rec?.species ?? ball, level: rec?.level ?? level };
+  const to: Starter = next ?? { species: ball, level };
   store.group(label, () => {
-    store.setRecord(STARTERS, ball, label, to.species === ball && to.level === BALL_LEVEL ? undefined : to);
+    store.setRecord(STARTERS, ball, label, to.species === ball && to.level === level ? undefined : to);
     if (!next) store.setRecord("text", ask, label, clone(store.baseTable("text")[ask]));
     else if (to.species !== from.species) store.setRecord("text", ask, label, to.species === ball ? clone(store.baseTable("text")[ask]) : starterQuestion(to.species));
   });
@@ -503,23 +523,28 @@ function setBall(ball: string, ask: string, next: Starter | undefined, label: st
 
 // the right panel's Revert of a ball: the whole ball, like its own button
 function revertStarter(ball: string): void {
-  const b = STARTER_BALLS.find((x) => x.ball === ball);
-  if (b) setBall(ball, b.ask, undefined, `${ball}'s ball back`);
+  const b = starterBalls().find((x) => x.ball === ball);
+  if (b) setBall(ball, b.ask, undefined, `${ball}'s ball back`, b.level);
 }
 
 function starterCards(): HTMLElement[] {
   if (store.project.version === "yellow") {
     return [h("section", { class: "card" }, h("p", { class: "hint" }, "Yellow has no three balls: Oak gives the Pikachu that follows you around, and the follower is built around it. Starters can be changed in Red and Blue."))];
   }
+  const own = spec()?.starters;
   const mons = store.table("pokemon") as Record<string, { name?: string }>;
-  const ids = Object.keys(mons).sort();
-  return STARTER_BALLS.map(({ ball, ask, rivalTeam }) => {
+  // Gen 2: only species a script can give (with a number)
+  const ids = Object.keys(mons).filter((id) => !own || own.canGive(mons[id] as Record<string, unknown>)).sort();
+  const balls = starterBalls();
+  if (!balls.length) return [h("section", { class: "card" }, h("p", { class: "hint" }, "The three balls weren't found in this game's scripts."))];
+  return balls.map(({ ball, ask, rivalTeam, level }) => {
     const rec = store.table(STARTERS)[ball] as Starter | undefined;
-    const cur: Starter = { species: rec?.species ?? ball, level: rec?.level ?? BALL_LEVEL };
+    const cur: Starter = { species: rec?.species ?? ball, level: rec?.level ?? level };
     const ballName = String((store.baseTable("pokemon")[ball] as { name?: string } | undefined)?.name ?? ball);
     const pick = (v: string) => {
       if (!mons[v]) return toast(`${v} is not a Pokémon`, "error");
-      if (v !== cur.species) setBall(ball, ask, { ...cur, species: v }, `${ballName}'s ball: ${v}`);
+      if (!ids.includes(v)) return toast(`${v} has no species number, and a script can only give a Pokémon by its number`, "error");
+      if (v !== cur.species) setBall(ball, ask, { ...cur, species: v }, `${ballName}'s ball: ${v}`, level);
     };
     const edited = !!rec || store.isRecordEdited("text", ask);
     return h(
@@ -528,18 +553,20 @@ function starterCards(): HTMLElement[] {
       h("h4", {}, `${ballName}'s ball`),
       h("div", { class: "row two" },
         field("Pokémon", comboInput(cur.species, "dl-species", ids, pick)),
-        field("Level", numberInput(cur.level, (n) => setBall(ball, ask, { ...cur, level: Math.max(1, Math.min(100, Math.trunc(n))) }, `${ballName}'s ball: level`), 1, 100)),
+        field("Level", numberInput(cur.level, (n) => setBall(ball, ask, { ...cur, level: Math.max(1, Math.min(100, Math.trunc(n))) }, `${ballName}'s ball: level`, level), 1, 100)),
       ),
-      textEditor(ask, { rows: 3, label: "Oak's question" }),
+      textEditor(ask, { rows: 3, label: own ? "Elm's question" : "Oak's question" }),
       // the rival's teams: what the studio changes for you, and what it doesn't
       h("div", { class: "notice" },
         h("strong", {}, "Consider changing the rival's teams"),
-        h("p", {}, "He takes the ball in the cutscene, but that doesn't change his team Pokémon. Change the rival's teams to reflect the changes you made here."),
-        h("div", { class: "row" }, ...["OPP_RIVAL1", "OPP_RIVAL2", "OPP_RIVAL3"].map((t, i) =>
-          h("button", { class: "btn small", onclick: () => nav.openTrainer(t, i === 0 ? rivalTeam : undefined) }, `Rival ${i + 1}`))),
+        h("p", {}, own ? own.note : "He takes the ball in the cutscene, but that doesn't change his team Pokémon. Change the rival's teams to reflect the changes you made here."),
+        h("div", { class: "row" }, ...(own
+          ? own.rivals.map((r) => h("button", { class: "btn small", onclick: () => nav.openTrainer(r.id) }, r.label))
+          : ["OPP_RIVAL1", "OPP_RIVAL2", "OPP_RIVAL3"].map((t, i) =>
+              h("button", { class: "btn small", onclick: () => nav.openTrainer(t, i === 0 ? rivalTeam : undefined) }, `Rival ${i + 1}`)))),
       ),
       edited
-        ? h("button", { class: "btn small danger", onclick: () => setBall(ball, ask, undefined, `${ballName}'s ball back`) }, "Back to the game's")
+        ? h("button", { class: "btn small danger", onclick: () => setBall(ball, ask, undefined, `${ballName}'s ball back`, level) }, "Back to the game's")
         : null,
     );
   });
@@ -574,6 +601,49 @@ function newGameCard(): HTMLElement {
   );
 }
 
+// Gen 2: one record { map, x, y, money } a helper applies (no field.boot)
+function startCard(st: NonNullable<GlobalsSpec["start"]>): HTMLElement {
+  type Start = { map: string; x: number; y: number; money: number };
+  const r = (store.table(st.registry)[st.id] ?? store.baseTable(st.registry)[st.id]) as Start;
+  const set = (label: string, mutate: (d: Start) => void) => {
+    store.editRecord<Start>(st.registry, st.id, label, mutate);
+    store.seal();
+  };
+  return h("section", { class: "card" },
+    h("h4", {}, "Start"),
+    field("Where the player starts", cellRow(r, "the start", (map, x, y) => set("New game start", (d) => ((d.map = map), (d.x = x), (d.y = y)))), st.note),
+    field("Money", numberInput(r.money, (v) => set("Start money", (d) => (d.money = Math.max(0, Math.min(st.maxMoney, v)))), 0, st.maxMoney), `What the player has at the start (the game: ${String((store.baseTable(st.registry)[st.id] as Start | undefined)?.money ?? "?")}, at most ${st.maxMoney}).`),
+    store.isRecordEdited(st.registry, st.id)
+      ? h("button", { class: "btn small danger", onclick: () => store.revertRecord(st.registry, st.id, "New game: the game's") }, "Back to the game's start")
+      : null,
+  );
+}
+
+// Gen 2: the naming menu's player names, a record beside the start
+function startNamesCard(st: NonNullable<GlobalsSpec["start"]>, nm: NonNullable<NonNullable<GlobalsSpec["start"]>["names"]>): HTMLElement {
+  type Names = { player: string[] };
+  const cur = (store.table(st.registry)[nm.id] ?? store.baseTable(st.registry)[nm.id]) as Names | undefined;
+  if (!cur?.player) return h("p", { class: "hint" }, "This game has no preset names.");
+  const inputs = cur.player.map((n, i) => {
+    const input = h("input", { type: "text", value: n, maxLength: nm.max, spellcheck: false });
+    input.addEventListener("change", () => {
+      const v = input.value.trim().toUpperCase().slice(0, nm.max);
+      if (!v) return toast("A name can't be empty", "error");
+      store.editRecord<Names>(st.registry, nm.id, `Player name ${i + 1}`, (d) => (d.player = d.player.map((x, j) => (j === i ? v : x))));
+      store.seal();
+    });
+    return input;
+  });
+  return h("section", { class: "card names-card" },
+    h("h4", {}, "Names"),
+    field("The player", h("div", { class: "row nowrap" }, ...inputs)),
+    h("p", { class: "hint" }, `Names fit ${nm.max} letters. ${nm.note}`),
+    store.isRecordEdited(st.registry, nm.id)
+      ? h("button", { class: "btn small danger", onclick: () => store.revertRecord(st.registry, nm.id, "Names: the game's") }, "Back to the game's names")
+      : null,
+  );
+}
+
 function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   const out: HTMLElement[] = [h("p", { class: "hint" }, hint)];
   if (id === "wild") {
@@ -592,6 +662,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "badges") out.push(badgesCard());
   if (id === "intro") out.push(...introCards());
   if (id === "names") out.push(newGameCard(), namesCard());
+  if (id === "start" && s.start) out.push(startCard(s.start), ...(s.start.names ? [startNamesCard(s.start, s.start.names)] : []));
   if (id === "slots") out.push(...slotCards());
   if (id === "sounds") out.push(...soundCards());
   const towns = store.adapter.towns;

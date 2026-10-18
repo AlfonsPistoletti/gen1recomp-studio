@@ -13,7 +13,7 @@
 // item_effects:get before the studio's overrides land), so no engine module is
 // required (modkit MK006). Plain Lua 5.1/LuaJIT, no backticks (template string).
 
-import { GEN2_EFFECT_ITEMS } from "../games/gen2/items.ts";
+import { gen2EffectItems } from "../games/gen2/items.ts";
 
 export const ITEM_EFFECT_RUNTIME2 = String.raw`
   -- studio item effects (Gen 2): specs from studio_item_effects.lua -> item_effects records
@@ -145,7 +145,7 @@ export const ITEM_EFFECT_RUNTIME2 = String.raw`
 // the registration loop after the helper: the game's own ids are overridden
 export function itemEffectRegistration2(modId: string, file: string): string {
   const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
-  const game = GEN2_EFFECT_ITEMS.map((id) => `${id} = true`).join(", ");
+  const game = gen2EffectItems().map((id) => `${id} = true`).join(", ");
   return [
     `  local studioOwnItem = { ${game} }`,
     `  for id, spec in pairs(require(${JSON.stringify(module)})) do`,

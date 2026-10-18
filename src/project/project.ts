@@ -378,6 +378,7 @@ export async function saveProject(project: Project, edited: Record<string, Recor
       await host.deleteFile(path);
     }
   }
+  if (adapter.saveHelpers) before += adapter.saveHelpers(edited, bases);
   await host.writeText(file, studioContentFile(modId, [...kept, ...calls], fieldOrders(adapter), before));
   await syncPermissions(host, modId, internals);
   const wiredUp = await isWiredUp(host, modId, await readManifest(host, modId));

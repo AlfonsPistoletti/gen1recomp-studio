@@ -97,6 +97,8 @@ export interface GameGift {
   // texts its script shows (to rename the Pokémon in them)
   texts: string[];
   note?: string;
+  // Gen 2: the map person who gives it (layer key, list place)
+  at?: { layer: string; index: number };
 }
 
 // Gifts whose species the game's code picks at run time (no literal row):

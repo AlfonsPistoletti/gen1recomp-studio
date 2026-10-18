@@ -17,6 +17,8 @@ import { ITEM_EFFECT_RUNTIME2, itemEffectRegistration2 } from "../../lua/itemEff
 import { DEX_RUNTIME2 } from "../../lua/dexRuntime2.ts";
 import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
 import { STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
+import { INTRO_RUNTIME } from "../../lua/introRuntime.ts";
+import { INTRO_TEXT_RUNTIME2, introRegistration2, introTextRegistration2 } from "../../lua/introRuntime2.ts";
 import { GEN2_EXP_STATS, GEN2_ITEM_STATUSES, gen2ItemTemplate, gen2ItemText, gen2PicksMove, gen2SpecialItem } from "./items.ts";
 import { playtestMain2 } from "../../lua/playRuntime.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
@@ -131,6 +133,17 @@ const content: ContentSpec[] = [
     registry: "studio_start", editable: true, studioFile: "studio_start.lua",
     build: () => ({ start: { map: "PLAYERS_HOUSE_2F", x: 3, y: 3, money: 3000 }, names: { player: [...(PLAYER_NAMES[gameVersion] ?? PLAYER_NAMES.gold)] } }),
     generator: { what: "start values", order: ["map", "x", "y", "money", "player"], runtime: START_RUNTIME2, registration: startRegistration2, writes: [] },
+  },
+  // Oak's speech: the step list (Gen 1's helper) and the Pokémon he shows
+  // (record "demo"); its texts are oak_speech.lua's own (speech.texts)
+  {
+    registry: "studio_intro", editable: true, build: () => ({}), studioFile: "studio_intro.lua",
+    generator: { what: "Oak's speech", order: ["speech", "demo", "steps", "id", "kind", "textKey", "pic", "reveal", "cry", "choices", "flags", "species"], runtime: INTRO_RUNTIME, registration: introRegistration2, writes: [] },
+  },
+  {
+    registry: "studio_intro_text", file: "oak_speech.lua", editable: true, studioFile: "studio_intro_text.lua",
+    build: (f) => Object.fromEntries(Object.entries((f as { text?: Record<string, unknown> }).text ?? {}).filter(([, v]) => typeof v === "string")),
+    generator: { what: "Oak's speech texts", order: [], runtime: INTRO_TEXT_RUNTIME2, registration: introTextRegistration2, writes: [] },
   },
   // starter balls: the game's ball species -> { species, level }
   {
@@ -693,12 +706,34 @@ const globals: GlobalsSpec = {
     { id: "fishing", group: "Wild Pokémon", label: "Fishing groups", hint: "What bites on each rod. Maps with the same water share a group; a map picks its group in its Encounters tab." },
     { id: "treesets", group: "Wild Pokémon", label: "Headbutt & Rock Smash sets", hint: "What falls out of trees and rocks. Many maps share a set; a map picks its sets in its Encounters tab." },
     { id: "start", group: "New game", label: "Start values", hint: "Where a new game starts and the money the player has." },
+    { id: "intro", group: "New game", label: "Oak's speech", hint: "What Oak says before the game starts, the Pokémon he shows, and steps of your own." },
     { id: "starters", group: "New game", label: "Starter Pokémon", hint: "What the three balls in Elm's lab give, at which level." },
     { id: "types", group: "Game", label: "Type chart", hint: "Type effectiveness, and which types are physical or special (Gold decides by type, like Red)." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],
   numbers: [],
   defaults: {},
+  // gen1recomp src/ui/gen2/OakSpeech.lua defaultSteps (Crystal adds gender_select
+  // in front at run time; the helper keeps steps it doesn't know in place)
+  intro: {
+    steps: [
+      { id: "init_clock", kind: "initclock", label: "Setting the clock" },
+      { id: "oak_welcome", kind: "say", textKey: "_OakText1", pic: "oak", reveal: "rotate", label: "Oak's welcome" },
+      { id: "demo_mon", kind: "demo", textKey: "_OakText2", label: "Oak shows a Pokémon" },
+      { id: "world_spiel", kind: "say", textKey: "_OakText4", label: "The world of Pokémon" },
+      { id: "oak_study", kind: "say", textKey: "_OakText5", pic: "oak", reveal: "rotate", label: "Oak's research" },
+      { id: "ask_player_name", kind: "say", textKey: "_OakText6", pic: "player", reveal: "rotate", label: "Asks the player's name" },
+      { id: "name_player", kind: "name", label: "Naming the player" },
+      { id: "legend", kind: "say", textKey: "_OakText7", pic: "player", label: "Your story begins" },
+      { id: "shrink", kind: "shrink", label: "The player shrinks into the world" },
+    ],
+    required: ["init_clock", "name_player", "shrink"],
+    textRegistry: "studio_intro_text",
+    demo: { registry: "studio_intro", id: "demo", key: "species", game: "MARILL" },
+    pics: ["", "oak", "player", "pokemon"],
+    reveals: ["", "fade", "wipe", "rotate"],
+    flags: false,
+  },
   starters: {
     // the ELMS_LAB objects whose script gives a Pokémon (givepoke), read from
     // the game's own rows: the species number, the question before yesorno

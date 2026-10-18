@@ -61,7 +61,7 @@ export function introRegistration(modId: string, file: string): string {
 // text and picture as the game has them.
 export interface IntroStep {
   id: string;
-  kind?: "say" | "choice" | "yesno" | "pic" | "demo" | "name" | "shrink";
+  kind?: "say" | "choice" | "yesno" | "pic" | "demo" | "name" | "shrink" | "initclock";
   textKey?: string;
   pic?: string | { type: string; id?: string };
   reveal?: string;

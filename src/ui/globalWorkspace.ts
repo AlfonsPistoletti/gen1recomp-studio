@@ -86,7 +86,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   const shared = sharedListSection(registry, id);
   if (shared) return shared;
   if (registry === "constants" && id === "badges") return "badges";
-  if (registry === INTRO || (registry === "field" && id === "oakSpeech")) return "intro";
+  if (registry === INTRO || (registry === "field" && id === "oakSpeech") || (s.intro && registry === s.intro.textRegistry)) return "intro";
   if (registry === "field" && id === "fishing") return "wild";
   if (registry === "field" && id === "boot") return "names";
   if (s.start && registry === s.start.registry && (id === s.start.id || id === s.start.names?.id)) return "start";
@@ -245,7 +245,7 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
-    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || sharedListSection(registry ?? "", _id ?? ""))) schedule();
+    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || sharedListSection(registry ?? "", _id ?? ""))) schedule();
     if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || sharedListSection(registry ?? "", _id ?? "") || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === s.start?.registry)) nav.setWorkspace("global");
   });
 }

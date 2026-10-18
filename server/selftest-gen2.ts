@@ -352,6 +352,25 @@ for (const [registry, records] of Object.entries(edited)) {
   check("starter helper runs", ran.errors.length === 0, ran.errors.join("; "));
 }
 
+// Oak's speech: the game's texts load as the text registry's base, every game
+// step names a text that exists, and both helpers load
+{
+  const { INTRO_RUNTIME } = await import("../src/lua/introRuntime.ts");
+  const { introRegistration2, introTextRegistration2 } = await import("../src/lua/introRuntime2.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const texts = content.studio_intro_text as Record<string, unknown>;
+  const intro = adapter.globals!.intro!;
+  const missing = intro.steps.filter((st) => st.textKey && typeof texts[st.textKey] !== "string").map((st) => st.id);
+  check("Oak's speech texts load", typeof texts._OakText1 === "string" && !missing.length, missing.join(", "));
+  const code = INTRO_RUNTIME + "\n" + introRegistration2("studio_selftest", "studio_intro.lua") + "\n" + introTextRegistration2("studio_selftest", "studio_intro_text.lua");
+  check("intro helpers have no backticks", !code.includes("`"));
+  const spec = dataFile("studio_selftest", "Oak's speech", { speech: { steps: intro.steps.map((st) => ({ id: st.id })) }, demo: { species: "PIKACHU" } }, ["steps", "id", "species"]);
+  const txt = dataFile("studio_selftest", "Oak's speech texts", { _OakText1: "Hi there!" }, []);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, code)], ["mods/studio_selftest/studio_intro.lua", spec], ["mods/studio_selftest/studio_intro_text.lua", txt]]), "studio_selftest", f, null);
+  check("intro helpers run", ran.errors.length === 0, ran.errors.join("; "));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);
 

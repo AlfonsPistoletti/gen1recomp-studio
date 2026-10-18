@@ -3,6 +3,7 @@
 // interface, so Gen 2 and Gen 3 are new adapters rather than forks.
 
 import type { Rgb } from "../render/color.ts";
+import type { IntroStep } from "../lua/introRuntime.ts";
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../core/types.ts";
 
 export type GameId = "gen1" | "gen2" | "gen3";
@@ -427,6 +428,19 @@ export interface GlobalsSpec {
   // Gen 2's starter balls (Gen 1's are restated in the UI): each ball's game
   // species, its question text key and level; the question for a new species;
   // the rival classes to open; which species a script can give
+  // Gen 2's Oak's speech (Gen 1's is restated in the UI): the game's steps, the
+  // ones that can't go, the registry holding the step texts, where the demo
+  // Pokémon is stored, the pictures and reveals the speech knows; flags false:
+  // answers set no flags (the game's events check numbered flags)
+  intro?: {
+    steps: (IntroStep & { label: string })[];
+    required: string[];
+    textRegistry: string;
+    demo: { registry: string; id: string; key: string; game: string };
+    pics: string[];
+    reveals: string[];
+    flags: boolean;
+  };
   starters?: {
     balls(ctx: GameContext): { ball: string; ask: string; level: number }[];
     question(name: string, typeName: string): string;

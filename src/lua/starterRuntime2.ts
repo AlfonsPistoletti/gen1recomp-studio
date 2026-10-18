@@ -1,38 +1,40 @@
-// Starter Pokémon on Gen 2 (studio_starters.lua: the game's ball species ->
-// { species, level }), like the Gen 1 helper (starterRuntime.ts). Elm's Lab
-// ball scripts name their species by NUMBER in pokepic, cry, getmonname and
-// givepoke (gen1recomp src/script/gen2/Vm.lua; the World gives a mon by its
-// record's `index`), so the public script.command hook swaps those numbers
-// (and givepoke's level) while they run in ELMS_LAB. The numbers come from the
-// merged data, taken on game.ready. A species without an `index` can't be
-// given by a script (the editor offers only species with one). The rival's
-// teams are trainer data (RIVAL1/RIVAL2), edited in Trainers. Plain Lua, no
-// requires, no backticks.
+// Starter and gift Pokémon on Gen 2 (studio_starters.lua: the ball's species ->
+// { species, level }, all in ELMS_LAB; studio_gifts.lua: "<MAP>:<SPECIES>" ->
+// { species, level }), like the Gen 1 helpers. Gold's scripts name a species by
+// NUMBER in pokepic, cry, getmonname and givepoke (gen1recomp
+// src/script/gen2/Vm.lua; the World gives a mon by its record's `index`), so
+// the public script.command hook swaps those numbers (and givepoke's level)
+// while a script runs on that map. The numbers come from the merged data,
+// taken on game.ready. A species without an `index` can't be given by a script
+// (the editor offers only species with one). Plain Lua, no requires, no backticks.
 
 export const STARTER_RUNTIME2 = String.raw`
-  -- studio starters (Gen 2): Elm's Lab balls give other Pokemon
-  local function studioStarters2(starters)
-    if type(starters) ~= "table" or next(starters) == nil then return end
+  -- studio gifts (Gen 2): a map's scripts give other Pokemon
+  -- byMap[MAP][species the game gives] = { species, level }
+  local function studioMonSwaps(byMap)
+    if type(byMap) ~= "table" or next(byMap) == nil then return end
     local data
     mod.events:on("game.ready", function(ev) data = ev and ev.game and ev.game.data end)
     local OPS = { pokepic = true, cry = true, getmonname = true, givepoke = true }
     -- ctx.mapId is the map label only when the World hands the VM one; it
-    -- otherwise falls back to "<group>:<number>", so the lab's own numbers
+    -- otherwise falls back to "<group>:<number>", so the map's own numbers
     -- (data.gen2Maps, the table the World loads) are checked as well
-    local function inLab(ctx)
-      if not ctx then return false end
-      if ctx.mapId == "ELMS_LAB" then return true end
-      local lab = data.gen2Maps and data.gen2Maps.ELMS_LAB
-      return lab ~= nil and ctx.mapGroup == lab.group and ctx.mapNumber == lab.map
+    local function swapsFor(ctx)
+      if not ctx then return nil end
+      if byMap[ctx.mapId] then return byMap[ctx.mapId] end
+      for id, swaps in pairs(byMap) do
+        local m = data.gen2Maps and data.gen2Maps[id]
+        if m and ctx.mapGroup == m.group and ctx.mapNumber == m.map then return swaps end
+      end
+      return nil
     end
     mod.hooks:wrap("script.command", function(vanilla, ctx, name, args, cmd)
-      if not (data and data.pokemon and OPS[name] and type(cmd) == "table" and inLab(ctx)) then
-        return vanilla(ctx, name, args, cmd)
-      end
+      local swaps = data and data.pokemon and OPS[name] and type(cmd) == "table" and swapsFor(ctx)
+      if not swaps then return vanilla(ctx, name, args, cmd) end
       local n = cmd.species or cmd.object
       local pick
-      for ball, e in pairs(starters) do
-        local b = data.pokemon[ball]
+      for from, e in pairs(swaps) do
+        local b = data.pokemon[from]
         if b and b.index ~= nil and b.index == n then pick = e end
       end
       local to = pick and data.pokemon[pick.species]
@@ -58,5 +60,21 @@ export const STARTER_RUNTIME2 = String.raw`
 
 export function starterRegistration2(modId: string, file: string): string {
   const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
-  return `  studioStarters2(require(${JSON.stringify(module)}))`;
+  return `  studioMonSwaps({ ELMS_LAB = require(${JSON.stringify(module)}) })`;
+}
+
+// "<MAP>:<SPECIES>" records -> the per-map table
+export function giftRegistration2(modId: string, file: string): string {
+  const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
+  return String.raw`  do
+    local byMap = {}
+    for key, e in pairs(require(${JSON.stringify(module)})) do
+      local map, species = string.match(key, "^(.-):(.+)$")
+      if map then
+        byMap[map] = byMap[map] or {}
+        byMap[map][species] = e
+      end
+    end
+    studioMonSwaps(byMap)
+  end`;
 }

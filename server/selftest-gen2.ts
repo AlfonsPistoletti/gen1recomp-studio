@@ -283,11 +283,11 @@ for (const [registry, records] of Object.entries(edited)) {
 // from their blocks, and the ids the helper overrides are the dataset's items
 {
   const { ITEM_EFFECT_RUNTIME2, itemEffectRegistration2 } = await import("../src/lua/itemEffectRuntime2.ts");
-  const { gen2ItemTemplate, GEN2_EFFECT_ITEMS } = await import("../src/games/gen2/items.ts");
+  const { gen2ItemTemplate, gen2EffectItems } = await import("../src/games/gen2/items.ts");
   check("Gen 2 item effect helper has no backticks", !(ITEM_EFFECT_RUNTIME2 + itemEffectRegistration2("m", "f.lua")).includes("`"));
   const restore = gen2ItemTemplate("FULL_RESTORE");
   check("Full Restore's effect has a template", restore?.steps[0]?.act === "heal" && restore.steps[1]?.act === "cure", JSON.stringify(restore));
-  const missing = GEN2_EFFECT_ITEMS.filter((id) => !content.items[id]);
+  const missing = gen2EffectItems().filter((id) => !content.items[id]);
   check("item effect ids are dataset items", !missing.length, missing.join(", "));
   // Used by: records = the dataset's (no edits)
   const uctx = { data: project.data, maps: base, records: project.data.content as Record<string, Record<string, unknown>> };
@@ -389,6 +389,66 @@ for (const [registry, records] of Object.entries(edited)) {
   setWeekdays(r40, objs[0].index === monica ? objs[1].index : objs[0].index, null, scripts);
   setWeekdays(r40, monica, [1], scripts);
   check("back to the game's callback", JSON.stringify(r40.callbacks) === before, JSON.stringify(r40.callbacks).slice(0, 200));
+}
+
+// gift Pokémon: found in the map people's scripts; the starter + gift helpers
+// load side by side (one shared function, defined twice)
+{
+  const { STARTER_RUNTIME2, starterRegistration2, giftRegistration2 } = await import("../src/lua/starterRuntime2.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
+  const gifts = adapter.globals!.gifts!(ctx);
+  console.log("     gifts: " + gifts.map((g) => `${g.species}@${g.map} L${g.level}`).join(", "));
+  check("gift Pokémon found (Eevee from Bill)", gifts.some((g) => g.species === "EEVEE") && !gifts.some((g) => g.map === "ELMS_LAB"), String(gifts.length));
+  const code = [STARTER_RUNTIME2, starterRegistration2("studio_selftest", "studio_starters.lua"), STARTER_RUNTIME2, giftRegistration2("studio_selftest", "studio_gifts.lua")].join("\n");
+  check("gift helper has no backticks", !code.includes("`"));
+  const st = dataFile("studio_selftest", "starter Pokémon", { CYNDAQUIL: { species: "PIKACHU", level: 7 } }, ["species", "level"]);
+  const gf = dataFile("studio_selftest", "gift Pokémon", { "BILLS_FAMILYS_HOUSE:EEVEE": { species: "PIKACHU", level: 20 } }, ["species", "level"]);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, code)], ["mods/studio_selftest/studio_starters.lua", st], ["mods/studio_selftest/studio_gifts.lua", gf]]), "studio_selftest", f, null);
+  check("starter + gift helpers run", ran.errors.length === 0, ran.errors.join("; "));
+}
+
+// in-game trades: events.lua's six rows as one list, offered by map people
+{
+  const { tradeRegistration2 } = await import("../src/lua/tradeRuntime2.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const list = (content.studio_trades as Record<string, unknown>).trades as Record<string, unknown>[];
+  check("six trades load", list?.length === 6 && typeof list[0].give === "string", String(list?.length));
+  const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
+  const offers = adapter.globals!.trades!.offers(ctx);
+  check("every trade is offered by someone", [1, 2, 3, 4, 5, 6].every((n) => (offers.get(n) ?? []).length > 0), JSON.stringify([...offers].map(([n, o]) => [n, o.map((x) => x.map)])));
+  const line = adapter.globals!.trades!.offerLine(ctx, list[0]);
+  check("a trade's offer line names its Pokémon", line.includes("DROWZEE") && line.includes("MACHOP") && !line.includes("{"), line);
+  const code = tradeRegistration2("studio_selftest", "studio_trades.lua");
+  check("trade helper has no backticks", !code.includes("`"));
+  const edited = list.map((t, i) => (i === 0 ? { ...t, get: "PIKACHU", nickname: "SPARKY" } : t));
+  const df = dataFile("studio_selftest", "in-game trades", { trades: edited }, ["give", "get", "nickname"]);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, code)], ["mods/studio_selftest/studio_trades.lua", df]]), "studio_selftest", f, null);
+  check("trade helper runs", ran.errors.length === 0, ran.errors.join("; "));
+}
+
+// the rest of Global: status numbers patch the game's records; HM badges and
+// slot reels are helpers the studio can read back (requires inside game.ready)
+{
+  const { hmBadgeRegistration2, slotRegistration2 } = await import("../src/lua/fieldRuntime2.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const st = clone(content.statuses) as Record<string, Rec>;
+  st.burn = { ...st.burn, statPenalty: { stat: "attack", div: 3 } };
+  st.sleep = { ...st.sleep, catchBonus: 20 };
+  const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, statuses: st });
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("status numbers saved as patches", src.includes('statuses:patch("sleep"') && src.includes('statuses:patch("burn"') && !src.includes("statuses:override"), src.split("\n").filter((l) => l.includes("statuses")).join(" | "));
+  const reels = (content.studio_slots as Record<string, unknown>).reels as string[][];
+  check("slot reels: 3 x (15 + 3)", reels.length === 3 && reels.every((r) => r.length === 18 && r[15] === r[0]));
+  const code = hmBadgeRegistration2("studio_selftest", "studio_field_moves.lua") + "\n" + slotRegistration2("studio_selftest", "studio_slots.lua");
+  check("field helpers have no backticks", !code.includes("`"));
+  const hm = dataFile("studio_selftest", "HM badges", { badges: { CUT: { badge: "ZEPHYR" } } }, ["badge"]);
+  const sl = dataFile("studio_selftest", "slot machine reels", { reels }, []);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, code)], ["mods/studio_selftest/studio_field_moves.lua", hm], ["mods/studio_selftest/studio_slots.lua", sl]]), "studio_selftest", f, null);
+  check("field helpers load in the studio", ran.errors.length === 0, ran.errors.join("; "));
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");

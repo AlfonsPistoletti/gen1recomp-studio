@@ -22,8 +22,9 @@ const RESTORE_PP: Record<string, { amount: number | "all"; each?: boolean }> = {
 const VITAMIN: Record<string, string> = { HP_UP: "hp", PROTEIN: "attack", IRON: "defense", CARBOS: "speed", CALCIUM: "special" };
 const STONES = ["SUN_STONE", "MOON_STONE", "FIRE_STONE", "THUNDERSTONE", "WATER_STONE", "LEAF_STONE"];
 
-// the ids the engine registers itself (a mod overrides these, registers the rest)
-export const GEN2_EFFECT_ITEMS = [...Object.keys(HEAL_HP), ...Object.keys(HEAL_STATUS), ...Object.keys(REVIVE), ...Object.keys(RESTORE_PP), ...Object.keys(VITAMIN), "PP_UP", "RARE_CANDY", ...STONES];
+// the ids the engine registers itself (a mod overrides these, registers the rest);
+// a function: a module-level call would survive tree shaking into release builds
+export const gen2EffectItems = (): string[] => [...Object.keys(HEAL_HP), ...Object.keys(HEAL_STATUS), ...Object.keys(REVIVE), ...Object.keys(RESTORE_PP), ...Object.keys(VITAMIN), "PP_UP", "RARE_CANDY", ...STONES];
 
 // status classes the engine's cures compare (ItemEffects.STATUS_CLASS)
 export const GEN2_ITEM_STATUSES = [

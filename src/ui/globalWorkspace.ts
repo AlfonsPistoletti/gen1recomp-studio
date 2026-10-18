@@ -80,7 +80,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (!s) return null;
   if (registry === s.typeChart?.registry) return "types";
   if (registry === store.adapter.towns?.prizeRegistry) return "prizes";
-  if (registry === TRADES_REGISTRY && id === TRADES_ID && s.sections.some((x) => x.id === "trades")) return "trades";
+  if (((registry === TRADES_REGISTRY && id === TRADES_ID) || (s.trades && registry === s.trades.registry && id === s.trades.id)) && s.sections.some((x) => x.id === "trades")) return "trades";
   if (registry === STARTERS) return "starters";
   if (registry === GIFTS) return "gifts";
   const shared = sharedListSection(registry, id);
@@ -90,7 +90,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (registry === "field" && id === "fishing") return "wild";
   if (registry === "field" && id === "boot") return "names";
   if (s.start && registry === s.start.registry && (id === s.start.id || id === s.start.names?.id)) return "start";
-  if (registry === "field" && id === SLOTS_ID) return "slots";
+  if ((registry === "field" && id === SLOTS_ID) || (s.slots && registry === s.slots.registry && id === s.slots.id)) return "slots";
   if ((registry === MUSIC || registry === SFX) && s.sections.some((x) => x.id === "sounds")) return "sounds";
   const odds = store.adapter.encounters?.sharedOdds;
   if (odds && registry === odds.registry && id === odds.id) return "wild";
@@ -245,7 +245,7 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
-    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || sharedListSection(registry ?? "", _id ?? ""))) schedule();
+    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || registry === s.trades?.registry || registry === s.slots?.registry || registry === s.hmBadges?.registry || registry === "statuses" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
     if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || sharedListSection(registry ?? "", _id ?? "") || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === s.start?.registry)) nav.setWorkspace("global");
   });
 }
@@ -425,12 +425,17 @@ let giftList: GameGift[] | null = null;
 const SHARED_TEXTS = new Set(["_BoxIsFullText"]);
 
 function giftCards(): HTMLElement[] {
-  if (!giftList) return [h("p", { class: "hint" }, "Reading the game's scripts…")];
-  if (!giftList.length) return [h("p", { class: "hint" }, "The gifts are read from the game's scripts, which only a gen1recomp source checkout has.")];
+  // Gen 2: read from the dataset's scripts (no checkout needed)
+  const own = spec()?.gifts?.(store.ctx);
+  const giftList_ = own ?? giftList;
+  if (!giftList_) return [h("p", { class: "hint" }, "Reading the game's scripts…")];
+  if (!giftList_.length) return [h("p", { class: "hint" }, own ? "No gift Pokémon were found in this game's scripts." : "The gifts are read from the game's scripts, which only a gen1recomp source checkout has.")];
+  // Gen 2 gives by species number: only species with one
+  const givable = (id: string) => !own || typeof (store.table("pokemon")[id] as { index?: unknown } | undefined)?.index === "number";
   const mons = store.table("pokemon") as Record<string, { name?: string }>;
-  const ids = Object.keys(mons).sort();
+  const ids = Object.keys(mons).filter(givable).sort();
   const name = (s: string) => String(mons[s]?.name ?? s);
-  return giftList.map((g) => {
+  return giftList_.map((g) => {
     const key = `${g.map}:${g.species}`;
     const rec = store.table(GIFTS)[key] as Starter | undefined;
     const cur: Starter = { species: rec?.species ?? g.species, level: rec?.level ?? g.level };
@@ -451,13 +456,16 @@ function giftCards(): HTMLElement[] {
       h("div", { class: "row two" },
         field("Pokémon", comboInput(cur.species, "dl-species", ids, (v) => {
           if (!mons[v]) return toast(`${v} is not a Pokémon`, "error");
+          if (!givable(v)) return toast(`${v} has no species number, and a script can only give a Pokémon by its number`, "error");
           put(`Gift ${g.species}: ${v}`, { ...cur, species: v });
         })),
         field("Level", numberInput(cur.level, (n) => put(`Gift ${g.species}: level`, { ...cur, level: Math.max(1, Math.min(100, Math.trunc(n))) }), 1, 100)),
       ),
       h("div", { class: "row wrap" },
-        npc >= 0 && layer ? h("button", { class: "btn small", onclick: () => nav.selectEntity(g.map, layer.key, npc) }, "Show on map") : null,
-        ...texts.map((t) => h("button", { class: "btn small ghost", title: "Open this text (Text)", onclick: () => nav.openText(t) }, t.replace(/^_/, "").replace(/Text$/, ""))),
+        g.at ? h("button", { class: "btn small", onclick: () => nav.selectEntity(g.map, g.at!.layer, g.at!.index) }, "Show on map")
+          : npc >= 0 && layer ? h("button", { class: "btn small", onclick: () => nav.selectEntity(g.map, layer.key, npc) }, "Show on map") : null,
+        // Gen 2's text keys are ROM pointers: the button shows the text's start
+        ...texts.map((t) => h("button", { class: "btn small ghost", title: "Open this text (Text)", onclick: () => nav.openText(t) }, t.includes(":") ? `“${String(store.table("text")[t]).split(/[\n{]/)[0].slice(0, 18)}…”` : t.replace(/^_/, "").replace(/Text$/, ""))),
       ),
       cur.species !== g.species
         ? h("div", { class: "notice" },

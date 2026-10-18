@@ -1,0 +1,50 @@
+// Gen 2 Global settings with no registry: Gold keeps them in module tables the
+// engine reads at the moment of use, so the helper sets them on game.ready
+// (engine_internals: a require of an engine module, inside the handler so the
+// studio can still read the mod back).
+//   HM badges     src/world/gen2/FieldMoves.lua BADGE[move] = Johto badge name
+//                 (nil: no badge needed; FieldMoves.hasBadge answers yes)
+//   slot reels    src/ui/gen2/SlotMachine.lua REELS[1..3]: 15 symbol bytes + the
+//                 first three again
+// Plain Lua, no backticks.
+
+export const FIELD_RUNTIME2 = "";
+
+export function hmBadgeRegistration2(modId: string, file: string): string {
+  const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
+  return String.raw`
+  -- studio HM badges (Gen 2): the badge each field move needs
+  do
+    local gates = require(${JSON.stringify(module)}).badges
+    -- the engine module only exists in the game (not where the mod is read)
+    mod.events:on("game.ready", function()
+      local FieldMoves = require("src.world.gen2.FieldMoves")
+      if type(gates) == "table" and type(FieldMoves.BADGE) == "table" then
+        for move in pairs(FieldMoves.BADGE) do
+          local g = gates[move]
+          FieldMoves.BADGE[move] = type(g) == "table" and g.badge or nil
+        end
+      end
+    end)
+  end`;
+}
+
+export function slotRegistration2(modId: string, file: string): string {
+  const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
+  return String.raw`
+  -- studio slot reels (Gen 2): the symbols on the three reels
+  do
+    local reels = require(${JSON.stringify(module)}).reels
+    local BYTE = { SEVEN = 0x00, POKEBALL = 0x04, CHERRY = 0x08, PIKACHU = 0x0c, SQUIRTLE = 0x10, STARYU = 0x14 }
+    mod.events:on("game.ready", function()
+      local SlotMachine = require("src.ui.gen2.SlotMachine")
+      if type(reels) == "table" and type(SlotMachine.REELS) == "table" then
+        for w, strip in ipairs(reels) do
+          local out = {}
+          for i, sym in ipairs(strip) do out[i] = BYTE[sym] or 0 end
+          SlotMachine.REELS[w] = out
+        end
+      end
+    end)
+  end`;
+}

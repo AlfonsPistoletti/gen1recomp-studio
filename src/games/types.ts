@@ -4,6 +4,7 @@
 
 import type { Rgb } from "../render/color.ts";
 import type { IntroStep } from "../lua/introRuntime.ts";
+import type { GameGift } from "../project/gameEvents.ts";
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../core/types.ts";
 
 export type GameId = "gen1" | "gen2" | "gen3";
@@ -440,6 +441,26 @@ export interface GlobalsSpec {
     pics: string[];
     reveals: string[];
     flags: boolean;
+  };
+  // the slot machine reels (unset: Gen 1's field.slotWheels): a record holding
+  // the three strips of symbol names, the symbols in menu order, the payouts
+  slots?: { registry: string; id: string; order: string[]; payouts: string; art?: Record<string, { sheet: string; x: number; y: number; w: number; h: number }> };
+  // Gen 2's gift Pokémon, read from the game's scripts (Gen 1's: gameGifts)
+  gifts?(ctx: GameContext): GameGift[];
+  // Gen 2's in-game trades (Gen 1's: field.trades, restated in tradeEditor):
+  // the list record, its dialogue key and values, the received mon's extras,
+  // who offers trade n (1-based); no "+ New trade"
+  trades?: {
+    registry: string;
+    id: string;
+    dialogKey: string;
+    dialogs: { value: string; label: string }[];
+    nickMax: number;
+    otMax: number;
+    offers(ctx: GameContext): Map<number, { label: string; map: string; layer: string; index: number }[]>;
+    // what the person says when offering this trade (its dialogue style's line)
+    offerLine(ctx: GameContext, trade: Record<string, unknown>): string;
+    dialogNote: string;
   };
   starters?: {
     balls(ctx: GameContext): { ball: string; ask: string; level: number }[];

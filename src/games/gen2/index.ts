@@ -16,14 +16,17 @@ import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
 import { effectRegistration } from "../../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME2, itemEffectRegistration2 } from "../../lua/itemEffectRuntime2.ts";
 import { DEX_RUNTIME2 } from "../../lua/dexRuntime2.ts";
+import type { GameGift } from "../../project/gameEvents.ts";
 import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
-import { STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
+import { giftRegistration2, STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
+import { TRADE_RUNTIME2, tradeRegistration2 } from "../../lua/tradeRuntime2.ts";
+import { FIELD_RUNTIME2, hmBadgeRegistration2, slotRegistration2 } from "../../lua/fieldRuntime2.ts";
 import { INTRO_RUNTIME } from "../../lua/introRuntime.ts";
 import { INTRO_TEXT_RUNTIME2, introRegistration2, introTextRegistration2 } from "../../lua/introRuntime2.ts";
 import { GEN2_EXP_STATS, GEN2_ITEM_STATUSES, gen2ItemTemplate, gen2ItemText, gen2PicksMove, gen2SpecialItem } from "./items.ts";
 import { playtestMain2 } from "../../lua/playRuntime.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
 interface Roofs {
@@ -146,6 +149,29 @@ const content: ContentSpec[] = [
     build: (f) => Object.fromEntries(Object.entries((f as { text?: Record<string, unknown> }).text ?? {}).filter(([, v]) => typeof v === "string")),
     generator: { what: "Oak's speech texts", order: [], runtime: INTRO_TEXT_RUNTIME2, registration: introTextRegistration2, writes: [] },
   },
+  // status numbers the battle and catching read off the merged records
+  // (gen1recomp src/battle/gen2/Battle.lua STATUSES; patched, the records carry code)
+  { registry: "statuses", editable: true, build: () => structuredClone(GOLD_STATUSES) },
+  // HM badges and slot reels: module tables, set by a helper (engine_internals)
+  {
+    registry: "studio_field_moves", editable: true, build: () => ({ badges: structuredClone(GOLD_HM_BADGES) }), studioFile: "studio_field_moves.lua",
+    generator: { what: "HM badges", order: ["badge"], runtime: FIELD_RUNTIME2, registration: hmBadgeRegistration2, writes: [], internals: true },
+  },
+  {
+    registry: "studio_slots", editable: true, build: () => ({ reels: structuredClone(GOLD_REELS) }), studioFile: "studio_slots.lua",
+    generator: { what: "slot machine reels", order: [], runtime: FIELD_RUNTIME2, registration: slotRegistration2, writes: [], internals: true },
+  },
+  // in-game trades: events.lua `trades` as one list record
+  {
+    registry: "studio_trades", file: "events.lua", editable: true, studioFile: "studio_trades.lua",
+    build: (f) => ({ trades: structuredClone((f as { trades?: unknown[] }).trades ?? []) }),
+    generator: { what: "in-game trades", order: ["give", "get", "nickname", "item", "otName", "otId", "gender", "dialog", "dvs"], runtime: TRADE_RUNTIME2, registration: tradeRegistration2, writes: [] },
+  },
+  // gift Pokémon: "<MAP>:<SPECIES>" -> { species, level } (same helper as the starters)
+  {
+    registry: "studio_gifts", editable: true, build: () => ({}), studioFile: "studio_gifts.lua",
+    generator: { what: "gift Pokémon", order: ["species", "level"], runtime: STARTER_RUNTIME2, registration: giftRegistration2, writes: [] },
+  },
   // starter balls: the game's ball species -> { species, level }
   {
     registry: "studio_starters", editable: true, build: () => ({}), studioFile: "studio_starters.lua",
@@ -223,6 +249,27 @@ const NUM_EVENTS = 0x800;
 
 // "<class index>:<member>" -> where a script starts that battle (see load)
 const scriptFights = new Map<string, { mapId: string; index: number }[]>();
+// gen1recomp src/battle/gen2/Battle.lua STATUSES: the numbers a mod can patch
+const GOLD_STATUSES: Record<string, Record<string, unknown>> = {
+  sleep: { catchBonus: 10 }, poison: { catchBonus: 0 }, toxic: { catchBonus: 0 },
+  paralyze: { catchBonus: 0, statPenalty: { stat: "speed", div: 4 } },
+  burn: { catchBonus: 0, statPenalty: { stat: "attack", div: 2 } },
+  freeze: { catchBonus: 10 },
+};
+// src/world/gen2/FieldMoves.lua BADGE and JOHTO_BADGES (the check reads only Johto's)
+const GOLD_HM_BADGES: Record<string, { badge: string }> = {
+  CUT: { badge: "HIVE" }, FLASH: { badge: "ZEPHYR" }, SURF: { badge: "FOG" }, FLY: { badge: "STORM" },
+  STRENGTH: { badge: "PLAIN" }, WHIRLPOOL: { badge: "GLACIER" }, WATERFALL: { badge: "RISING" },
+};
+const JOHTO_BADGES = ["ZEPHYR", "HIVE", "PLAIN", "FOG", "MINERAL", "STORM", "GLACIER", "RISING"];
+// src/ui/gen2/SlotMachine.lua REELS by symbol name (15 + the first 3 again)
+const GOLD_REELS = [
+  ["SEVEN", "CHERRY", "STARYU", "PIKACHU", "SQUIRTLE", "SEVEN", "CHERRY", "STARYU", "PIKACHU", "SQUIRTLE", "POKEBALL", "CHERRY", "STARYU", "PIKACHU", "SQUIRTLE", "SEVEN", "CHERRY", "STARYU"],
+  ["SEVEN", "PIKACHU", "CHERRY", "SQUIRTLE", "STARYU", "POKEBALL", "PIKACHU", "CHERRY", "SQUIRTLE", "STARYU", "POKEBALL", "PIKACHU", "CHERRY", "SQUIRTLE", "STARYU", "SEVEN", "PIKACHU", "CHERRY"],
+  ["SEVEN", "PIKACHU", "CHERRY", "SQUIRTLE", "STARYU", "PIKACHU", "CHERRY", "SQUIRTLE", "STARYU", "PIKACHU", "POKEBALL", "CHERRY", "SQUIRTLE", "STARYU", "PIKACHU", "SEVEN", "PIKACHU", "CHERRY"],
+];
+const STATUS_NAMES2: [string, string][] = [["sleep", "Sleep"], ["poison", "Poison"], ["toxic", "Bad poison"], ["paralyze", "Paralysis"], ["burn", "Burn"], ["freeze", "Freeze"]];
+
 // the edition load() was called for, and its naming menu's player names
 // (gen1recomp src/ui/gen2/NamePick.lua PRESETS; Crystal's girl has her own,
 // but the engine's namePresets override is one list for both)
@@ -704,16 +751,40 @@ const trainers: TrainerSpec = {
 
 const globals: GlobalsSpec = {
   sections: [
+    { id: "types", group: "Game", label: "Type chart", hint: "Type effectiveness, and which types are physical or special (Gold decides by type, like Red)." },
+    { id: "status", group: "Game", label: "Status conditions", hint: "How much each status helps catching, and the stat Burn and Paralysis cut. What the statuses do in battle (damage, skipped turns) is the engine's code." },
+    { id: "fieldmoves", group: "Game", label: "HM badges", hint: "Which badge each field move needs before it can be used on the map." },
     { id: "fishing", group: "Wild Pokémon", label: "Fishing groups", hint: "What bites on each rod. Maps with the same water share a group; a map picks its group in its Encounters tab." },
     { id: "treesets", group: "Wild Pokémon", label: "Headbutt & Rock Smash sets", hint: "What falls out of trees and rocks. Many maps share a set; a map picks its sets in its Encounters tab." },
-    { id: "start", group: "New game", label: "Start values", hint: "Where a new game starts and the money the player has." },
     { id: "intro", group: "New game", label: "Oak's speech", hint: "What Oak says before the game starts, the Pokémon he shows, and steps of your own." },
+    { id: "start", group: "New game", label: "Start values", hint: "Where a new game starts and the money the player has." },
     { id: "starters", group: "New game", label: "Starter Pokémon", hint: "What the three balls in Elm's lab give, at which level." },
-    { id: "types", group: "Game", label: "Type chart", hint: "Type effectiveness, and which types are physical or special (Gold decides by type, like Red)." },
+    { id: "gifts", group: "Other", label: "Gift Pokémon", hint: "The Pokémon people give the player: which Pokémon and at which level. What they say about it are texts: the buttons open them." },
+    { id: "trades", group: "Other", label: "In-game trades", hint: "What each trading person wants, what they give, and how it arrives: nickname, held item, original trainer." },
+    { id: "slots", group: "Other", label: "Slot machines", hint: "The symbols on the Game Corner's three slot reels." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],
-  numbers: [],
-  defaults: {},
+  numbers: [
+    ...STATUS_NAMES2.map(([id, name]): GlobalNumber => ({ section: "status", registry: "statuses", id, key: "catchBonus", label: `${name}: catch bonus`, hint: `Makes a ${name.toLowerCase()} Pokémon easier to catch: added to the ball's catch rate (out of 255; higher is easier).`, min: 0, max: 255 })),
+    { section: "status", registry: "statuses", id: "burn", key: "statPenalty.div", label: "Burn: Attack divided by", hint: "A burned Pokémon's Attack is divided by this (1 = no cut).", min: 1, max: 255 },
+    { section: "status", registry: "statuses", id: "paralyze", key: "statPenalty.div", label: "Paralysis: Speed divided by", hint: "A paralyzed Pokémon's Speed is divided by this (1 = no cut).", min: 1, max: 255 },
+  ],
+  defaults: { statuses: GOLD_STATUSES },
+  hmBadges: { registry: "studio_field_moves", id: "badges", moves: Object.keys(GOLD_HM_BADGES), badges: JOHTO_BADGES },
+  // the reel sheet: symbol byte n is the 16x16 at (0, n / 4 * 16) (SlotMachine:drawReels)
+  slots: {
+    registry: "studio_slots", id: "reels", order: ["SEVEN", "POKEBALL", "CHERRY", "PIKACHU", "SQUIRTLE", "STARYU"],
+    payouts: "SEVEN pays 300, POKéBALL 50, CHERRY 6, PIKACHU 8, SQUIRTLE 10, STARYU 15",
+    // a plain literal: a module-level call would survive tree shaking (release builds)
+    art: {
+      SEVEN: { sheet: "assets/generated/slots/gold_slots_2.png", x: 0, y: 0, w: 16, h: 16 },
+      POKEBALL: { sheet: "assets/generated/slots/gold_slots_2.png", x: 0, y: 16, w: 16, h: 16 },
+      CHERRY: { sheet: "assets/generated/slots/gold_slots_2.png", x: 0, y: 32, w: 16, h: 16 },
+      PIKACHU: { sheet: "assets/generated/slots/gold_slots_2.png", x: 0, y: 48, w: 16, h: 16 },
+      SQUIRTLE: { sheet: "assets/generated/slots/gold_slots_2.png", x: 0, y: 64, w: 16, h: 16 },
+      STARYU: { sheet: "assets/generated/slots/gold_slots_2.png", x: 0, y: 80, w: 16, h: 16 },
+    },
+  },
   // gen1recomp src/ui/gen2/OakSpeech.lua defaultSteps (Crystal adds gender_select
   // in front at run time; the helper keeps steps it doesn't know in place)
   intro: {
@@ -734,6 +805,93 @@ const globals: GlobalsSpec = {
     pics: ["", "oak", "player", "pokemon"],
     reveals: ["", "fade", "wipe", "rotate"],
     flags: false,
+  },
+  // gen1recomp src/core/gen2/NpcTrade.lua; who offers trade n: map people whose
+  // script (followed through calls) runs `trade` with id n - 1
+  trades: {
+    registry: "studio_trades", id: "trades", dialogKey: "dialog", nickMax: 10, otMax: 7,
+    dialogNote: "Which set of lines the person speaks: the offer, the answer to a no or to the wrong Pokémon, the thanks, and what they say on a later visit.",
+    // gen1recomp src/ui/gen2/TradeMenu.lua fill: wStringBuffer1 = the wanted mon (+ its gender sign),
+    // wStringBuffer2 = the one you get, wMonOrItemNameBuffer = the wanted mon again
+    offerLine: (ctx, t) => {
+      const intro = ctx.data.extra.tradeIntro as { texts: Record<string, string>; buffers: Record<string, string[]> } | undefined;
+      const set = String(t.dialog ?? "");
+      const body = intro?.texts[set];
+      if (typeof body !== "string") return "";
+      const name = (id: unknown) => String((recordsOf(ctx, "pokemon")[String(id)] as { name?: unknown } | undefined)?.name ?? id);
+      const sign = t.gender === "TRADE_GENDER_MALE" ? "♂" : t.gender === "TRADE_GENDER_FEMALE" ? "♀" : "";
+      const by: Record<string, string> = { wStringBuffer1: name(t.give) + sign, wStringBuffer2: name(t.get), wMonOrItemNameBuffer: name(t.give) };
+      const bufs = intro?.buffers[set] ?? [];
+      let n = 0;
+      return body.replace(/\{STRBUF\}/g, () => by[bufs[n++] ?? "wStringBuffer1"] ?? "").replace(/\{[A-Z_]+\}/g, "").replace(/[\n\v\f\u000b\u000c]/g, " ").replace(/\s+/g, " ").trim();
+    },
+    dialogs: [
+      { value: "TRADE_DIALOGSET_COLLECTOR", label: "Collector" },
+      { value: "TRADE_DIALOGSET_HAPPY", label: "Happy" },
+      // (Crystal also has TRADE_DIALOGSET_GIRL: Gold has no texts for it)
+      { value: "TRADE_DIALOGSET_NEWBIE", label: "Newbie" },
+    ],
+    offers: (ctx) => {
+      const out = new Map<number, { label: string; map: string; layer: string; index: number }[]>();
+      for (const [mapId, m] of Object.entries(ctx.maps)) {
+        (asList(m.objects) as { scriptKey?: unknown }[]).forEach((o, index) => {
+          if (typeof o.scriptKey !== "string") return;
+          const seen = new Set<string>();
+          const walk = (k: string) => {
+            if (seen.has(k) || !(k in scriptRows)) return;
+            seen.add(k);
+            JSON.stringify(scriptRows[k], (_p, v: unknown) => {
+              if (typeof v === "string" && v in scriptRows) walk(v);
+              else if (v && typeof v === "object" && (v as { op?: unknown }).op === "trade") {
+                const id = Number((v as { trade?: number }).trade);
+                if (Number.isFinite(id)) out.set(id + 1, [...(out.get(id + 1) ?? []), { label: mapId, map: mapId, layer: "objects", index }]);
+              }
+              return v;
+            });
+          };
+          walk(o.scriptKey);
+        });
+      }
+      return out;
+    },
+  },
+  // every map person whose script (followed through calls) gives a Pokémon;
+  // Elm's lab is the starters
+  gifts: (ctx) => {
+    const mons = recordsOf(ctx, "pokemon");
+    const byNumber = (n: unknown) => Object.keys(mons).find((id) => mons[id].index === n);
+    const out: GameGift[] = [];
+    for (const [mapId, m] of Object.entries(ctx.maps)) {
+      if (mapId === "ELMS_LAB") continue;
+      (asList(m.objects) as { scriptKey?: unknown }[]).forEach((o, index) => {
+        if (typeof o.scriptKey !== "string") return;
+        const seen = new Set<string>();
+        const gives: Record<string, unknown>[] = [];
+        let coins = false;
+        const walk = (k: string) => {
+          if (seen.has(k) || !(k in scriptRows)) return;
+          seen.add(k);
+          JSON.stringify(scriptRows[k], (_p, v: unknown) => {
+            if (typeof v === "string" && v in scriptRows) walk(v);
+            else if (v && typeof v === "object" && (v as { op?: unknown }).op === "givepoke") gives.push(v as Record<string, unknown>);
+            else if (v && typeof v === "object" && (v as { op?: unknown }).op === "takecoins") coins = true;
+            return v;
+          });
+        };
+        walk(o.scriptKey);
+        for (const g of gives) {
+          const species = byNumber(g.species);
+          if (!species || out.some((x) => x.map === mapId && x.species === species)) continue;
+          out.push({
+            map: mapId, text: null, species, level: Number(g.level ?? 5),
+            texts: gen2.scriptTexts?.(ctx, o.scriptKey as string) ?? [],
+            at: { layer: "objects", index },
+            note: coins ? "A Game Corner prize, bought with coins." : g.trainer ? "Comes with its own nickname and original trainer." : undefined,
+          });
+        }
+      });
+    }
+    return out.sort((a, b) => a.map.localeCompare(b.map) || a.species.localeCompare(b.species));
   },
   starters: {
     // the ELMS_LAB objects whose script gives a Pokémon (givepoke), read from
@@ -951,6 +1109,10 @@ export const gen2: GameAdapter = {
     for (const [k, t] of Object.entries(tilesets)) if (!t || typeof t !== "object" || typeof t.image !== "string" || !t.blocks) delete tilesets[k];
     for (const t of Object.values(tilesets)) crystalTiles(t);
     const monFile = tables[content.findIndex((c) => c.registry === "pokemon")] as { growthRates?: Record<string, unknown> } | undefined;
+    // the trades' offer lines per dialogue style, and which name goes in each {STRBUF}
+    type TradeTables = { tradeTexts?: Record<string, unknown>; tradeBuffers?: Record<string, unknown> };
+    const eventsFile = tables[content.findIndex((c) => c.registry === "studio_trades")] as TradeTables | undefined;
+    const tradeIntro = { texts: eventsFile?.tradeTexts?.TRADE_DIALOG_INTRO ?? {}, buffers: eventsFile?.tradeBuffers?.TRADE_DIALOG_INTRO ?? {} };
     const menuGfx = await (read("menu_gfx.lua") as Promise<{ battleHud?: { trainerPics?: Record<string, string> } }>).catch(() => ({}) as { battleHud?: { trainerPics?: Record<string, string> } });
     type Dex = { newOrder?: string[]; entries?: Record<string, { kind?: string; height?: number; weight?: number; text?: string; text2?: string }> };
     const pokedex = await (read("pokedex.lua") as Promise<Dex>).catch(() => ({}) as Dex);
@@ -978,7 +1140,7 @@ export const gen2: GameAdapter = {
     return {
       maps, tilesets, sprites, content: contentTables,
       extra: {
-        palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists),
+        palettes: pal, roofs, tradeIntro, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists),
         sfxOrder: asList(lists.sfxOrder), musicOrder: asList(lists.musicOrder), specialOrder: asList(lists.specialOrder),
         // the game's scripts, shown read-only (and copied) in Events
         scripts,

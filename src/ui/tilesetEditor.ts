@@ -673,7 +673,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
 
   // what a game tileset's additions are (below the blocks, middle panel)
   const gameTilesetCard = (id: string, ed: Editable): HTMLElement => {
-    const ext = extensionOf(id);
+    // one made on the other game's sheet can't be edited here, but removed
+    const foreign = foreignExtension(id);
+    const ext = foreign ? (store.table(EXTENSIONS)[id] as TilesetExtension) : extensionOf(id);
     return h("div", { class: "card" },
       h("h4", {}, "The game's tileset"),
       foreignExtension(id) ? h("p", { class: "hint warn" }, foreignNote(id)) : null,
@@ -685,14 +687,14 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ? h("button", {
             class: "btn small danger",
             onclick: () => {
-              const high = highestBlockUsed(id);
+              const high = foreign ? -1 : highestBlockUsed(id);
               if (high >= ed.firstBlock && !confirm(`Maps still use your blocks (up to #${high}). Remove all your tiles and blocks anyway? Those maps will show broken blocks.`)) return;
               store.setRecord(EXTENSIONS, id, "Remove additions", undefined);
               store.seal();
               selTile = null;
               selBlock = null;
             },
-          }, `Remove your ${ext.tiles.length} tiles and ${ext.blocks.length} blocks`)
+          }, `Remove your ${ext.tiles.length} tiles and ${ext.blocks.length} blocks${foreign ? " (made in the other game)" : ""}`)
         : null,
     );
   };
@@ -1201,7 +1203,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         : h("p", { class: "hint" }, "No map uses it yet: pick it as a map's Tileset in the map properties."),
     );
     // Gen 2: no animation choice or surf lists (collision codes say water)
-    if (!ed.own || quadModel()) return quadModel() ? [usedBy] : [surfCard, usedBy];
+    if (!ed.own) return quadModel() ? [usedBy] : [surfCard, usedBy];
+    // Gen 2: no animation choice or surf lists (collision codes say water)
+    const gen2 = !!quadModel();
     const anim = h("select", {}, ...ANIMATIONS.map((a) => h("option", { value: a, selected: (ts.animation ?? "TILEANIM_NONE") === a }, a.replace("TILEANIM_", "").replace("_", " + ").toLowerCase())));
     anim.addEventListener("change", () =>
       editTileset(id, "Tileset animation", (d) => {
@@ -1210,12 +1214,11 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       }),
     );
     return [
-      surfCard,
-      ...ownGbcCard(id, ts),
+      ...(gen2 ? [] : [surfCard, ...ownGbcCard(id, ts)]),
       h("div", { class: "card" },
         h("h4", {}, "Your tileset"),
         h("div", { class: "kv" }, h("span", {}, "Sheet"), h("code", {}, `${tileCount} tiles${ts.trueColor ? ", full color" : ""}`)),
-        field("Animation", anim, "Water animates tile #20 like the game's water; flowers tile #3."),
+        gen2 ? null : field("Animation", anim, "Water animates tile #20 like the game's water; flowers tile #3."),
         h("button", {
           class: "btn small danger",
           disabled: users.length > 0,

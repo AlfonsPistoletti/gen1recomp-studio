@@ -10,6 +10,7 @@ import type { Rgb } from "../../render/color.ts";
 import { MONO } from "../../render/color.ts";
 import { TILESET_RUNTIME2, tilesetRegistration2 } from "../../lua/tilesetRuntime2.ts";
 import { GEN2_EVENTS } from "./events.ts";
+import { setWeekdays, WEEKDAYS, weekdaysOf } from "./weekdays.ts";
 import { gen2EffectTemplate, gen2EffectText, GEN2_STATS, GEN2_STATUSES } from "./moveEffects.ts";
 import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
 import { effectRegistration } from "../../lua/effectRuntime.ts";
@@ -1039,6 +1040,22 @@ export const gen2: GameAdapter = {
             { kind: "int", key: "hours.1", label: "To hour", min: -1, max: 23 },
           ],
         },
+        {
+          kind: "weekdays", label: "Days", days: WEEKDAYS,
+          hint: "The days of the week it is there (the map's objects script). It needs an event flag: one is picked when it has none.",
+          get: (map, i) => weekdaysOf(map, Number((asList(map.objects)[i] as { index?: number } | undefined)?.index ?? i), scriptRows),
+          set: (map, i, days, ctx) => {
+            const objs = asList(map.objects) as Record<string, unknown>[];
+            const o = objs[i];
+            if (!o) return;
+            // appear / disappear work through the object's event flag
+            if (days && (o.eventFlag === undefined || o.eventFlag === 0xffff)) {
+              const flag = gen2.trainers?.objectTrainer?.freeFlag(ctx);
+              if (typeof flag === "number") map.objects = objs.map((x, j) => (j === i ? { ...x, eventFlag: flag } : x)) as typeof map.objects;
+            }
+            setWeekdays(map, Number(o.index ?? i), days, scriptRows);
+          },
+        },
         { kind: "int", key: "eventFlag", label: "Event flag", min: 0, max: 65535, hint: "Hidden while this event flag is set; 65535 = always there" },
         { kind: "select", key: "palette", label: "Colors", numeric: true, options: () => ["0", ...OW_PALETTES.map((_, i) => String(8 + i))], labels: (v) => (v === "0" ? "The sprite's own" : OW_PALETTES[Number(v) - 8]?.toLowerCase()) },
         { kind: "extras", label: "Other fields", hint: "type, sight range, item, script number (cart data)" },
@@ -1075,6 +1092,8 @@ export const gen2: GameAdapter = {
       label: "Signs",
       singular: "Sign",
       color: "#ffc828",
+      // kind 7 (BGEVENT_ITEM): a hidden item, not something to read
+      marker: (e) => (e.hiddenItem ? "item" : undefined),
       fields: [
         { kind: "extras", label: "Other fields", hint: "kind (cart data)" },
       ],

@@ -601,6 +601,14 @@ export type FieldSpec =
   // specialMaps: map ids that resolve at runtime (Gen 1 LAST_MAP); backWarp:
   // a warp number that does (Gen 2's 255: back where the player came from)
   | (FieldBase & { kind: "warpTarget"; mapKey: string; warpKey: string; specialMaps: string[]; backWarp?: number })
+  // the days of the week an entity is there (null: every day); set edits the
+  // draft map (Gen 2: the map's objects callback)
+  | (FieldBase & {
+      kind: "weekdays";
+      days: string[];
+      get(map: MapDef, index: number, ctx: GameContext): number[] | null;
+      set(map: MapDef, index: number, days: number[] | null, ctx: GameContext): void;
+    })
   // JSON for every key no other field (and not x/y) claims
   | (FieldBase & { kind: "extras" })
   // two fields side by side
@@ -713,6 +721,9 @@ export interface EntityLayer {
   singular: string; // "Warp"
   color: string; // marker color
   numbered?: boolean; // draw the 1-based index
+  // a marker of its own for some entities ("item": a hidden item, drawn like
+  // Gen 1's hidden items) instead of the layer's
+  marker?(e: EntityRecord): "item" | undefined;
   fields: FieldSpec[];
   create(map: MapDef, cx: number, cy: number, ctx: GameContext): EntityRecord;
   // fix up a duplicated record (fresh ids and the like)

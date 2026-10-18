@@ -392,7 +392,8 @@ export class Store {
     this.blocksOnly = !!prev && !!value && equalExcept(prev, value as Record<string, unknown>, "blocks");
     // palettes can hang off any field (Gen 1 interiors inherit through
     // warps), but not off blocks
-    if (!this.blocksOnly) this.refreshPalettes();
+    // (not mid-stroke: an entity drag moves positions only, refreshed at its end)
+    if (!this.blocksOnly && !this.brushing) this.refreshPalettes();
     if (!this.maps[this.currentMap]) this.currentMap = this.fallbackMap();
     this.emit("edit", id);
   }

@@ -371,6 +371,26 @@ for (const [registry, records] of Object.entries(edited)) {
   check("intro helpers run", ran.errors.length === 0, ran.errors.join("; "));
 }
 
+// weekday people: Route 40's Monica is there on Mondays (the map's objects
+// callback); the studio's own callback changes it and gives the game's back
+{
+  const { weekdaysOf, setWeekdays } = await import("../src/games/gen2/weekdays.ts");
+  const scripts = (project.data.extra as { scripts?: Record<string, unknown> }).scripts ?? {};
+  const r40 = clone(base.ROUTE_40);
+  const objs = r40.objects as unknown as { index: number; sprite: string }[];
+  const found = objs.map((o) => ({ index: o.index, days: weekdaysOf(r40, o.index, scripts) })).filter((x) => x.days);
+  check("Monica: Mondays on Route 40", found.length === 1 && JSON.stringify(found[0].days) === "[1]", JSON.stringify(found));
+  const monica = found[0]?.index ?? 0;
+  const before = JSON.stringify(r40.callbacks);
+  setWeekdays(r40, monica, [1, 3], scripts);
+  check("Monica: Mondays and Wednesdays", JSON.stringify(weekdaysOf(r40, monica, scripts)) === "[1,3]");
+  setWeekdays(r40, objs[0].index === monica ? objs[1].index : objs[0].index, [5], scripts);
+  check("a second person on Fridays, Monica kept", JSON.stringify(weekdaysOf(r40, monica, scripts)) === "[1,3]");
+  setWeekdays(r40, objs[0].index === monica ? objs[1].index : objs[0].index, null, scripts);
+  setWeekdays(r40, monica, [1], scripts);
+  check("back to the game's callback", JSON.stringify(r40.callbacks) === before, JSON.stringify(r40.callbacks).slice(0, 200));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);
 

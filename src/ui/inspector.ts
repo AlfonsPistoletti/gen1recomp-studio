@@ -98,7 +98,7 @@ function claimedKeys(specs: FieldSpec[], out = new Set<string>(["x", "y"])): Set
   for (const s of specs) {
     if (s.kind === "pair") claimedKeys(s.fields, out);
     else if (s.kind === "warpTarget") out.add(s.mapKey).add(s.warpKey);
-    else if (s.kind !== "extras") out.add(s.key.split(".")[0]);
+    else if (s.kind !== "extras" && s.kind !== "weekdays") out.add(s.key.split(".")[0]);
   }
   return out;
 }
@@ -148,6 +148,26 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
     }
     case "warpTarget":
       return warpTarget(spec, record, edit, view);
+    case "weekdays": {
+      const sel = store.selection;
+      const map = store.map;
+      if (!sel || !map) return null;
+      const cur = spec.get(map, sel.index, store.ctx);
+      const on = new Set(cur ?? spec.days.map((_, i) => i));
+      const boxes = spec.days.map((d, i) => {
+        const box = h("input", { type: "checkbox", checked: on.has(i) });
+        box.addEventListener("change", () => {
+          const next = new Set(on);
+          if (box.checked) next.add(i);
+          else next.delete(i);
+          const days = next.size === spec.days.length ? null : [...next].sort((a, b) => a - b);
+          store.edit(store.currentMap, spec.label, (draft) => spec.set(draft, sel.index, days, store.ctx));
+          store.seal();
+        });
+        return h("label", { class: "inline-check" }, box, d.slice(0, 3));
+      });
+      return field(spec.label, h("div", { class: "row wrap" }, ...boxes), spec.hint);
+    }
     case "extras": {
       // an item ball's item is edited in its Role (mapTown.ts)
       const claimed = claimedKeys(all);

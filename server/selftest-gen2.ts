@@ -279,6 +279,26 @@ for (const [registry, records] of Object.entries(edited)) {
   check("Growl's effect has a template", growl?.kind === "status" && growl.steps[0]?.stat === "attack" && growl.steps[0]?.delta === -1, JSON.stringify(growl));
 }
 
+// custom item effects: the helper is plain Lua, the game's party items start
+// from their blocks, and the ids the helper overrides are the dataset's items
+{
+  const { ITEM_EFFECT_RUNTIME2, itemEffectRegistration2 } = await import("../src/lua/itemEffectRuntime2.ts");
+  const { gen2ItemTemplate, GEN2_EFFECT_ITEMS } = await import("../src/games/gen2/items.ts");
+  check("Gen 2 item effect helper has no backticks", !(ITEM_EFFECT_RUNTIME2 + itemEffectRegistration2("m", "f.lua")).includes("`"));
+  const restore = gen2ItemTemplate("FULL_RESTORE");
+  check("Full Restore's effect has a template", restore?.steps[0]?.act === "heal" && restore.steps[1]?.act === "cure", JSON.stringify(restore));
+  const missing = GEN2_EFFECT_ITEMS.filter((id) => !content.items[id]);
+  check("item effect ids are dataset items", !missing.length, missing.join(", "));
+  // Used by: records = the dataset's (no edits)
+  const uctx = { data: project.data, maps: base, records: project.data.content as Record<string, Record<string, unknown>> };
+  const potion = adapter.items?.uses?.(uctx, "POTION").map((u) => u.label) ?? [];
+  const hyper = adapter.items?.uses?.(uctx, "HYPER_POTION").map((u) => u.label) ?? [];
+  const berry = adapter.items?.uses?.(uctx, "BERRY").map((u) => u.label) ?? [];
+  check("Potion is sold at clerks, once each", potion.some((l) => l.startsWith("Shop: ")) && new Set(potion).size === potion.length, potion.join("; "));
+  check("Hyper Potion is a trainer's battle item", hyper.some((l) => l.startsWith("Trainer AI: ")), hyper.join("; "));
+  check("Berry is held by trainers and wild Pokémon", berry.some((l) => l.startsWith("Held: ")) && berry.some((l) => l.startsWith("Wild ")), berry.slice(0, 8).join("; "));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);
 

@@ -13,9 +13,11 @@ import { GEN2_EVENTS } from "./events.ts";
 import { gen2EffectTemplate, gen2EffectText, GEN2_STATS, GEN2_STATUSES } from "./moveEffects.ts";
 import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
 import { effectRegistration } from "../../lua/effectRuntime.ts";
+import { ITEM_EFFECT_RUNTIME2, itemEffectRegistration2 } from "../../lua/itemEffectRuntime2.ts";
+import { GEN2_EXP_STATS, GEN2_ITEM_STATUSES, gen2ItemTemplate, gen2ItemText, gen2PicksMove, gen2SpecialItem } from "./items.ts";
 import { playtestMain2 } from "../../lua/playRuntime.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
 interface Roofs {
@@ -118,6 +120,16 @@ const content: ContentSpec[] = [
     registry: "studio_effects", editable: true, build: () => ({}), studioFile: "studio_effects.lua",
     generator: { what: "custom move effects", order: ["kind", "canMiss", "steps"], runtime: EFFECT_RUNTIME2, registration: effectRegistration, writes: ["move_effects"] },
   },
+  // custom item effects, keyed by the item they belong to (Gold's
+  // item_effects are), registered by the generated helper
+  {
+    registry: "studio_item_effects", editable: true, build: () => ({}), studioFile: "studio_item_effects.lua",
+    generator: {
+      what: "custom item effects",
+      order: ["target", "steps", "act", "amount", "percent", "full", "statuses", "all", "stat"],
+      runtime: ITEM_EFFECT_RUNTIME2, registration: itemEffectRegistration2, writes: ["item_effects"],
+    },
+  },
   // tilesets (filled from Dataset.tilesets in load): the mod's own are
   // registered whole (sheet in assets/studio, a collision quad per block, a
   // palette slot per tile); the game's are only extended, through studio_tilesets
@@ -180,6 +192,8 @@ const NUM_EVENTS = 0x800;
 
 // "<class index>:<member>" -> where a script starts that battle (see load)
 const scriptFights = new Map<string, { mapId: string; index: number }[]>();
+// mart number -> the map people whose script opens it (see load)
+const martClerks = new Map<number, { mapId: string; index: number }[]>();
 
 // variable sprite slots (see load): the new game's sprite per slot, the one
 // other maps' scripts give it later, and the slots each map's scripts set
@@ -371,22 +385,22 @@ const items: ItemSpec = {
   registry: "items",
   nameMax: 12,
   maxPrice: 65535,
-  // Gold's items act by id (engine code) and by held effect: no custom
-  // effect blocks, balls or shops here yet
+  // custom effects on a party Pokémon, one per item (src/lua/itemEffectRuntime2.ts);
+  // no balls or shops here yet
   effectRegistry: "studio_item_effects",
+  byItem: { field: "fieldMenu", battle: "battleMenu", on: "ITEMMENU_PARTY", off: "ITEMMENU_NOUSE" },
   stats: [],
-  expStats: [],
-  statuses: [],
+  expStats: GEN2_EXP_STATS,
+  statuses: GEN2_ITEM_STATUSES,
   tossAnims: [],
-  describe: () => "",
-  template: () => null,
-  special: () => false,
+  describe: gen2ItemText,
+  template: gen2ItemTemplate,
+  special: gen2SpecialItem,
   // the cart's unused slots are all named TERU-SAMA (ITEM_19 ..., and Gold's
   // POKE_FLUTE / TOWN_MAP, which the Pokégear replaced)
   internal: (id, item) => (item?.name === "TERU-SAMA" || /^ITEM_[0-9A-F]{2}$/.test(id) ? "An unused item slot of the game (named TERU-SAMA)." : null),
-  picksMove: () => false,
+  picksMove: gen2PicksMove,
   marts: () => [],
-  effects: false,
   newItems: false,
   // pocketId order (constants/item_constants.asm)
   pockets: ["ITEM", "KEY_ITEM", "BALL", "TM_HM"],
@@ -407,6 +421,44 @@ const items: ItemSpec = {
       ? { kind: r.tmLabel.slice(0, 2), move: r.teaches, number: Number(r.tmLabel.slice(2)) }
       : undefined,
   machineEdit: false,
+  uses: (ctx, id) => {
+    const out: ItemUse[] = [];
+    const rec = (reg: string) => (ctx.records[reg] ?? {}) as Record<string, Record<string, unknown>>;
+    const mapName = (m: string) => String(ctx.maps[m]?.label ?? m);
+    // the game's shops (stock read-only, ISSUES #6), at the clerks that open them
+    const lists = (ctx.data.extra as { marts?: string[][] }).marts ?? [];
+    lists.forEach((list, n) => {
+      if (!list.includes(id)) return;
+      const clerks = martClerks.get(n) ?? [];
+      if (!clerks.length) out.push({ label: `Shop ${n}` });
+      // a clerk opening two marts (stock before/after an event) shows once
+      for (const c of clerks) if (!out.some((u) => u.map?.id === c.mapId && u.map.index === c.index)) out.push({ label: `Shop: ${mapName(c.mapId)}`, map: { id: c.mapId, layer: "objects", index: c.index } });
+    });
+    // trainers: the class's battle items (AI) and held items in its teams
+    for (const [cls, r] of Object.entries(rec("trainers"))) {
+      const name = String(r.name ?? cls);
+      // class ids, not names: every gym leader class is named LEADER
+      if (asList(r.items).includes(id)) out.push({ label: `Trainer AI: ${cls}`, trainer: { id: cls } });
+      (asList(r.trainers) as { name?: string; party?: unknown }[]).forEach((t, i) => {
+        if ((asList(t.party) as { item?: string }[]).some((s) => s.item === id)) out.push({ label: `Held: ${name} ${t.name ?? i + 1}`, trainer: { id: cls, team: i } });
+      });
+    }
+    // wild Pokémon holding it
+    for (const [pid, m] of Object.entries(rec("pokemon"))) {
+      if (Object.values((m.items ?? {}) as Record<string, string>).includes(id)) out.push({ label: `Wild ${String(m.name ?? pid)} holds it`, pokemon: pid });
+    }
+    // item balls and hidden items (by item number)
+    const n = itemIndex(ctx, id);
+    for (const [mid, m] of Object.entries(ctx.maps)) {
+      (asList(m.objects) as { itemball?: { item?: number } }[]).forEach((o, i) => {
+        if (o.itemball?.item === n) out.push({ label: `Item ball: ${mapName(mid)}`, map: { id: mid, layer: "objects", index: i } });
+      });
+      (asList(m.bgEvents) as { hiddenItem?: { item?: number } }[]).forEach((b, i) => {
+        if (b.hiddenItem?.item === n) out.push({ label: `Hidden: ${mapName(mid)}`, map: { id: mid, layer: "bgEvents", index: i } });
+      });
+    }
+    return out;
+  },
 };
 
 // ------------------------------------------------------------------ encounters
@@ -712,10 +764,12 @@ export const gen2: GameAdapter = {
     // swimmer once the rival has left, which is what Route 41 shows in play
     // (the same walk notes `loadtrainer class, member` rows: who fights whom)
     let fights: string[] = [];
+    let martsOpened: number[] = [];
     const slotsSetFrom = (roots: string[]): Set<number> => {
       const seen = new Set<string>();
       const slots = new Set<number>();
       fights = [];
+      martsOpened = [];
       const walk = (v: unknown): void => {
         if (typeof v === "string") {
           if (v in scripts && !seen.has(v)) {
@@ -728,6 +782,8 @@ export const gen2: GameAdapter = {
           const args = asList(row.args) as number[];
           const t = v as { class?: number; member?: number };
           if (row.op === "loadtrainer" && typeof t.class === "number") fights.push(`${t.class}:${t.member ?? 1}`);
+          // pokemart args: type, mart number low/high byte
+          if (row.op === "pokemart") martsOpened.push(Number(args[1] ?? 0) + Number(args[2] ?? 0) * 256);
           if (row.op === "variablesprite" && typeof args[0] === "number") {
             slots.add(args[0]);
             const later = name(args[1]);
@@ -742,6 +798,7 @@ export const gen2: GameAdapter = {
       return slots;
     };
     scriptFights.clear();
+    martClerks.clear();
     // every event flag the game's data names (map people, scripts, new-game
     // flags): a studio trainer's "beaten" flag must be none of them
     usedFlags.clear();
@@ -770,6 +827,7 @@ export const gen2: GameAdapter = {
         own.forEach((k) => objectKeys.add(k));
         slotsSetFrom(own);
         for (const f of fights) fight(f, { mapId: id, index: i });
+        for (const n of martsOpened) martClerks.set(n, [...(martClerks.get(n) ?? []), { mapId: id, index: i }]);
       });
       slotsSetFrom(keys.filter((k) => !objectKeys.has(k)));
       for (const f of fights) fight(f, { mapId: id, index: -1 });

@@ -201,6 +201,10 @@ export interface ItemSpec {
   marts(ctx: GameContext): MartRef[];
   // false: no custom effects or ball numbers (Gen 2 items act by id and held effect)
   effects?: boolean;
+  // Gen 2: a custom effect is the effect registry's record under the item's own
+  // id (no sharing), on a party Pokémon only, never kept, vitamins at the game's
+  // numbers; where it can be used = the item's menu fields (on/off values)
+  byItem?: { field: string; battle: string; on: string; off: string };
   // false: no "+ New Item" / "+ TM/HM"
   newItems?: boolean;
   // bag pockets (replaces the Key item switch)
@@ -214,6 +218,17 @@ export interface ItemSpec {
   // machineEdit false: shown, not changed
   machineOf?(item: Record<string, unknown>): { kind?: string; move?: string; number?: number } | undefined;
   machineEdit?: boolean;
+  // where else the game uses an item (Gen 2: shops, trainers, held items,
+  // item balls); the editor adds evolutions, trainer AI, shops and prizes
+  uses?(ctx: GameContext, id: string): ItemUse[];
+}
+
+// one "Used by" row: what opens on click (a map entity, a trainer, a species)
+export interface ItemUse {
+  label: string;
+  map?: { id: string; layer?: string; index?: number };
+  trainer?: { id: string; team?: number };
+  pokemon?: string;
 }
 
 // ------------------------------------------------------------------ ids

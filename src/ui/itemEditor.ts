@@ -30,6 +30,13 @@ function effects(): Record<string, ItemEffectSpec> {
   return s ? (store.table(s.effectRegistry) as Record<string, ItemEffectSpec>) : {};
 }
 
+// the custom effect an item uses: its `effect` field, or (Gen 2) the effect
+// record under the item's own id
+function effectOf(id: string, r: Rec | undefined): string {
+  if (spec()?.byItem) return effects()[id] ? id : "";
+  return typeof r?.effect === "string" ? r.effect : "";
+}
+
 function balls(): Record<string, BallRecord> {
   const reg = spec()?.ballRegistry;
   return reg ? (store.table(reg) as Record<string, BallRecord>) : {};
@@ -113,7 +120,7 @@ function isNewItem(id: string): boolean {
 
 function itemEdited(id: string): boolean {
   const s = spec()!;
-  return store.isRecordEdited(s.registry, id) || (!!s.ballRegistry && store.isRecordEdited(s.ballRegistry, id));
+  return store.isRecordEdited(s.registry, id) || (!!s.ballRegistry && store.isRecordEdited(s.ballRegistry, id)) || (!!s.byItem && store.isRecordEdited(s.effectRegistry, id));
 }
 
 export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
@@ -138,7 +145,7 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
         return {
           id,
           label: String(r.name ?? id),
-          meta: sorted.meta ? sorted.meta(id) : m?.move ? moveLabel(m.move) : isBadgeId(id) ? "badge" : r.keyItem || r.pocket === "KEY_ITEM" ? "key" : r.pocket === "BALL" ? "ball" : r.effect ? "custom" : "",
+          meta: sorted.meta ? sorted.meta(id) : m?.move ? moveLabel(m.move) : isBadgeId(id) ? "badge" : r.keyItem || r.pocket === "KEY_ITEM" ? "key" : r.pocket === "BALL" ? "ball" : effectOf(id, r) ? "custom" : "",
           search: `${id} ${String(r.name ?? "")} ${m?.move ?? ""}`,
           edited: itemEdited(id),
           isNew: isNewItem(id),
@@ -165,6 +172,8 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
       store.group(`Revert ${id}`, () => {
         store.revertRecord(s.registry, id);
         if (s.ballRegistry) store.revertRecord(s.ballRegistry, id);
+        // Gen 2: the custom effect is the record under the item's id
+        if (s.byItem) store.revertRecord(s.effectRegistry, id);
         dropUnusedEffects();
       });
     },
@@ -317,6 +326,8 @@ const effectIdFor = (itemId: string): string => {
 // custom effects no item points at any more are dropped (call inside a group)
 function dropUnusedEffects(): void {
   const s = spec()!;
+  // Gen 2: an effect belongs to its item, nothing to share
+  if (s.byItem) return;
   const used = new Set(Object.values(items()).map((r) => r.effect));
   for (const fx of Object.keys(effects())) if (!used.has(fx)) store.setRecord(s.effectRegistry, fx, "Remove unused item effect", undefined);
 }
@@ -384,7 +395,7 @@ function itemForm(s: ItemSpec, id: string, r: Rec): HTMLElement[] {
   if (s.heldEffects) out.push(heldCard(s, id, r));
   if (s.effects !== false) {
     out.push(effectCard(s, id, r));
-    if (balls()[id] || effects()[String(r.effect ?? "")]?.steps.some((st) => st.act === "ball")) out.push(ballCard(s, id));
+    if (balls()[id] || effects()[effectOf(id, r)]?.steps.some((st) => st.act === "ball")) out.push(ballCard(s, id));
   }
   if (s.marts(store.ctx).length) out.push(martCard(s, id, r));
   return out;
@@ -637,9 +648,10 @@ function stepDefaults(act: ItemEffectStep["act"]): Partial<ItemEffectStep> {
 }
 
 function effectCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
-  const effect = typeof r.effect === "string" ? r.effect : "";
+  const effect = effectOf(id, r);
   const all = effects();
   const fx = all[effect];
+  const byItem = s.byItem;
   const options = [...new Set([...Object.keys(all), ...(effect ? [effect] : [])])].sort();
   const sel = selectInput(effect, options, (v) => {
     store.group("Item effect", () => {
@@ -647,7 +659,9 @@ function effectCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
       dropUnusedEffects();
     });
   }, s.special(id, r) || s.template(id, r) ? "Built-in" : "(none)");
-  const card = h("section", { class: "card" }, h("h4", {}, "Effect"), field("Effect", sel, "Custom effects are built from blocks; one can be shared by several items."));
+  const card = byItem
+    ? h("section", { class: "card" }, h("h4", {}, "Effect"))
+    : h("section", { class: "card" }, h("h4", {}, "Effect"), field("Effect", sel, "Custom effects are built from blocks; one can be shared by several items."));
 
   if (!fx) {
     if (effect) {
@@ -668,23 +682,37 @@ function effectCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
           class: "btn small primary-ish",
           title: template ? "Start a custom effect with the same behaviour, ready to tweak" : "Start a custom effect from scratch",
           onclick: () => {
-            const fxId = effectIdFor(id);
+            const fxId = byItem ? id : effectIdFor(id);
             const fresh: ItemEffectSpec = template ?? { target: "party", steps: [{ act: "heal", amount: 20 }] };
             store.group(`Custom effect for ${id}`, () => {
               store.setRecord(s.effectRegistry, fxId, "New custom item effect", fresh);
-              edit(id, "Item effect", (d) => (d.effect = fxId));
+              if (!byItem) edit(id, "Item effect", (d) => (d.effect = fxId));
+              // an item without a use gets one outside battle
+              else if (r[byItem.field] !== byItem.on && r[byItem.battle] !== byItem.on) edit(id, "Where usable", (d) => (d[byItem.field] = byItem.on));
             });
           },
         }, template ? "Customize this effect" : "Custom effect"),
-        h("span", { class: "hint" }, template ? "Makes an editable copy for this item." : "Built from blocks: healing, cures, PP, vitamins, level up, evolution, X items, Repel, balls."),
+        h("span", { class: "hint" }, template ? "Makes an editable copy for this item." : byItem ? "Built from blocks, used on a party Pokémon: healing, cures, revive, PP, vitamins, level up, evolution." : "Built from blocks: healing, cures, PP, vitamins, level up, evolution, X items, Repel, balls."),
       ),
     );
     return card;
   }
 
   // ---- the builder
+  // Gen 2: level up and evolution only run outside battle (the battle has no
+  // move offer or evolution scene), so such an effect leaves the battle menu
+  const fieldOnly = (steps: ItemEffectStep[]) => steps.some((st) => st.act === "level" || st.act === "evolve");
   const editFx = (label: string, mutate: (d: ItemEffectSpec) => void) => {
-    store.editRecord<ItemEffectSpec>(s.effectRegistry, effect, label, mutate);
+    store.group(label, () => {
+      store.editRecord<ItemEffectSpec>(s.effectRegistry, effect, label, mutate);
+      const now = effects()[effect];
+      if (byItem && now && fieldOnly(now.steps) && items()[id]?.[byItem.battle] === byItem.on) {
+        store.editRecord<Rec>(s.registry, id, label, (d) => {
+          d[byItem.battle] = byItem.off;
+          if (d[byItem.field] !== byItem.on) d[byItem.field] = byItem.on;
+        });
+      }
+    });
     store.seal();
   };
   const users = Object.entries(items()).filter(([, x]) => x.effect === effect).map(([x]) => x);
@@ -699,10 +727,17 @@ function effectCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
   );
   target.options[0].textContent = "A party Pokémon (asks which)";
   target.options[1].textContent = "Nothing (acts in battle or the field)";
-  const where = selectInput(fx.where ?? "both", ["both", "battle", "field"], (v) => editFx("Where usable", (d) => (v === "both" ? delete d.where : (d.where = v as "battle" | "field"))));
-  where.options[0].textContent = "In and out of battle";
-  where.options[1].textContent = "Battle only";
-  where.options[2].textContent = "Outside battle only";
+  const menuWhere = byItem && (r[byItem.field] === byItem.on ? (r[byItem.battle] === byItem.on ? "both" : "field") : "battle");
+  const where = byItem
+    ? selectInput(menuWhere as string, fieldOnly(fx.steps) ? ["field"] : ["both", "battle", "field"], (v) =>
+        edit(id, "Where usable", (d) => {
+          d[byItem.field] = v === "battle" ? byItem.off : byItem.on;
+          d[byItem.battle] = v === "field" ? byItem.off : byItem.on;
+        }),
+      )
+    : selectInput(fx.where ?? "both", ["both", "battle", "field"], (v) => editFx("Where usable", (d) => (v === "both" ? delete d.where : (d.where = v as "battle" | "field"))));
+  const WHERE_LABEL: Record<string, string> = { both: "In and out of battle", battle: "Battle only", field: "Outside battle only" };
+  for (const o of where.options) o.textContent = WHERE_LABEL[o.value] ?? o.value;
 
   const acts = fx.target === "party" ? PARTY_ACTS : NONE_ACTS;
   const editStep = (i: number, label: string, mutate: (st: ItemEffectStep) => void) =>
@@ -730,8 +765,10 @@ function effectCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
 
   card.append(
     h("p", { class: "effect-summary" }, describeItemEffect(fx, s.statuses)),
-    h("div", { class: "row three" }, field("Used on", target), field("Usable", where)),
-    check("Never used up", fx.keep === true, (v) => editFx("Never used up", (d) => (v ? (d.keep = true) : delete d.keep)), "Stays in the bag after use, like a key item."),
+    byItem
+      ? h("div", { class: "row three" }, field("Usable", where, fieldOnly(fx.steps) ? "Level up and evolution work outside battle only." : "The item's bag menus."))
+      : h("div", { class: "row three" }, field("Used on", target), field("Usable", where)),
+    ...(byItem ? [] : [check("Never used up", fx.keep === true, (v) => editFx("Never used up", (d) => (v ? (d.keep = true) : delete d.keep)), "Stays in the bag after use, like a key item.")]),
     h("h4", {}, "Steps"),
     ...stepRows,
     h(
@@ -749,6 +786,13 @@ function effectCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
         title: "Use the built-in behaviour again",
         onclick: () =>
           store.group("Item effect", () => {
+            if (byItem) {
+              store.setRecord(s.effectRegistry, id, "Item effect", undefined);
+              // the game's menus again
+              const base = store.baseTable(s.registry)[id] as Rec | undefined;
+              if (base) edit(id, "Where usable", (d) => ((d[byItem.field] = base[byItem.field]), (d[byItem.battle] = base[byItem.battle])));
+              return;
+            }
             edit(id, "Item effect", (d) => delete d.effect);
             dropUnusedEffects();
           }),
@@ -832,6 +876,8 @@ function stepValue(s: ItemSpec, id: string, st: ItemEffectStep, editStep: (label
       return out;
     }
     case "statexp":
+      if (s.byItem)
+        return [selectInput(st.stat ?? "attack", s.expStats, (v) => editStep("Stat", (x) => (x.stat = v))), muted("+2560 stat EXP, refused at 25600")];
       return [
         selectInput(st.stat ?? "attack", s.expStats, (v) => editStep("Stat", (x) => (x.stat = v))),
         muted("+"),
@@ -936,7 +982,7 @@ function martCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
 
 interface Use {
   label: string;
-  open: () => void;
+  open?: () => void;
 }
 
 function usesOf(id: string): Use[] {
@@ -953,13 +999,24 @@ function usesOf(id: string): Use[] {
   for (const m of s?.marts(store.ctx) ?? []) if (martStock(m).includes(id)) out.push({ label: `Shop: ${m.label}`, open: () => (m.mapId ? nav.openMap(m.mapId) : undefined) });
   const towns = store.adapter.towns;
   if (towns) for (const cid of countersGiving(towns, id)) out.push({ label: `Prize: ${counterLabel(cid)}`, open: () => showCounter(cid) });
+  for (const u of s?.uses?.(store.ctx, id) ?? []) {
+    const { map, trainer, pokemon } = u;
+    const open = map
+      ? () => (map.layer && map.index !== undefined ? nav.selectEntity(map.id, map.layer, map.index) : nav.openMap(map.id))
+      : trainer
+        ? () => nav.openTrainer(trainer.id, trainer.team)
+        : pokemon
+          ? () => nav.openPokemon(pokemon)
+          : undefined;
+    out.push({ label: u.label, open });
+  }
   return out;
 }
 
 function usedBy(id: string): HTMLElement[] {
   const uses = usesOf(id);
   const out: HTMLElement[] = [];
-  if (!uses.length) out.push(h("p", { class: "hint" }, "No evolution, trainer AI, shop or prize counter uses this item."));
+  if (!uses.length) out.push(h("p", { class: "hint" }, spec()?.uses ? "Nothing in the game uses this item: no shop, trainer, held item, item ball or evolution." : "No evolution, trainer AI, shop or prize counter uses this item."));
   for (const u of uses) out.push(h("button", { class: "use-row", onclick: u.open }, h("span", { class: "use-map" }, u.label)));
   return out;
 }

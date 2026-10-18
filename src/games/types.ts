@@ -715,6 +715,17 @@ export interface GameAdapter {
   workspaces?: string[];
   // the Graphics views it has (unset: all)
   graphicsViews?: string[];
+  // Gen 2 sprites: the spriteType each kind is written with, and the OBJ
+  // palettes a sprite draws with by default (palette name; paletteId = place)
+  // `player`: the sprite the Sprites view opens on (Gen 1: SPRITE_RED)
+  // `players`: the sprites the player wears, per player and role (Gen 2: fixed
+  // in the engine, so a mod changes their art, not which sprite is worn)
+  spriteModel?: {
+    types: Record<"walker" | "turner" | "object", string>;
+    palettes: string[];
+    player(version: string): string;
+    players(version: string): { who: string; roles: [label: string, sprite: string][] }[];
+  };
   // tilesets whose collision is a quad of codes per block (Gen 2) instead of
   // walkable tiles, and whose tiles each pick one of 8 palette slots
   tileCollision?: {
@@ -729,6 +740,9 @@ export interface GameAdapter {
   // false: Play starts the game as usual (the studio can't put the player on
   // a picked cell in this generation yet)
   playFromHere?: boolean;
+  // the Play-from-here helper's main.lua for this generation (unset: Gen 1's,
+  // src/lua/playRuntime.ts playtestMain)
+  playtestMain?(t: { map: string; x: number; y: number }): string;
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;

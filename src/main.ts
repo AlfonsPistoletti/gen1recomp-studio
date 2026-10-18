@@ -426,7 +426,7 @@ async function launch(at: PlayTarget | null): Promise<void> {
   }
   try {
     await host.writeText(`mods/${PLAYTEST_ID}/manifest.json`, playtestManifest(store.adapter.manifestGame, !!at));
-    await host.writeText(`mods/${PLAYTEST_ID}/main.lua`, at ? playtestMain(at) : playtestSavingOff());
+    await host.writeText(`mods/${PLAYTEST_ID}/main.lua`, at ? (store.adapter.playtestMain ?? playtestMain)(at) : playtestSavingOff());
     if (currentMod && (await ensurePlayEnv(host, currentMod))) {
       toast(`mods/${currentMod}/manifest.json now names force_enable_env, so test runs include the mod even when it is switched off in the game`, "info");
     }

@@ -10,6 +10,7 @@ import type { Rgb } from "../../render/color.ts";
 import { MONO } from "../../render/color.ts";
 import { TILESET_RUNTIME2, tilesetRegistration2 } from "../../lua/tilesetRuntime2.ts";
 import { GEN2_EVENTS } from "./events.ts";
+import { playtestMain2 } from "../../lua/playRuntime.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
@@ -105,6 +106,9 @@ const content: ContentSpec[] = [
   // palettes.lua subtables are the registry's ids (trainers, pokemon, ...);
   // the studio edits trainers (a new class's portrait colors)
   { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => k === "trainers" && !!v && typeof v === "object")) },
+  // sprites (filled from Dataset.sprites in load): the game's art is replaced
+  // by patching `image`, the mod's own are registered whole
+  { registry: "sprites", editable: true, build: () => ({}), fieldOrder: ["id", "image", "frames", "walker", "spriteType", "palette", "paletteId", "trueColor"] },
   // tilesets (filled from Dataset.tilesets in load): the mod's own are
   // registered whole (sheet in assets/studio, a collision quad per block, a
   // palette slot per tile); the game's are only extended, through studio_tilesets
@@ -620,7 +624,20 @@ export const gen2: GameAdapter = {
     scriptTextMemo.set(key, list);
     return list;
   },
-  graphicsViews: ["tilesets"],
+  graphicsViews: ["tilesets", "sprites"],
+  // gen1recomp Schemas sprites.gen2Fields: spriteType, palette + paletteId (0-7)
+  spriteModel: {
+    types: { walker: "WALKING_SPRITE", turner: "STANDING_SPRITE", object: "STILL_SPRITE" },
+    palettes: OW_PALETTES.map((n) => `PAL_OW_${n}`),
+    // Crystal's player picks a girl (Kris) or a boy; Gold/Silver have Chris only
+    player: (version) => (version === "crystal" ? "SPRITE_KRIS" : "SPRITE_CHRIS"),
+    // gen1recomp src/world/gen2/FieldMoves.lua STATE_SPRITE / STATE_SPRITE_FEMALE
+    // (Kris: Crystal only); the surfing sprites are shared
+    players: (version) => [
+      { who: "Chris", roles: [["On foot", "SPRITE_CHRIS"], ["On the bike", "SPRITE_CHRIS_BIKE"], ["Surfing", "SPRITE_SURF"], ["Surfing on Pikachu", "SPRITE_SURFING_PIKACHU"]] },
+      ...(version === "crystal" ? [{ who: "Kris", roles: [["On foot", "SPRITE_KRIS"], ["On the bike", "SPRITE_KRIS_BIKE"], ["Surfing", "SPRITE_SURF"], ["Surfing on Pikachu", "SPRITE_SURFING_PIKACHU"]] as [string, string][] }] : []),
+    ],
+  },
   // pokecrystal constants/collision_constants.asm (the codes a block's quarter
   // takes); walk/water/wall from gen1recomp's CollPermissions table
   tileCollision: {
@@ -640,10 +657,11 @@ export const gen2: GameAdapter = {
     paletteSlots: ["Gray", "Red", "Green", "Water", "Yellow", "Brown", "Roof", "Text"],
     defaultSlot: 1,
   },
-  playFromHere: false,
+  // Game2:continueGame on the picked cell (src/lua/playRuntime.ts)
+  playtestMain: playtestMain2,
 
   async load(read): Promise<Dataset> {
-    gen2.viewOnly = { registries: ["sprites"], reason: "Gen 2 sprites can be looked at, not changed yet." };
+    gen2.viewOnly = undefined;
     const [maps, tilesets, sprites, pal, roofs, initial, constants, ...tables] = await Promise.all([
       read("maps.lua") as Promise<Record<string, MapDef>>,
       read("tilesets.lua") as Promise<Record<string, TilesetDef>>,

@@ -388,14 +388,19 @@ function mainForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
   const name = h("input", { type: "text", value: String(r.name ?? ""), maxLength: 10, spellcheck: false });
   name.addEventListener("change", () => edit(id, "Name", (d) => (d.name = name.value.toUpperCase() || id)));
 
+  // as in battle: the player's (back) left, the opponent's (front) right, each
+  // at its battle size (2 screen px per pixel at 1x)
+  const scales = spec.battleScale;
+  const frontScale = typeof r.battleScaleFront === "number" ? r.battleScaleFront : scales.front;
+  const backScale = typeof r.battleScaleBack === "number" ? r.battleScaleBack : scales.back;
   const header = h(
     "div",
     { class: "mon-header" },
     h(
       "div",
       { class: "mon-sprites" },
-      spec.frontSprite(r) ? pic(spec.frontSprite(r), monColors(id, r), { class: "mon-sprite", alt: "front" }) : null,
-      spec.backSprite(r) ? pic(spec.backSprite(r), monColors(id, r), { class: "mon-sprite back", alt: "back" }) : null,
+      spec.backSprite(r) ? pic(spec.backSprite(r), monColors(id, r), { class: "mon-sprite back", alt: "back", style: `zoom:${2 * backScale}` }) : null,
+      spec.frontSprite(r) ? pic(spec.frontSprite(r), monColors(id, r), { class: "mon-sprite", alt: "front", style: `zoom:${2 * frontScale}` }) : null,
     ),
     h(
       "div",

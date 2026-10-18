@@ -16,7 +16,7 @@ import { MONO, type Rgb } from "../render/color.ts";
 import { importArt, pngBytes } from "./artImport.ts";
 import { GRAYS, REDPP, spriteColorSets, spriteGbcColors, spriteGroup } from "../core/gbc.ts";
 import { canDerive, NO_RECIPE, reusable } from "../core/reuse.ts";
-import { clear, field, h, toast } from "./dom.ts";
+import { clear, field, h, selectInput, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
 import { nav } from "./nav.ts";
 import { paletteChoices } from "./picColors.ts";
@@ -96,10 +96,15 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
   const chosen = () => viewPalette ?? (store.colorMode === "redpp" && gbcOf() ? REDPP : "");
   const useGbc = () => chosen() === REDPP;
   const colorKey = () => (useGbc() ? (gbcOf()?.key ?? GRAYS) : chosen() && chosen() !== REDPP ? chosen() : store.palettes[store.currentMap] || "ROUTE");
-  const colors = (): Rgb[] => (useGbc() ? (gbcOf()?.colors ?? MONO) : colorKey() === GRAYS ? MONO : store.adapter.spriteColors(store.ctx, colorKey()));
+  // (Gen 2: in the sprite's own OBJ palette)
+  const colors = (): Rgb[] => (useGbc() ? (gbcOf()?.colors ?? MONO) : colorKey() === GRAYS ? MONO : store.adapter.spriteColors(store.ctx, colorKey(), current ? liveSprite(current) : undefined));
 
-  const frameImg = (id: string, frame: number, flip: boolean) =>
-    spriteFrameAt(liveSprite(id), spriteUrl(id), colors(), colorKey(), frame, flip, schedule);
+  // keyed by the colors themselves: a sprite's own palette (Gen 2) changes them
+  // while the map's palette name stays the same
+  const frameImg = (id: string, frame: number, flip: boolean) => {
+    const c = colors();
+    return spriteFrameAt(liveSprite(id), spriteUrl(id), c, `${colorKey()}|${c.flat().join(",")}`, frame, flip, schedule);
+  };
 
   // ---------------------------------------------------------------- render
   const render = () => {
@@ -220,15 +225,13 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       });
       kindSel.addEventListener("change", () => {
         const k = kindSel.value as SpriteKind;
-        store.editRecord<SpriteDef>(SPRITES, id, "Sprite kind", (d) => {
-          d.frames = KIND_FRAMES[k];
-          d.walker = k === "walker";
-        });
+        store.editRecord<SpriteDef>(SPRITES, id, "Sprite kind", (d) => setKind(d, k));
         store.seal();
       });
       kindRow = field("Kind", kindSel, "Kinds that need more frames than this sheet has are greyed out: import a sheet with more frames for them.");
     } else {
-      kindRow = h("div", { class: "kv" }, h("span", {}, "Kind"), h("span", {}, KIND_LABELS[kindOf(s)]));
+      // Gen 2's Pokémon sprites hop between their 2 frames
+      kindRow = h("div", { class: "kv" }, h("span", {}, "Kind"), h("span", {}, s.spriteType === "POKEMON_SPRITE" ? "Pokémon (2 frames, hops)" : KIND_LABELS[kindOf(s)]));
     }
     const gameArt = !ownSheet;
     out.push(h("div", { class: "card" },
@@ -247,12 +250,15 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
           onclick: () => void replaceFrame(id),
         }, `Replace ${s.frames && s.frames > 1 ? (FRAME_LABELS[selFrame] ?? "frame").toLowerCase() : "frame"}…`),
       ),
-      isBaseSprite(id) && (store.baseTable(SPRITES)[id] as SpriteDef | undefined)?.image !== s.image
-        ? h("button", { class: "btn small danger", onclick: () => store.revertRecord(SPRITES, id, `Revert ${id}`) }, "Back to the game's art")
+      // anything changed (art, kind, colors): the game's sprite back
+      isBaseSprite(id) && store.isRecordEdited(SPRITES, id)
+        ? h("button", { class: "btn small danger", onclick: () => store.revertRecord(SPRITES, id, `Revert ${id}`) }, "Back to the game's sprite")
         : null,
     ));
     const colors = colorsCard(id, s);
     if (colors) out.push(colors);
+    const own = paletteCard(id, s);
+    if (own) out.push(own);
     // who uses it
     const users = spriteUsers(id);
     const roles = rolesOf(id);
@@ -276,8 +282,68 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
           }, "Delete sprite")
         : null,
     ));
-    out.push(playerCard(id));
+    // what the player wears: Gen 1's field.playerSprites, Gen 2's fixed sprites
+    out.push(store.adapter.spriteModel ? fixedPlayerCard(id) : playerCard(id));
     return out;
+  };
+
+  // Gen 2: the engine picks the player's sprites itself, so the player looks
+  // different through their art (ISSUES #9 asks for a setting like Gen 1's)
+  const fixedPlayerCard = (id: string): HTMLElement => {
+    const groups = store.adapter.spriteModel!.players(store.project.version);
+    const rows = groups.flatMap((g) => g.roles.map(([label, sid]) => {
+      const edited = isBaseSprite(sid) && store.isRecordEdited(SPRITES, sid);
+      return h("div", { class: "row nowrap" },
+        h("span", { class: "muted" }, `${g.who}, ${label.toLowerCase()}`),
+        h("button", { class: `btn small ${sid === id ? "primary-ish" : "ghost"}`, disabled: !liveSprite(sid), onclick: () => open(sid) }, sid.replace(/^SPRITE_/, "")),
+        edited ? h("span", { class: "tag edited" }, "your art") : null,
+        edited ? h("button", { class: "btn small ghost", onclick: () => store.revertRecord(SPRITES, sid, `Revert ${sid}`) }, "Back to the game's") : null,
+      );
+    }));
+    return h("div", { class: "card" }, h("h4", {}, "Player"),
+      h("p", { class: "hint" }, "Which sprite the player wears is fixed in the game. Change how the player looks by giving these sprites your art (Import sheet, or Use the art of …)."),
+      ...rows);
+  };
+
+  // Gen 2: the OBJ palette the sprite draws with, unless a map person picks
+  // another (its Colors field)
+  const paletteCard = (id: string, s: SpriteDef): HTMLElement | null => {
+    const model = store.adapter.spriteModel;
+    if (!model || s.trueColor) return null;
+    const cur = typeof s.paletteId === "number" ? model.palettes[s.paletteId] : String(s.palette ?? model.palettes[0]);
+    const sel = selectInput(cur ?? model.palettes[0], model.palettes, (v) => {
+      store.editRecord<SpriteDef>(SPRITES, id, "Sprite colors", (d) => {
+        d.palette = v;
+        d.paletteId = model.palettes.indexOf(v);
+      });
+      store.seal();
+    });
+    for (const o of sel.options) o.textContent = o.value.replace(/^PAL_OW_/, "").toLowerCase();
+    // only the colors back (art and kind stay)
+    const base = store.baseTable(SPRITES)[id] as SpriteDef | undefined;
+    const changed = !!base && (base.palette !== s.palette || base.paletteId !== s.paletteId);
+    return h("div", { class: "card" }, h("h4", {}, "Colors"),
+      field("Palette", sel, "The colors it has on every map, by the time of day; a map person with colors of its own (its Colors field) keeps those."),
+      changed
+        ? h("button", {
+            class: "btn small",
+            onclick: () => {
+              store.editRecord<SpriteDef>(SPRITES, id, "The game's colors", (d) => {
+                d.palette = base!.palette;
+                d.paletteId = base!.paletteId;
+              });
+              store.seal();
+            },
+          }, "Back to the game's colors")
+        : null);
+  };
+
+  // a kind's frames, walking and (Gen 2) sprite type
+  const setKind = (d: SpriteDef, k: SpriteKind) => {
+    d.frames = KIND_FRAMES[k];
+    d.walker = k === "walker";
+    const model = store.adapter.spriteModel;
+    if (model) d.spriteType = model.types[k];
   };
 
   // RED++ colors: the color set its picture number picks, or another
@@ -325,7 +391,8 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       return o !== id && !!src && isSimpleSheet(src) && reusable(src.image) !== null;
     });
     const sel = h("select", { disabled: !simple || !sources.length || !canDerive() },
-      h("option", { value: "" }, sources.length ? "Use the art of…" : "No art to reuse"),
+      // why nothing can be reused, when that's the case
+      h("option", { value: "" }, sources.length ? "Use the art of…" : !store.project.mod ? "Open a mod to reuse art" : !canDerive() ? "Can't reuse the game's art in this mod" : "No art to reuse"),
       ...sources.map((o) => h("option", { value: o }, o.replace(/^SPRITE_/, ""))),
     );
     sel.title = canDerive() ? "Show this sprite with another sprite's art (the game's art is copied from the player's own files when the game loads)" : NO_RECIPE;
@@ -337,6 +404,8 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
         d.image = path;
         d.frames = src.frames || 1;
         d.walker = !!src.walker;
+        // Gen 2: the sheet's own animation kind comes along
+        if (store.adapter.spriteModel) d.spriteType = typeof src.spriteType === "string" ? src.spriteType : store.adapter.spriteModel.types[kindOf(src)];
         if (src.trueColor) d.trueColor = true;
         else delete d.trueColor;
       });
@@ -388,8 +457,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
   const setArt = (id: string, label: string, image: string, kind: SpriteKind, trueColor: boolean) => {
     store.editRecord<SpriteDef>(SPRITES, id, label, (d) => {
       d.image = image;
-      d.frames = KIND_FRAMES[kind];
-      d.walker = kind === "walker";
+      setKind(d, kind);
       if (trueColor) d.trueColor = true;
       else delete d.trueColor;
     });
@@ -437,6 +505,12 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       walker: res.kind === "walker",
       ...(art.trueColor ? { trueColor: true } : {}),
     };
+    const model = store.adapter.spriteModel;
+    if (model) {
+      setKind(record, res.kind);
+      record.palette = model.palettes[0];
+      record.paletteId = 0;
+    }
     store.setRecord(SPRITES, res.id, `New sprite ${res.id}`, clone(record));
     store.seal();
     open(res.id);
@@ -452,9 +526,15 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       if (nav.workspace === "graphics" && nav.graphicsView === "sprites") render();
     });
   };
+  // the game the sprite list was last opened for
+  let openedFor = "";
   store.on((reason, id, registry) => {
     if (reason === "project") {
-      if (!current || !liveSprite(current)) current = "SPRITE_RED";
+      // the player's sprite (Gold/Silver: Chris, Crystal: Kris), also when
+      // another game opens (Gold has a SPRITE_RED too: Mt. Silver's Red)
+      const player = store.adapter.spriteModel?.player(store.project.version) ?? "SPRITE_RED";
+      if (!current || !liveSprite(current) || openedFor !== store.project.version) current = liveSprite(player) ? player : spriteIds()[0] ?? null;
+      openedFor = store.project.version;
       schedule();
     } else if (reason === "content" && (registry === SPRITES || (registry === "field" && id === "playerSprites"))) {
       if (current && !liveSprite(current)) current = null;

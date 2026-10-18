@@ -3,7 +3,7 @@ import { startAreaBrush } from "./ui/mapAreas.ts";
 import { extKinds } from "./ui/extFields.ts";
 import { extIcon } from "./render/extIcons.ts";
 import { imageAliases, OVERRIDES, saveAssets, saveOverrides, syncTransforms } from "./core/assets.ts";
-import { liveTileset, sheetRecipes, tilesetIds } from "./core/tilesets.ts";
+import { foreignExtension, foreignNote, liveTileset, sheetRecipes, tilesetIds } from "./core/tilesets.ts";
 import { gbcAvailable, loadGbc, setGbc } from "./core/gbc.ts";
 import { brokenWarps, romReferences } from "./core/checks.ts";
 import { store, type Overlays, type Tool } from "./core/store.ts";
@@ -15,14 +15,14 @@ import { chooseGameRoot, isTauri, tauriHost } from "./host/tauriHost.ts";
 import { checkForUpdates } from "./ui/updates.ts";
 import type { HostInfo } from "./host/types.ts";
 import { configureLua } from "./lua/vm.ts";
-import { createMod, ensurePlayEnv, listMods, openProject as loadProject, saveProject, validateMod, wireUp } from "./project/project.ts";
+import { createMod, ensurePlayEnv, listMods, openProject as loadProject, processText, saveProject, validateMod, wireUp } from "./project/project.ts";
 import { PLAYTEST_ID, playtestMain, playtestManifest, playtestSavingOff, type PlayTarget } from "./lua/playRuntime.ts";
 import { exportZip, publishDialog, type ShareContext } from "./ui/share.ts";
 import { modPageDialog } from "./ui/modPage.ts";
 import { isTyping, MapView, warpLayer } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { differencesMarkdown, mountChangesMenu } from "./ui/changesMenu.ts";
-import { Brush, DoorOpen, Footprints, Package, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
+import { ScanSearch, Brush, DoorOpen, Footprints, Package, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
 import { $, clear, dropdown, field, h, icon, numberInput, setComboLabels, toast, errorText } from "./ui/dom.ts";
 import { addCustom, addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
@@ -332,7 +332,7 @@ store.on((reason) => {
 let viewOnlyShown = false;
 
 // one "+" button per entity layer of the current game (the map markers' icons)
-const ADD_ICONS: Partial<Record<string, IconNode>> = { warp: DoorOpen, npc: UserRound, sign: Signpost, item: Package };
+const ADD_ICONS: Partial<Record<string, IconNode>> = { warp: DoorOpen, npc: UserRound, sign: Signpost, item: Package, hidden: ScanSearch };
 const addGroup = h("div", { class: "seg" });
 function renderAddButtons(): void {
   clear(addGroup);
@@ -493,7 +493,7 @@ const status = {
 $("#statusbar").append(status.map, status.pos, status.block, status.walk, status.hint);
 
 view.onTilesetFull = (tileset) =>
-  toast(`${tileset} has ${MAX_BLOCKS} blocks, the most a map can use: no room for another. Paint with blocks it has, or free some in Graphics > Tilesets.`, "error");
+  foreignExtension(tileset) ? toast(foreignNote(tileset), "error") : toast(`${tileset} has ${MAX_BLOCKS} blocks, the most a map can use: no room for another. Paint with blocks it has, or free some in Graphics > Tilesets.`, "error");
 
 view.onHover = (info) => {
   if (!info) {
@@ -1084,7 +1084,7 @@ async function pack(): Promise<void> {
           ? h("p", {}, "Share this file; players install it from the game's mod list:", h("br", {}), h("code", {}, packedPath(file)))
           : h("p", {}, "Packing runs validate --strict, so warnings stop it too. Fix what's listed, then pack again."),
         h("p", { class: "hint" }, "Raise the version in Mod details for every release you share."),
-        h("pre", { class: `mono output ${result.code === 0 ? "ok" : "bad"}` }, result.output.trim() || "(no output)"),
+        h("pre", { class: `mono output ${result.code === 0 ? "ok" : "bad"}` }, processText(result) || "(no output)"),
       ],
       [h("button", { class: "btn primary", onclick: () => dialog.close() }, "Close")],
     );

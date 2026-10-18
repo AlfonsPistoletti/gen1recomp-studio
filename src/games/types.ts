@@ -575,6 +575,7 @@ export type EventRow = unknown[];
 export type EventParamType =
   | "text" // a line of text, or a text key ("_SomeText")
   | "flag"
+  | "flagNumber" // Gen 2: an event flag by number (0-2047)
   | "item"
   | "species"
   | "number"
@@ -616,6 +617,10 @@ export interface EventCommand {
   // a check that sets the "last result" an If tests (check_flag, ask, ...)
   condition?: string; // how an If reads it: "{flag} is set"
   describe(args: Record<string, unknown>): string;
+  // Gen 2: the row's fields (besides `op` = verb) from the arguments, and the
+  // arguments back from a row (null: not this command's row); unset: by key
+  pack?(args: Record<string, unknown>, ctx: GameContext): Record<string, unknown>;
+  unpack?(row: Record<string, unknown>, ctx: GameContext): Record<string, unknown> | null;
 }
 
 // What the Events workspace needs to know about a generation.
@@ -626,6 +631,15 @@ export interface EventSpec {
   // the helper's command for "the player picked option N" (choices of 3+)
   choiceVerb: string;
   stopVerb: string; // jump
+  // Gen 2: no registry; an event is the script list stored inline as a map
+  // person's / sign's / step trigger's `scriptKey` (src/core/inlineEvents.ts).
+  // Talk and step events only, no Choice / follow / preview / game events.
+  inline?: boolean;
+  // rows <-> blocks in this game's script format (unset: Gen 1's, eventBlocks.ts)
+  compile?(blocks: import("../core/eventBlocks.ts").Block[], ctx: GameContext): EventRow[];
+  parse?(rows: EventRow[], ctx: GameContext): import("../core/eventBlocks.ts").Block[];
+  // Gen 2: a script a Role made (a person's text, a nurse, a shop), not an event
+  preset?(rows: EventRow[]): boolean;
 }
 
 export interface EntityLayer {
@@ -722,6 +736,9 @@ export interface GameAdapter {
   // script texts and named engine texts); unset: the "text" registry, with
   // Gen 1's "On maps" filter, "+ New" and "Used by"
   textSets?: { registry: string; label: string }[];
+  // which Role box a person / sign gets (src/ui/roles.ts): Gen 1's (unset) or
+  // Gen 2's (roles2.ts: inline scripts and object fields)
+  roles?: "gen2";
   // the "text" keys a script shows (its rows, followed through calls and
   // jumps), undefined when `key` is no script: the Text workspace's labels and
   // Used by for a game whose texts are named after their place in the ROM (Gen 2)

@@ -9,6 +9,7 @@
 import type { Rgb } from "../../render/color.ts";
 import { MONO } from "../../render/color.ts";
 import { TILESET_RUNTIME2, tilesetRegistration2 } from "../../lua/tilesetRuntime2.ts";
+import { GEN2_EVENTS } from "./events.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
@@ -104,6 +105,10 @@ const content: ContentSpec[] = [
   // palettes.lua subtables are the registry's ids (trainers, pokemon, ...);
   // the studio edits trainers (a new class's portrait colors)
   { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => k === "trainers" && !!v && typeof v === "object")) },
+  // tilesets (filled from Dataset.tilesets in load): the mod's own are
+  // registered whole (sheet in assets/studio, a collision quad per block, a
+  // palette slot per tile); the game's are only extended, through studio_tilesets
+  { registry: "tilesets", editable: true, build: () => ({}), fieldOrder: ["id", "image", "imageWidth", "imageHeight", "tilesPerRow", "blocks", "collision", "tilePalettes"] },
   // blocks (and their collision quads) added to the game's tilesets: plain
   // data in studio_tilesets.lua, patched in by the generated helper
   {
@@ -180,6 +185,10 @@ const OW_PALETTES = ["RED", "BLUE", "GREEN", "BROWN", "PINK", "EMOTE", "TREE", "
 const PINNED: Record<string, string> = { PALETTE_DAY: "DAY", PALETTE_NITE: "NITE", PALETTE_MORN: "MORN", PALETTE_DARK: "NITE" };
 const daytimeOf = (map: MapDef, time: string | undefined) => PINNED[String(map.palette ?? "")] ?? time ?? "DAY";
 const asList = (v: unknown) => (Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : []);
+// the next free object number on a map (people's `index`)
+const nextObjectIndex = (map: MapDef) => 1 + Math.max(0, ...(asList(map.objects) as { index?: number }[]).map((o) => Number(o.index) || 0));
+// an item's number in Gold's rows and records (its record's `index`)
+const itemIndex = (ctx: GameContext, id: string) => Number(((ctx.records.items ?? ctx.data.content.items ?? {})[id] as { index?: number } | undefined)?.index ?? 0);
 
 // Crystal tilesets carry GBC attributes per tile id (`tileAttrs`, 1-based
 // keys: palette slot and VRAM bank) and a 256-tile sheet (bank 0 at 0-127,
@@ -187,7 +196,10 @@ const asList = (v: unknown) => (Array.isArray(v) ? v : v && typeof v === "object
 // normalizeTile: a block's raw id (bit 7 = bank) -> its attrs -> the sheet
 // tile it draws and that tile's palette. Blocks are rewritten to sheet tiles
 // and tilePalettes to the palette per sheet tile, which is what the view
-// reads (Gold keeps its own tilePalettes and raw ids).
+// reads (Gold keeps its own tilePalettes and raw ids). In Crystal's data a
+// raw id already is its sheet tile (the rewrite changes none), so blocks a mod
+// adds with sheet tile ids draw the same in the engine; added tiles go into
+// the sheet's blank slots 0xE0-0xFF (tilesets.ts firstAddedTile).
 // shortcut: one palette per sheet tile (two raw ids on the same sheet tile with different palettes keep the last); per-tile flips aren't drawn (Crystal's data has none)
 function crystalTiles(t: TilesetDef): void {
   const attrs = t.tileAttrs as Record<string, { palette?: number; vramBank?: number }> | undefined;
@@ -472,13 +484,13 @@ const trainers: TrainerSpec = {
     classOf: (ctx, index) => Object.entries(recordsOf(ctx, "trainers")).find(([, r]) => r.index === index)?.[0],
     // from the top of the flag array down: past every flag the game uses
     freeFlag: (ctx) => {
+      // the game's flags, plus every flag a map names now: people's
+      // visibility flags, studio trainers' and the studio's inline events'
       const taken = new Set(usedFlags);
-      for (const m of Object.values(ctx.maps)) {
-        for (const o of asList(m.objects) as { eventFlag?: number; trainer?: { event?: number } }[]) {
-          if (typeof o.trainer?.event === "number") taken.add(o.trainer.event);
-          if (typeof o.eventFlag === "number") taken.add(o.eventFlag);
-        }
-      }
+      JSON.stringify(Object.values(ctx.maps), (k, v: unknown) => {
+        if ((k === "event" || k === "eventFlag") && typeof v === "number") taken.add(v);
+        return v;
+      });
       for (let f = NUM_EVENTS - 1; f > Math.max(0, ...usedFlags); f--) if (!taken.has(f)) return f;
       return null;
     },
@@ -579,7 +591,9 @@ export const gen2: GameAdapter = {
   manifestGame: "gen2",
   startMap: "NEW_BARK_TOWN",
   viewOnly: { registries: ["tilesets", "sprites"], reason: "Gen 2 tilesets and sprites can be looked at, not changed yet." },
-  workspaces: ["maps", "pokemon", "moves", "items", "trainers", "text", "graphics", "global"],
+  workspaces: ["maps", "pokemon", "moves", "items", "trainers", "text", "events", "graphics", "global"],
+  events: GEN2_EVENTS,
+  roles: "gen2",
   textSets: [{ registry: "text", label: "Script texts" }, { registry: "rom_text", label: "Game texts" }],
   scriptTexts(ctx, key) {
     if (!(key in scriptRows)) return undefined;
@@ -628,13 +642,8 @@ export const gen2: GameAdapter = {
   },
   playFromHere: false,
 
-  async load(read, version): Promise<Dataset> {
-    // Crystal's blocks are rewritten to sheet tiles below (crystalTiles), so
-    // an extension made on them couldn't be patched back: its tilesets stay
-    // view-only (Gold/Silver get blocks and the tile brush)
-    gen2.viewOnly = version === "crystal"
-      ? { registries: ["tilesets", "sprites", "studio_tilesets"], reason: "Crystal's tilesets can be looked at, not changed yet." }
-      : { registries: ["sprites"], reason: "Gen 2 sprites can be looked at, not changed yet." };
+  async load(read): Promise<Dataset> {
+    gen2.viewOnly = { registries: ["sprites"], reason: "Gen 2 sprites can be looked at, not changed yet." };
     const [maps, tilesets, sprites, pal, roofs, initial, constants, ...tables] = await Promise.all([
       read("maps.lua") as Promise<Record<string, MapDef>>,
       read("tilesets.lua") as Promise<Record<string, TilesetDef>>,
@@ -745,7 +754,16 @@ export const gen2: GameAdapter = {
     }
     contentTables.tilesets = { ...tilesets };
     contentTables.sprites = { ...sprites };
-    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {} } };
+    // the Roles' scripts: the game's std scripts by name (jumpstd rows name
+    // them with their scripts.lua key) and its shops' stock lists
+    const stdScripts: Record<string, string> = {};
+    JSON.stringify(scripts, (_k, v: { op?: unknown; std?: unknown; script?: unknown } | unknown) => {
+      const r = v as { op?: unknown; std?: unknown; script?: unknown };
+      if (r && r.op === "jumpstd" && typeof r.std === "string" && typeof r.script === "string") stdScripts[r.std] ??= r.script;
+      return v;
+    });
+    const marts = await (read("marts.lua") as Promise<{ lists?: string[][] }>).catch(() => ({}) as { lists?: string[][] });
+    return { maps, tilesets, sprites, content: contentTables, extra: { palettes: pal, roofs, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists) } };
   },
 
   // Empty Lua tables arrive as []; the lists the view reads become arrays
@@ -804,10 +822,19 @@ export const gen2: GameAdapter = {
         },
         { kind: "int", key: "eventFlag", label: "Event flag", min: 0, max: 65535, hint: "Hidden while this event flag is set; 65535 = always there" },
         { kind: "select", key: "palette", label: "Colors", numeric: true, options: () => ["0", ...OW_PALETTES.map((_, i) => String(8 + i))], labels: (v) => (v === "0" ? "The sprite's own" : OW_PALETTES[Number(v) - 8]?.toLowerCase()) },
-        scriptField("objects", "Talking to it", "What it says or does: one of the scripts of the people here (the game's scripts can't be written in the studio)."),
         { kind: "extras", label: "Other fields", hint: "type, sight range, item, script number (cart data)" },
       ],
-      create: (_map, x, y) => ({ x, y, sprite: "SPRITE_YOUNGSTER", movement: 6, radius: { x: 0, y: 0 }, hours: [-1, -1], eventFlag: 0xffff, palette: 0 }),
+      // `index`: the object's number (events find people by it)
+      create: (map, x, y) => ({ index: nextObjectIndex(map), x, y, sprite: "SPRITE_YOUNGSTER", movement: 6, radius: { x: 0, y: 0 }, hours: [-1, -1], eventFlag: 0xffff, palette: 0 }),
+      variants: [{
+        id: "item",
+        label: "Item ball",
+        // OBJECTTYPE_ITEMBALL: picked up once (its eventFlag is the taken flag)
+        create: (map, x, y, ctx) => ({
+          index: nextObjectIndex(map), x, y, sprite: "SPRITE_POKE_BALL", movement: 1, radius: { x: 0, y: 0 }, hours: [-1, -1], palette: 0,
+          type: 1, itemball: { item: itemIndex(ctx, "POTION"), quantity: 1 }, eventFlag: gen2.trainers?.objectTrainer?.freeFlag(ctx) ?? 0xffff,
+        }),
+      }],
       // a number is a variable sprite (shown as a new game starts it); the
       // Day-Care Pokémon ($E0/$E1) depend on the save: a marker
       sprite: (o, mapId) => {
@@ -830,10 +857,15 @@ export const gen2: GameAdapter = {
       singular: "Sign",
       color: "#ffc828",
       fields: [
-        scriptField("bgEvents", "Reading it", "What it says: one of the scripts of the signs here."),
         { kind: "extras", label: "Other fields", hint: "kind (cart data)" },
       ],
       create: (_map, x, y) => ({ x, y, kind: 0 }),
+      variants: [{
+        id: "hidden",
+        label: "Hidden item",
+        // BGEVENT_ITEM: found once by checking the cell
+        create: (_map, x, y, ctx) => ({ x, y, kind: 7, hiddenItem: { event: gen2.trainers?.objectTrainer?.freeFlag(ctx) ?? 0, item: itemIndex(ctx, "POTION") } }),
+      }],
     },
     {
       key: "coordEvents",

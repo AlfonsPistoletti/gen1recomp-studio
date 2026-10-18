@@ -198,6 +198,49 @@ for (const [registry, records] of Object.entries(edited)) {
   const ran = await runMod(new Map([[f, src], ["mods/studio_selftest/studio_tilesets.lua", dataSrc]]), "studio_selftest", f, null);
   check("Gen 2 tileset helper runs", ran.errors.length === 0, ran.errors.join("; "));
   check("Gen 2 tileset helper has no backticks", !TILESET_RUNTIME2.includes("`"));
+
+  // Crystal: a 256-slot sheet (both VRAM banks); added tiles go into its blank
+  // slots 0xE0.. and the recipe paints them there, not below the sheet
+  const { newExtension } = await import("../src/core/tilesets.ts");
+  const { recipe } = await import("../src/core/assets.ts");
+  const crystal = { ...ts, imageWidth: 128, imageHeight: 128, tileAttrs: { 1: { palette: 1, vramBank: 0 } } };
+  const cext = newExtension(crystal, true);
+  check("Crystal tiles are added from slot 0xE0", cext.first === 0xe0 && cext.sheet === 256, JSON.stringify(cext));
+  check("Gold tiles are added below the sheet", newExtension(ts, true).first === first && newExtension(ts, true).sheet === undefined);
+  const lua = recipe("studio_selftest", [], [{ source: "tilesets/johto.png", out: "studio/tilesets/x.png", per: 16, first: 0xe0, tiles: ["0".repeat(64)] }]);
+  check("recipe places Crystal tiles inside the sheet", lua.includes("first = 224,") && lua.includes("local first = s.first or"));
+  const cdata = dataFile("studio_selftest", "tileset extensions", { TILESET_JOHTO: { ...cext, tiles: ["0".repeat(64)], palettes: [3], blocks: [[0xe0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], collision: [[0, 0, 0, 0]] } });
+  const cran = await runMod(new Map([[f, src], ["mods/studio_selftest/studio_tilesets.lua", cdata]]), "studio_selftest", f, null);
+  check("Gen 2 tileset helper runs a Crystal extension", cran.errors.length === 0, cran.errors.join("; "));
+}
+
+// Gold events (inline script lists): blocks -> rows -> blocks, and the
+// script tested in the game (2026-10-18) reads as the blocks it was made of
+{
+  const { compile: gcompile, parse: gparse } = await import("../src/games/gen2/events.ts");
+  const ctx = { data: project.data, maps: base, records: {} };
+  const blocks = [
+    { t: "cmd", row: ["faceplayer"] },
+    { t: "if", cond: ["checkevent", 2030], not: false, then: [{ t: "cmd", row: ["writetext", "T_AGAIN"] }], else: [
+      { t: "if", cond: ["yesorno", "T_ASK"], not: false, then: [{ t: "cmd", row: ["writetext", "T_YES"] }, { t: "cmd", row: ["verbosegiveitem", "POTION", 1] }, { t: "cmd", row: ["setevent", 2030] }], else: [{ t: "cmd", row: ["writetext", "T_NO"] }] },
+    ] },
+    { t: "cmd", row: ["pause", 10] },
+  ] as never;
+  const rows = gcompile(blocks, ctx) as unknown as Record<string, unknown>[];
+  check("Gold event opens the text box after facing the player", rows[0].op === "faceplayer" && rows[1].op === "opentext", JSON.stringify(rows.slice(0, 3)));
+  check("Gold event items are numbers", JSON.stringify(rows).includes('"op":"verbosegiveitem","item":18'), JSON.stringify(rows));
+  const back = gparse(rows as never, ctx);
+  check("Gold event blocks round-trip", deepEqual(back, blocks), JSON.stringify(back));
+  check("Gold event rows round-trip", deepEqual(gcompile(back, ctx), rows));
+  // what a Role writes is no event (people's text, nurse, shop, bookshelf)
+  const { presetOf } = await import("../src/games/gen2/events.ts");
+  check("Role scripts are presets, events are not",
+    presetOf([{ op: "jumptextfaceplayer", text: "X" }]) && presetOf([{ op: "jumpstd", std: "PokecenterNurseScript", script: "40:408a" }])
+    && presetOf([{ op: "faceplayer" }, { op: "opentext" }, { op: "pokemart", args: [0, 3, 0] }, { op: "closetext" }, { op: "end" }])
+    && !presetOf(rows as never));
+  const std = (project.data.extra as { stdScripts?: Record<string, string> }).stdScripts ?? {};
+  check("the game's std scripts are known by name", typeof std.PokecenterNurseScript === "string" && typeof std.PictureBookshelfScript === "string", JSON.stringify(std).slice(0, 120));
+  check("the game's shops are loaded", ((project.data.extra as { marts?: unknown[] }).marts ?? []).length > 20);
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");

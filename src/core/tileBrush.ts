@@ -7,7 +7,7 @@
 
 import { clone } from "./merge.ts";
 import { store } from "./store.ts";
-import { EXTENSIONS, isBaseTileset, liveTileset, sheetTiles, type TilesetExtension } from "./tilesets.ts";
+import { EXTENSIONS, foreignExtension, isBaseTileset, liveTileset, newExtension, type TilesetExtension } from "./tilesets.ts";
 import type { TilesetDef } from "./types.ts";
 
 export const MAX_BLOCKS = 256;
@@ -32,6 +32,7 @@ export function blockWithTile(mapId: string, bx: number, by: number, slot: numbe
 
   const id = map.tileset;
   const vanilla = isBaseTileset(id);
+  if (vanilla && foreignExtension(id)) return null;
   const rec = store.table("tilesets")[id] as TilesetDef;
   // the game's own blocks are never changed
   const firstOwn = vanilla ? rec.blocks.length : 0;
@@ -43,7 +44,7 @@ export function blockWithTile(mapId: string, bx: number, by: number, slot: numbe
   const quads = Array.isArray(ts.collision) ? (ts.collision as number[][]) : null;
   const write = (mutate: (blocks: number[][], collision: number[][] | null) => void): TileResult["write"] => {
     if (vanilla) {
-      const ext = clone((store.table(EXTENSIONS)[id] as TilesetExtension | undefined) ?? (quads ? { first: sheetTiles(rec), tiles: [], blocks: [], collision: [] } : { first: sheetTiles(rec), tiles: [], blocks: [], walkable: [] }));
+      const ext = clone((store.table(EXTENSIONS)[id] as TilesetExtension | undefined) ?? newExtension(rec, !!quads));
       if (quads) ext.collision ??= [];
       mutate(ext.blocks, quads ? ext.collision! : null);
       return { registry: EXTENSIONS, id, next: ext };
@@ -79,6 +80,7 @@ export function dropUnusedBlocks(id: string, used: number[]): void {
   const rec = store.table("tilesets")[id] as TilesetDef | undefined;
   if (!rec) return;
   const vanilla = isBaseTileset(id);
+  if (vanilla && foreignExtension(id)) return;
   const ext = vanilla ? (store.table(EXTENSIONS)[id] as TilesetExtension | undefined) : undefined;
   if (vanilla && !ext) return;
   const firstOwn = vanilla ? rec.blocks.length : 0;

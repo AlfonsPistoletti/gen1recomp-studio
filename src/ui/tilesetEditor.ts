@@ -12,7 +12,7 @@ import { addAsset } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
 import type { TilesetDef } from "../core/types.ts";
 import {
-  animationsOf, baseSheetUrl, canAnimate, canCopyFrom, CUT_TILES, EXTENSIONS, parseTileRef, shoreTilesOf, waterTilesOf, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
+  animationsOf, firstAddedTile, foreignExtension, foreignNote, newExtension, baseSheetUrl, canAnimate, canCopyFrom, CUT_TILES, EXTENSIONS, parseTileRef, shoreTilesOf, waterTilesOf, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
   tilesetIds, tilesetKey, tilesetUrl, type EngineAnimation, type TilesetExtension,
 } from "../core/tilesets.ts";
 import { blockAtlas, loadImage, markerIcon, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
@@ -79,7 +79,7 @@ interface Editable {
 function editable(id: string): Editable {
   const base = tilesetsTable()[id];
   if (!isBaseTileset(id)) return { own: true, firstTile: 0, firstBlock: 0 };
-  return { own: false, firstTile: sheetTiles(base), firstBlock: base.blocks.length };
+  return { own: false, firstTile: firstAddedTile(base), firstBlock: base.blocks.length };
 }
 
 function mapsUsing(id: string): string[] {
@@ -114,12 +114,16 @@ function editTileset(id: string, label: string, mutate: (t: { blocks: number[][]
 // what the engine can hold: map block ids are bytes (256 blocks), and so are
 // Gen 2's tile ids in a block
 class LimitError extends Error {}
-function checkLimits(blocks: number, tiles: number | null): void {
+// (`tiles`: the added tiles, from tile `first` on)
+function checkLimits(blocks: number, tiles: { first: number; count: number } | null): void {
   if (blocks > MAX_BLOCKS) throw new LimitError(`A tileset holds at most ${MAX_BLOCKS} blocks (block numbers are one byte); this would make ${blocks}.`);
-  if (tiles !== null && tiles > 256) throw new LimitError(`A tileset holds at most 256 tiles (tile numbers are one byte); this would make ${tiles}.`);
+  if (tiles && tiles.first + tiles.count > 256) {
+    throw new LimitError(`Tile numbers are one byte (0-255): this tileset has room for ${256 - tiles.first} added tiles; this would make ${tiles.count}.`);
+  }
 }
 
 function editTilesetChecked(id: string, label: string, mutate: (t: { blocks: number[][]; walkable: number[]; tiles?: string[]; rec?: TilesetDef; collision?: number[][]; palettes?: number[] }) => void): void {
+  if (foreignExtension(id)) throw new LimitError(foreignNote(id));
   const q = quadModel();
   if (isBaseTileset(id)) {
     const base = tilesetsTable()[id];
@@ -138,11 +142,25 @@ function editTilesetChecked(id: string, label: string, mutate: (t: { blocks: num
       d.collision.length = d.blocks.length;
       while (d.palettes.length < d.tiles.length) d.palettes.push(q.defaultSlot);
       d.palettes.length = d.tiles.length;
-      checkLimits(base.blocks.length + d.blocks.length, d.first + d.tiles.length);
-    }, { create: () => (q ? { first: sheetTiles(base), tiles: [], blocks: [], collision: [], palettes: [] } : { first: sheetTiles(base), tiles: [], blocks: [], walkable: [] }) });
+      checkLimits(base.blocks.length + d.blocks.length, { first: d.first, count: d.tiles.length });
+    }, { create: () => newExtension(base, !!q) });
     // nothing added any more (the last own block deleted): drop the record, in the same undo step
     const ext = store.table(EXTENSIONS)[id] as Record<string, unknown> | undefined;
-    if (ext && Object.entries(ext).every(([k, v]) => k === "first" || v === undefined || (Array.isArray(v) && v.length === 0))) store.follow(EXTENSIONS, id, undefined);
+    if (ext && Object.entries(ext).every(([k, v]) => k === "first" || k === "sheet" || v === undefined || (Array.isArray(v) && v.length === 0))) store.follow(EXTENSIONS, id, undefined);
+  } else if (q) {
+    // a Gen 2 tileset of the mod's own: a collision quad per block and a
+    // palette slot per tile of its sheet (no walkable list)
+    store.editRecord<TilesetDef>("tilesets", id, label, (d) => {
+      const collision = ((d.collision as number[][] | undefined) ??= []) as number[][];
+      const palettes = ((d.tilePalettes as number[] | undefined) ??= []) as number[];
+      mutate({ blocks: d.blocks, walkable: [], rec: d, collision, palettes });
+      while (collision.length < d.blocks.length) collision.push([0, 0, 0, 0]);
+      collision.length = d.blocks.length;
+      const tiles = sheetTiles(d);
+      while (palettes.length < tiles) palettes.push(q.defaultSlot);
+      palettes.length = tiles;
+      checkLimits(d.blocks.length, { first: 0, count: tiles });
+    });
   } else {
     store.editRecord<TilesetDef>("tilesets", id, label, (d) => {
       d.walkable ??= [];
@@ -504,10 +522,6 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   let animTimer: number | null = null;
 
   const newBtn = h("button", { class: "btn small", title: "A new tileset from a picture", onclick: () => void newTileset() }, "+ New");
-  store.on((reason) => {
-    // Gen 2 extends the game's tilesets only
-    if (reason === "project") newBtn.hidden = !!quadModel();
-  });
   const list = mountRecordList(left, {
     title: "Tilesets",
     head: [newBtn],
@@ -662,6 +676,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const ext = extensionOf(id);
     return h("div", { class: "card" },
       h("h4", {}, "The game's tileset"),
+      foreignExtension(id) ? h("p", { class: "hint warn" }, foreignNote(id)) : null,
       h("p", { class: "hint" }, "Your tiles and blocks are added after the game's, so every map keeps working. The game builds the combined sheet from the player's own imported one when the mod loads; the mod ships only your tiles."),
       h("p", { class: "hint" }, quadModel()
         ? "Your tiles use the 4 Game Boy shades; each takes one of the map's 8 palettes (the tile's panel). Your blocks keep a collision code per quarter (the block's panel)."
@@ -792,7 +807,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     card.append(
       h("p", { class: "hint" },
         ed.own
-          ? "Click a tile to select it, or drag over several: the panel on the right sets whether you can walk on it, and places them in the selected block. A purple corner marks an animated tile."
+          ? `Click a tile to select it, or drag over several: the panel on the right sets ${quadModel() ? "its palette" : "whether you can walk on it"}, and places them in the selected block.${quadModel() ? "" : " A purple corner marks an animated tile."}`
           : ed.firstTile < tileCount
             ? "The tiles below the blue line are your mod's; the ones above are the game's (read-only). Drag over several tiles to place them into a block at once; a purple corner marks an animated tile."
             : "These are the game's tiles (read-only). + Import tiles adds your own below them."),
@@ -1127,7 +1142,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       }
       const cutAs = multi ? undefined : (CUT_TILES[id] ?? []).find((c) => c.tile === t);
       if (cutAs) toggles.push(h("span", { class: "hint", title: "Fixed in the engine" }, `Cuttable ${cutAs.what} (with a block swap)`));
-      if (ed.own && !multi) {
+      if (ed.own && !multi && !qt) {
         toggles.push(
           listToggle("doorTiles", "Door", "Stepping onto it from below warps (with a warp on that cell)."),
           listToggle("warpTiles", "Warp tile", "Any warp on a cell with this tile triggers when stepped on (stairs, mats)."),
@@ -1185,7 +1200,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         ? h("div", { class: "row wrap" }, ...users.slice(0, 40).map((m) => h("button", { class: "btn small ghost", onclick: () => nav.openMap(m) }, m)), users.length > 40 ? h("span", { class: "hint" }, `+${users.length - 40} more`) : null)
         : h("p", { class: "hint" }, "No map uses it yet: pick it as a map's Tileset in the map properties."),
     );
-    if (!ed.own) return quadModel() ? [usedBy] : [surfCard, usedBy];
+    // Gen 2: no animation choice or surf lists (collision codes say water)
+    if (!ed.own || quadModel()) return quadModel() ? [usedBy] : [surfCard, usedBy];
     const anim = h("select", {}, ...ANIMATIONS.map((a) => h("option", { value: a, selected: (ts.animation ?? "TILEANIM_NONE") === a }, a.replace("TILEANIM_", "").replace("_", " + ").toLowerCase())));
     anim.addEventListener("change", () =>
       editTileset(id, "Tileset animation", (d) => {
@@ -1611,7 +1627,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   const importTiles = async (id: string) => {
     if (!store.project.mod) return toast("Open a mod first: imported tiles are saved into it.", "error");
     const st = await sheetState(id);
-    const res = await promptPicture("Import tiles", "Added below the sheet's tiles. Every whole 32×32 square also becomes a block.", st.trueColor);
+    const res = await promptPicture("Import tiles", "Added after the game's tiles. Every whole 32×32 square also becomes a block.", st.trueColor);
     if (!res) return;
     try {
       const img = res.img;
@@ -1658,7 +1674,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
 
   const newTileset = async () => {
     if (!store.project?.mod) return toast("Open a mod first: a new tileset is saved into it.", "error");
-    const res = await promptNewTileset(tilesetIds());
+    const q = quadModel();
+    const res = await promptNewTileset(tilesetIds(), !q);
     if (!res) return;
     try {
       const img = await loadFile(res.file);
@@ -1671,7 +1688,18 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       const path = addAsset(store.project.mod!, res.id.toLowerCase(), pngBytes(canvas));
       let blocks = blocksOf(cut, (i) => i);
       if (!blocks.length) blocks = [new Array<number>(16).fill(0)];
-      const record: TilesetDef = {
+      checkLimits(blocks.length, q ? { first: 0, count: cut.tiles.length } : null);
+      // Gen 2: every block a collision quad (floor), every tile a palette slot
+      const record: TilesetDef = q ? {
+        id: res.id,
+        image: path,
+        imageWidth: canvas.width,
+        imageHeight: canvas.height,
+        tilesPerRow: per,
+        blocks,
+        collision: blocks.map(() => [0, 0, 0, 0]),
+        tilePalettes: Array.from({ length: (canvas.width / TILE) * (canvas.height / TILE) }, () => q.defaultSlot),
+      } : {
         id: res.id,
         image: path,
         imageWidth: canvas.width,
@@ -1691,7 +1719,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         store.setRecord("tilesets", res.id, `New tileset ${res.id}`, clone(record));
       });
       store.seal();
-      toast(`${res.id}: ${cut.tiles.length} tiles, ${blocks.length} blocks. All tiles start walkable: mark the ones you can't walk on.`, "ok");
+      toast(q
+        ? `${res.id}: ${cut.tiles.length} tiles, ${blocks.length} blocks. Every block starts as floor (set walls per quarter) and every tile on the gray palette.`
+        : `${res.id}: ${cut.tiles.length} tiles, ${blocks.length} blocks. All tiles start walkable: mark the ones you can't walk on.`, "ok");
       open(res.id);
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), "error");
@@ -1726,7 +1756,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
 }
 
 // id, picture and color mode of a new tileset
-function promptNewTileset(taken: string[]): Promise<{ id: string; file: File; trueColor: boolean; optimize: boolean } | null> {
+// `colorChoice`: whether a full-color tileset can be made (Gen 1 only)
+function promptNewTileset(taken: string[], colorChoice: boolean): Promise<{ id: string; file: File; trueColor: boolean; optimize: boolean } | null> {
   return new Promise((resolve) => {
     const dialog = h("dialog", {});
     const id = h("input", { type: "text", spellcheck: false, placeholder: "MY_TILES" });
@@ -1756,7 +1787,7 @@ function promptNewTileset(taken: string[]): Promise<{ id: string; file: File; tr
       field("Id", id, "Maps name their tileset by this id; cannot be changed later."),
       field("Picture", file, "Cut into 8×8 tiles; every whole 32×32 square also becomes a block. A map drawn as one picture works straight away."),
       h("label", { class: "inline-check" }, optimize, "Optimize: store repeated tiles once and pack the sheet (smaller, but your layout isn't kept)"),
-      h("label", { class: "inline-check" }, color, "Full color (keep the picture's colors instead of the 4 Game Boy shades the map palette colors)"),
+      ...(colorChoice ? [h("label", { class: "inline-check" }, color, "Full color (keep the picture's colors instead of the 4 Game Boy shades the map palette colors)")] : []),
       h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), h("button", { class: "btn primary", onclick: create }, "Create")),
     );
     document.body.append(dialog);

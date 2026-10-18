@@ -15,8 +15,13 @@ import { extendedSheetRel, frameRel, SPINNER_TILESETS } from "../lua/tilesetRunt
 import { loadImage, TILE } from "../render/graphics.ts";
 
 export interface TilesetExtension {
-  // the first added tile's id: the vanilla sheet's tile count
+  // the first added tile's id: the vanilla sheet's tile count, or a blank
+  // slot inside the sheet (Crystal, see firstAddedTile); added tile i is
+  // `first + i` and sits at that place on the sheet
   first: number;
+  // the tile count of the sheet it was made on, when that isn't `first`
+  // (the helper skips the extension if another mod changed the sheet)
+  sheet?: number;
   // 64 digits per tile, row by row: the importer's shades, 0 white .. 3 black;
   // or "<TILESET>:<tile>", a tile of another game tileset the recipe copies
   // from the player's own sheet (no ROM pixels in the mod)
@@ -101,8 +106,51 @@ export const SHADE_GRAY = [255, 170, 85, 0];
 // what the mod adds to a game tileset (a mod tileset's studio_tilesets
 // record holds only its RED++ colors, see gbc.ts)
 export function extensionOf(id: string): TilesetExtension | undefined {
-  if (!isBaseTileset(id)) return undefined;
+  if (!isBaseTileset(id) || foreignExtension(id)) return undefined;
   return store.table(EXTENSIONS)[id] as TilesetExtension | undefined;
+}
+
+// An extension made on another sheet of this tileset: a Gen 2 mod is for Gold,
+// Silver and Crystal, whose sheets differ (96 tiles / 256 slots). The engine
+// skips it in this game (tilesetRuntime2's sheet check); the studio keeps it
+// as it is and adds nothing (one extension record per tileset id).
+export function foreignExtension(id: string): boolean {
+  const base = store.table("tilesets")[id] as TilesetDef | undefined;
+  const ext = store.table(EXTENSIONS)[id] as TilesetExtension | undefined;
+  return !!base && ext?.first !== undefined && isBaseTileset(id) && (ext.sheet ?? ext.first) !== sheetTiles(base);
+}
+
+export function foreignNote(id: string): string {
+  return `This mod already extends ${id} in another game of this generation (made on a sheet of ${(store.table(EXTENSIONS)[id] as TilesetExtension).sheet ?? (store.table(EXTENSIONS)[id] as TilesetExtension).first} tiles). A mod holds one extension per tileset, so it can't be extended in this game: open the mod in that game to change it.`;
+}
+
+// Where a game tileset's added tiles start. Crystal's sheet holds both VRAM
+// banks (256 slots, gen1recomp RomExtractorGen2 crystalTilesetSheet); bank 1's
+// font area 0xE0-0xFF is blank there and no block a map places uses it, so
+// added tiles go there (block tile ids are bytes: none past 255).
+// shortcut: 32 tiles; 0x60-0x7F is blank too, usable once added tiles may
+// sit in two runs
+export function firstAddedTile(ts: TilesetDef): number {
+  return ts.tileAttrs ? CRYSTAL_FIRST_ADDED : sheetTiles(ts);
+}
+const CRYSTAL_FIRST_ADDED = 0xe0;
+
+// a new, empty extension of game tileset `ts` (`quads`: Gen 2 collision)
+export function newExtension(ts: TilesetDef, quads: boolean): TilesetExtension {
+  const first = firstAddedTile(ts);
+  const sheet = sheetTiles(ts);
+  return {
+    first,
+    ...(sheet !== first ? { sheet } : {}),
+    tiles: [],
+    blocks: [],
+    ...(quads ? { collision: [], palettes: [] } : { walkable: [] }),
+  };
+}
+
+// the sheet's height in pixels once `ext`'s tiles are placed
+function extendedHeight(base: TilesetDef, ext: TilesetExtension): number {
+  return Math.max(Number(base.imageHeight) || 0, Math.ceil((ext.first + ext.tiles.length) / perRow(base)) * TILE);
 }
 
 // the tiles a sheet holds (whole 8x8 cells)
@@ -133,20 +181,26 @@ export function liveTileset(id: string): TilesetDef | undefined {
   if (!byExt) live.set(base, (byExt = new WeakMap()));
   let out = byExt.get(ext);
   if (!out) {
-    const rows = Math.ceil(ext.tiles.length / perRow(base));
     out = {
       ...base,
-      imageHeight: (Number(base.imageHeight) || 0) + rows * TILE,
+      imageHeight: extendedHeight(base, ext),
       blocks: [...base.blocks, ...ext.blocks],
       walkable: [...((base.walkable as number[] | undefined) ?? []), ...(ext.walkable ?? [])],
       ...(ext.water?.length ? { waterTiles: [...waterTilesOf(base), ...ext.water] } : {}),
       ...(ext.shore?.length ? { shoreTiles: [...shoreTilesOf(base), ...ext.shore] } : {}),
       // Gen 2 (per-block collision, per-tile palette slots)
       ...(Array.isArray(base.collision) ? { collision: [...(base.collision as number[][]), ...(ext.collision ?? [])] } : {}),
-      ...(ext.palettes?.length ? { tilePalettes: [...((base.tilePalettes as number[] | undefined) ?? []), ...ext.palettes] } : {}),
+      ...(ext.palettes?.length ? { tilePalettes: withAdded((base.tilePalettes as number[] | undefined) ?? [], ext.first, ext.palettes) } : {}),
     };
     byExt.set(ext, out);
   }
+  return out;
+}
+
+// `list` with `added` written from index `first` on
+function withAdded(list: number[], first: number, added: number[]): number[] {
+  const out = [...list];
+  added.forEach((v, i) => (out[first + i] = v));
   return out;
 }
 
@@ -187,6 +241,9 @@ export function sheetRecipes(): SheetRecipe[] {
       source: base.image.slice(CACHE.length),
       out: extendedSheetRel(id),
       per: perRow(base),
+      // tiles placed inside the sheet (Crystal) say where they start; read off
+      // the extension, so a save in another game writes the same recipe
+      ...(ext.sheet !== undefined ? { first: ext.first } : {}),
       tiles: (ext.tiles ?? []).map((t) => {
         const ref = parseTileRef(t);
         const src = ref && (store.baseTable("tilesets")[ref.tileset] as TilesetDef | undefined);
@@ -280,30 +337,32 @@ export function tilesetUrl(id: string): Promise<string> {
   const url = baseSheetUrl(base);
   const ext = extensionOf(id);
   if (!ext?.tiles.length) return Promise.resolve(url);
-  const key = `${url}|${perRow(base)}|${ext.tiles.join(",")}`;
+  const key = `${url}|${perRow(base)}|${ext.first}|${ext.tiles.join(",")}`;
   let p = composites.get(key);
   if (!p) {
-    p = compose(url, perRow(base), ext.tiles);
+    p = compose(url, perRow(base), ext.tiles, ext.first);
     composites.set(key, p);
   }
   return p;
 }
 
-export async function compose(url: string, per: number, tiles: string[]): Promise<string> {
+// `first`: the place of the first added tile (unset: right below the sheet)
+export async function compose(url: string, per: number, tiles: string[], first?: number): Promise<string> {
   const img = await loadImage(url);
   const width = img?.width || per * TILE;
   const top = img?.height ?? 0;
+  const at = first ?? Math.ceil(top / TILE) * per;
   const canvas = document.createElement("canvas");
   canvas.width = width;
-  canvas.height = top + Math.ceil(tiles.length / per) * TILE;
+  canvas.height = Math.max(top, Math.ceil((at + tiles.length) / per) * TILE);
   const ctx = canvas.getContext("2d")!;
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   if (img) ctx.drawImage(img, 0, 0);
   const out = ctx.createImageData(TILE, TILE);
   for (const [i, t] of tiles.entries()) {
-    const x = (i % per) * TILE;
-    const y = top + Math.floor(i / per) * TILE;
+    const x = ((at + i) % per) * TILE;
+    const y = Math.floor((at + i) / per) * TILE;
     const ref = parseTileRef(t);
     const src = ref && (store.baseTable("tilesets")[ref.tileset] as TilesetDef | undefined);
     if (ref && src) {

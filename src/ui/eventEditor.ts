@@ -25,6 +25,7 @@ import { arrows } from "../games/gen1/events.ts";
 import { followerPath, STEP } from "../core/eventBlocks.ts";
 import { mountRecordList } from "./recordList.ts";
 import { introFlags } from "./introEditor.ts";
+import { createStepInline, inlineEvents, inlineTalkers, inlineTarget, newEventText, writeInline } from "../core/inlineEvents.ts";
 
 export interface StudioEvent {
   x?: number;
@@ -33,7 +34,8 @@ export interface StudioEvent {
   rows: EventRow[];
 }
 
-export type EventKind = "talk" | "step" | "enter";
+// "after": a Gen 2 trainer's talk after its battle (inline events only)
+export type EventKind = "talk" | "step" | "enter" | "after";
 
 // the game's commands plus the ones the mod and its dependencies define
 // (studio_extensions.json, category "Mods"); their rows are { verb, params... }
@@ -59,8 +61,33 @@ function spec(): EventSpec | undefined {
 
 function events(): Record<string, StudioEvent> {
   const s = spec();
+  if (s?.inline) return inlineEvents();
   return s ? (store.table(s.registry) as Record<string, StudioEvent>) : {};
 }
+
+// rows <-> blocks in this game's script format
+const parseRows = (s: EventSpec, rows: EventRow[]): Block[] => (s.parse ? s.parse(rows, store.ctx) : parse(rows, verbs(s)));
+const compileBlocks = (s: EventSpec, blocks: Block[]): EventRow[] => (s.compile ? s.compile(blocks, store.ctx) : compile(blocks, verbs(s)));
+
+// The blocks an event was last compiled from, while its rows are still those:
+// rows can't say everything the blocks did (Gen 2: an empty Else compiles to
+// no Else), so the form keeps showing what was edited
+let lastCompiled: { id: string; rows: EventRow[]; blocks: Block[] } | null = null;
+function blocksOf(s: EventSpec, id: string, rows: EventRow[]): Block[] {
+  if (lastCompiled?.id === id && JSON.stringify(lastCompiled.rows) === JSON.stringify(rows)) return clone(lastCompiled.blocks);
+  return parseRows(s, rows);
+}
+
+// writes an event (undefined: removes it), as one undo step
+function writeEvent(s: EventSpec, id: string, label: string, ev: StudioEvent | undefined): void {
+  if (s.inline) writeInline(id, label, ev);
+  else {
+    store.setRecord(s.registry, id, label, ev);
+    store.seal();
+  }
+}
+
+const isSignLayer = (layer: string) => store.adapter.layers.find((l) => l.key === layer)?.kind === "sign";
 
 export function splitEventId(id: string): { mapId: string; kind: EventKind; key: string; game: boolean } {
   const game = id.startsWith("game:");
@@ -72,6 +99,7 @@ export const eventId = (mapId: string, kind: EventKind, key: string) => `${mapId
 
 // a talk event no NPC or sign on its map uses any more (it does nothing)
 export function orphan(id: string): boolean {
+  if (spec()?.inline) return false;
   const { mapId, kind, key, game } = splitEventId(id);
   return !game && kind === "talk" && (!store.maps[mapId] || !talker(mapId, key));
 }
@@ -82,6 +110,7 @@ function verbs(s: EventSpec): Verbs {
 
 // the NPC or sign a talk event belongs to, on its map
 function talker(mapId: string, textId: string): { layer: string; index: number; e: EntityRecord } | null {
+  if (spec()?.inline) return inlineTarget(mapId, "talk", textId);
   const map = store.maps[mapId];
   if (!map) return null;
   for (const layer of store.adapter.layers) {
@@ -98,8 +127,12 @@ export function eventTitle(id: string): string {
   if (kind === "talk") {
     const t = talker(mapId, key);
     const label = String(store.maps[mapId]?.label ?? "").toUpperCase();
-    const who = t ? (typeof t.e.name === "string" ? nice(String(t.e.name).replace(new RegExp(`^(${mapId}|${label})_`), "")) : `${t.layer === "signs" ? "Sign" : "NPC"} ${t.index + 1}`) : key.replace(/^TEXT_/, "");
+    const who = t ? (typeof t.e.name === "string" ? nice(String(t.e.name).replace(new RegExp(`^(${mapId}|${label})_`), "")) : `${isSignLayer(t.layer) ? "Sign" : "NPC"} ${isSignLayer(t.layer) ? t.index + 1 : (t.e.index ?? t.index + 1)}`) : key.replace(/^TEXT_/, "");
     return `Talk: ${who}`;
+  }
+  if (kind === "after") {
+    const t = inlineTarget(mapId, "after", key);
+    return `After battle: NPC ${t ? String(t.e.index) : key.replace(/^obj/, "")}`;
   }
   if (kind === "step") {
     const e = events()[id];
@@ -114,9 +147,17 @@ export function createEvent(mapId: string, kind: EventKind, key: string, init: P
   if (!s) return null;
   const id = eventId(mapId, kind, key);
   if (events()[id]) return id;
+  if (s.inline) {
+    // a person faces the player and says a new line (a new text key)
+    store.group("New event", () => {
+      const text = newEventText();
+      const blocks: Block[] = [...(kind === "step" || key.startsWith("sign") ? [] : [{ t: "cmd", row: ["faceplayer"] } as Block]), { t: "cmd", row: ["writetext", text] }];
+      writeInline(id, "New event", { rows: init.rows ?? compileBlocks(s, blocks) });
+    });
+    return id;
+  }
   const rows: EventRow[] = init.rows ?? (kind === "talk" ? [["face_player"], ["show_text", "..."]] : [["show_text", "..."]]);
-  store.setRecord(s.registry, id, "New event", { ...init, rows });
-  store.seal();
+  writeEvent(s, id, "New event", { ...init, rows });
   return id;
 }
 
@@ -163,7 +204,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       if (!s) return [];
       const own = Object.keys(events())
         .sort()
-        .map((id) => ({ id, label: `${orphan(id) ? "⚠ " : ""}${eventTitle(id)}`, meta: splitEventId(id).mapId, search: id, edited: true, isNew: store.baseTable(s.registry)[id] === undefined }));
+        .map((id) => ({ id, label: `${orphan(id) ? "⚠ " : ""}${eventTitle(id)}`, meta: splitEventId(id).mapId, search: id, edited: true, isNew: !s.inline && store.baseTable(s.registry)[id] === undefined }));
       const game: { id: string; label: string; meta: string; search: string; edited: boolean; folded: boolean }[] = [];
       for (const [mapId, m] of Object.entries(gameCache ?? {})) {
         for (const [text, rows] of Object.entries(m.talk)) {
@@ -190,8 +231,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       const s = spec();
       if (!s || !current || splitEventId(current).game) return;
       if (!confirm(`Delete this event (${eventTitle(current)})?`)) return;
-      store.setRecord(s.registry, current, "Delete event", undefined);
-      store.seal();
+      writeEvent(s, current, "Delete event", undefined);
       current = null;
       list.render();
       render(true);
@@ -220,7 +260,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
           start = { x: t.e.x + dx, y: t.e.y + dy, facing: back };
         }
       }
-      nav.playEvent(info.mapId, parse(rows, verbs(s)), start);
+      nav.playEvent(info.mapId, parseRows(s, rows), start);
     },
   }, "▶ Preview");
   center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, play, del)), main);
@@ -240,6 +280,8 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
 
   const render = (force = false) => {
     const s = spec();
+    // the game's own events: Gen 1 scripts of a source checkout
+    if (s?.inline) gameCache = {};
     if (s && gameCache === undefined) loadGame(() => {
       list.render();
       render(true);
@@ -259,6 +301,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
     const info = splitEventId(id);
     title.textContent = `${info.mapId} · ${eventTitle(id)}`;
     del.hidden = info.game;
+    play.hidden = !!s.inline;
     if (force) {
       clear(main);
       clear(side);
@@ -308,17 +351,31 @@ function newEventDialog(): void {
   const dialog = h("dialog", { class: "modal" });
   const mapIds = Object.keys(store.maps).sort();
   const mapSel = selectInput(store.currentMap, mapIds, () => fillWho());
-  const kindSel = selectInput("talk", ["talk", "step", "enter"], () => fillWho());
+  // Gen 2 inline events: talk and step only (no map-entry scripts)
+  const kindSel = selectInput("talk", s.inline ? ["talk", "step"] : ["talk", "step", "enter"], () => fillWho());
   kindSel.options[0].textContent = "Talking to an NPC or sign";
   kindSel.options[1].textContent = "Stepping on a cell";
-  kindSel.options[2].textContent = "Entering the map";
+  if (kindSel.options[2]) kindSel.options[2].textContent = "Entering the map";
   const who = h("div", {});
   let pickWho: () => { key: string; init: Partial<StudioEvent> } | null = () => null;
   const fillWho = () => {
     clear(who);
     const map = store.maps[mapSel.value];
     if (!map) return;
-    if (kindSel.value === "talk") {
+    if (s.inline && kindSel.value === "talk") {
+      const opts = inlineTalkers(map);
+      const sel = h("select", {}, ...opts.map((o) => h("option", { value: o.value }, o.label)));
+      who.append(field("NPC or sign", sel, opts.length ? "The event replaces what it does now (Delete event gives it back)." : "This map has no NPC or sign yet (Maps: add one first)."));
+      pickWho = () => (sel.value ? { key: sel.value, init: {} } : null);
+    } else if (s.inline) {
+      let x = 0;
+      let y = 0;
+      who.append(
+        h("div", { class: "row two" }, field("X", numberInput(0, (v) => (x = v), 0, map.width * 2 - 1)), field("Y", numberInput(0, (v) => (y = v), 0, map.height * 2 - 1))),
+        h("p", { class: "hint" }, "Cells as in the map view (two per block). A new step trigger is placed there."),
+      );
+      pickWho = () => ({ key: `at_${x}_${y}`, init: { x, y } });
+    } else if (kindSel.value === "talk") {
       const opts: { value: string; label: string }[] = [];
       for (const layer of store.adapter.layers) {
         if (layer.kind !== "npc" && layer.kind !== "sign") continue;
@@ -360,7 +417,9 @@ function newEventDialog(): void {
     onclick: () => {
       const w = pickWho();
       if (!w) return toast("Pick who or where", "error");
-      const id = createEvent(mapSel.value, kindSel.value as EventKind, w.key, w.init);
+      const id = s.inline && kindSel.value === "step"
+        ? createStepInline(mapSel.value, w.init.x ?? 0, w.init.y ?? 0, compileBlocks(s, [{ t: "cmd", row: ["writetext", newEventText()] }]))
+        : createEvent(mapSel.value, kindSel.value as EventKind, w.key, w.init);
       dialog.close();
       dialog.remove();
       if (id) nav.openEvent(id);
@@ -418,7 +477,7 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
         ),
       ),
     );
-    if (rows) out.push(h("section", { class: "card" }, h("h4", {}, "Commands"), blockList(s, info.mapId, parse(rows, verbs(s)), "", null, selected, select)));
+    if (rows) out.push(h("section", { class: "card" }, h("h4", {}, "Commands"), blockList(s, info.mapId, parseRows(s, rows), "", null, selected, select)));
     else out.push(h("p", { class: "hint" }, "This event is code in the game (often a cutscene or a special case), so it can't be shown as commands."));
     return out;
   }
@@ -427,6 +486,12 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
   if (!ev) return [h("p", { class: "hint" }, "This event no longer exists.")];
   eventCell = info.kind === "step" && typeof ev.x === "number" && typeof ev.y === "number" ? { x: ev.x, y: ev.y } : null;
   const editEv = (label: string, mutate: (d: StudioEvent) => void) => {
+    if (s.inline) {
+      const d = clone(ev);
+      mutate(d);
+      writeInline(id, label, d);
+      return;
+    }
     store.editRecord<StudioEvent>(s.registry, id, label, mutate);
     store.seal();
   };
@@ -440,7 +505,7 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
       h(
         "div",
         { class: "row" },
-        h("span", {}, t ? `The player talks to ${t.layer === "signs" ? "sign" : "NPC"} ${t.index + 1}${typeof t.e.name === "string" ? ` (${t.e.name})` : ""}` : `The player talks to whoever has the text id ${info.key}`),
+        h("span", {}, t ? `The player ${isSignLayer(t.layer) ? "reads sign" : "talks to NPC"} ${isSignLayer(t.layer) ? t.index + 1 : (t.e.index ?? t.index + 1)}${typeof t.e.name === "string" ? ` (${t.e.name})` : ""}` : `The player talks to whoever has the text id ${info.key}`),
         t ? h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(info.mapId, t.layer, t.index) }, "Show on map") : null,
       ),
       ...(t
@@ -452,15 +517,17 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
               h("span", { class: "hint warn" }, `No NPC or sign on ${info.mapId} has the text id ${info.key} any more, so this event never runs. Give one that text id again, or delete the event.`),
               h("button", {
                 class: "btn small danger",
-                onclick: () => {
-                  store.setRecord(s.registry, id, "Delete event", undefined);
-                  store.seal();
-                },
+                onclick: () => writeEvent(s, id, "Delete event", undefined),
               }, "Delete event"),
             ),
           ]),
       ...(game !== undefined ? [h("p", { class: "hint" }, `Replaces the game's own event for ${info.key}${game ? "" : " (code in the game)"}.`)] : []),
     );
+  } else if (info.kind === "after") {
+    const t = inlineTarget(info.mapId, "after", info.key);
+    trigger.append(h("div", { class: "row" },
+      h("span", {}, `The player talks to trainer NPC ${t ? String(t.e.index) : "?"} after beating it`),
+      t ? h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(info.mapId, t.layer, t.index) }, "Show on map") : null));
   } else if (info.kind === "step") {
     const once = h("input", { type: "checkbox", checked: ev.once === true });
     once.addEventListener("change", () => editEv("Only once", (d) => (once.checked ? (d.once = true) : delete d.once)));
@@ -474,7 +541,7 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
         numberInput(ev.y ?? 0, (v) => editEv("Event cell", (d) => (d.y = v)), 0, map ? map.height * 2 - 1 : 255),
         h("button", { class: "btn small ghost", onclick: () => (nav.openMap(info.mapId), setTimeout(() => store.select(null))) }, "Open map"),
       ),
-      h("label", { class: "inline-check" }, once, "Only once (remembered in the save)"),
+      ...(s.inline ? [h("p", { class: "hint" }, "Runs every time the player steps on it: check and set a flag to run it once.")] : [h("label", { class: "inline-check" }, once, "Only once (remembered in the save)")]),
     );
   } else {
     const once = h("input", { type: "checkbox", checked: ev.once === true });
@@ -484,10 +551,13 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
   out.push(trigger);
 
   // commands
-  const root = parse(ev.rows ?? [], verbs(s));
+  const root = blocksOf(s, id, ev.rows ?? []);
   currentRoot = root;
   currentMap = info.mapId;
-  const commit = (label: string) => editEv(label, (d) => (d.rows = compile(root, verbs(s))));
+  const commit = (label: string) => editEv(label, (d) => {
+    d.rows = compileBlocks(s, root);
+    lastCompiled = { id, rows: clone(d.rows), blocks: clone(root) };
+  });
   out.push(h("section", { class: "card event-card" }, h("h4", {}, "Commands"), blockList(s, info.mapId, root, "", commit, selected, select)));
   return out;
 }
@@ -517,6 +587,8 @@ function freshRow(c: EventCommand, mapId: string): EventRow {
   const args: Record<string, unknown> = {};
   for (const p of c.params) {
     if (p.default !== undefined) args[p.key] = p.default;
+    else if (p.type === "text" && spec()?.inline) args[p.key] = newEventText();
+    else if (p.type === "flagNumber") args[p.key] = store.adapter.trainers?.objectTrainer?.freeFlag(store.ctx) ?? 0;
     else if (p.type === "map") args[p.key] = mapId;
     else if (p.type === "flag") args[p.key] = `${(store.project.mod ?? "MOD").toUpperCase()}_FLAG`;
     else if (p.type === "song") args[p.key] = Object.keys(store.table("music")).sort()[0];
@@ -531,7 +603,7 @@ function shown(c: EventCommand, args: Record<string, unknown>): Record<string, u
   const out = { ...args };
   for (const p of c.params) {
     const v = out[p.key];
-    if (p.type === "text" && typeof v === "string" && /^_\w+$/.test(v)) {
+    if (p.type === "text" && typeof v === "string" && (/^_\w+$/.test(v) || spec()?.inline)) {
       const t = store.table("text")[v];
       if (typeof t === "string") out[p.key] = t.replace(/\{(DONE|PROMPT)\}/g, "");
     }
@@ -551,6 +623,7 @@ function describe(s: EventSpec, b: Block): string {
   switch (b.t) {
     case "cmd": {
       const c = findCommand(s, b.row);
+      if (!c && b.row[0] === "#raw") return `Game command: ${String((b.row[1] as { op?: unknown } | undefined)?.op ?? "?")}`;
       return c ? c.describe(shown(c, argsOf(c, b.row))) : `${String(b.row[0])} ${b.row.slice(1).map((a) => JSON.stringify(a)).join(" ")}`;
     }
     case "stop":
@@ -571,7 +644,10 @@ function describe(s: EventSpec, b: Block): string {
 // a select that inserts a new block into `list` at `at`
 function addMenu(s: EventSpec, mapId: string, list: Block[], at: number, commit: Commit, onAdded: (i: number) => void, text = "+ Add command"): HTMLElement {
   const sel = h("select", { class: "add-command" }, h("option", { value: "" }, text));
-  const flow = h("optgroup", { label: "Flow" }, h("option", { value: "#if" }, "If … (condition)"), h("option", { value: "#ifelse" }, "If … Else …"), h("option", { value: "#choice" }, "Choice (menu)"), h("option", { value: "#follow" }, "NPC leads, player follows"), h("option", { value: "#stop" }, "Stop the event"));
+  const flow = h("optgroup", { label: "Flow" }, h("option", { value: "#if" }, "If … (condition)"), h("option", { value: "#ifelse" }, "If … Else …"),
+    // Gen 2 inline events: no menu with more than YES/NO, no follow
+    ...(s.inline ? [] : [h("option", { value: "#choice" }, "Choice (menu)"), h("option", { value: "#follow" }, "NPC leads, player follows")]),
+    h("option", { value: "#stop" }, "Stop the event"));
   sel.append(flow);
   for (const cat of s.categories) {
     if (cat === "Conditions") continue;
@@ -834,6 +910,13 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
     let input: HTMLElement;
     switch (p.type) {
       case "text": {
+        // Gen 2: always a text key (writetext takes no literal line)
+        if (spec()?.inline && typeof value === "string") {
+          input = typeof store.table("text")[value] === "string"
+            ? h("div", {}, textEditor(value, { rows: 3, compact: true, label: value }), h("div", { class: "row" }, h("button", { class: "btn small ghost", onclick: () => nav.openText(value) }, "Open in Text →")))
+            : h("p", { class: "hint warn" }, `Unknown text key ${value}`);
+          break;
+        }
         // a text key: edit the text itself, like the Text workspace does
         if (!ro && typeof value === "string" && /^_\w+$/.test(value) && typeof store.table("text")[value] === "string") {
           input = h(
@@ -867,6 +950,14 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "number":
         input = numberInput(Number(value ?? p.default ?? 0), (v) => set(Math.max(p.min ?? -1e9, Math.min(p.max ?? 1e9, v))), p.min, p.max);
         break;
+      case "flagNumber": {
+        // Gen 2 event flags are numbers; a free one is past every flag the game uses
+        const free = () => store.adapter.trainers?.objectTrainer?.freeFlag(store.ctx) ?? null;
+        input = h("div", { class: "row nowrap" },
+          numberInput(Number(value ?? 0), (v) => set(Math.max(0, Math.min(2047, v))), 0, 2047),
+          h("button", { class: "btn small ghost", disabled: ro, title: "A flag no game event and no other studio event uses", onclick: () => { const f = free(); if (f !== null) set(f); } }, "A free flag"));
+        break;
+      }
       case "ext":
         input = p.ext ? extFieldInput(p.ext, value ?? p.default, set) : h("span", {});
         break;
@@ -1140,7 +1231,7 @@ function helpPanel(s: EventSpec, id: string, selected: string | null): HTMLEleme
   const info = splitEventId(id);
   const rows = info.game ? gameTalkEvent(info.mapId, info.key) || [] : events()[id]?.rows ?? [];
   // paths look like 2.t.0 (then), 2.e.1 (else), 3.b1.0 (choice branch 2)
-  let list = parse(rows, verbs(s));
+  let list = info.game ? parseRows(s, rows) : blocksOf(s, id, rows);
   let b: Block | undefined;
   for (const part of selected.split(".")) {
     if (/^\d+$/.test(part)) b = list[Number(part)];

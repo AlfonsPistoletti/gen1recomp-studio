@@ -510,12 +510,20 @@ export async function wireUp(host: Host, modId: string): Promise<string | null> 
   return null;
 }
 
+// what a process printed; a failed run that printed nothing never got to
+// start (Windows 0xC0000142: the process couldn't initialize)
+export function processText(r: ProcessResult): string {
+  const text = r.output.trim();
+  if (text || r.code === 0) return text;
+  return `(no output: it exited with code ${r.code} (0x${(r.code >>> 0).toString(16).toUpperCase()}) before it could run. Python didn't start: restart the studio and try again.)`;
+}
+
 export async function validateMod(host: Host, modId: string): Promise<{ ok: boolean; output: string }> {
   checkId(modId);
   const validate: ProcessResult = await host.modkit(["validate", modId, "--strict"]);
   const lint: ProcessResult = await host.modkit(["lint", modId]);
   return {
     ok: validate.code === 0 && lint.code === 0,
-    output: `$ modkit validate ${modId} --strict\n${validate.output.trim()}\n\n$ modkit lint ${modId}\n${lint.output.trim()}`,
+    output: `$ modkit validate ${modId} --strict\n${processText(validate)}\n\n$ modkit lint ${modId}\n${processText(lint)}`,
   };
 }

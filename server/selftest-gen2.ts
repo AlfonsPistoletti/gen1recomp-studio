@@ -299,6 +299,59 @@ for (const [registry, records] of Object.entries(edited)) {
   check("Berry is held by trainers and wild Pokémon", berry.some((l) => l.startsWith("Held: ")) && berry.some((l) => l.startsWith("Wild ")), berry.slice(0, 8).join("; "));
 }
 
+// a new species: registered whole, with its icon row and colors, and the
+// helper that gives it a Pokédex entry
+{
+  const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
+  const mon: Rec = { ...(clone(content.pokemon.RATTATA) as Rec), id: "STUDIO_MON", name: "MOUSEY", dex: 252 };
+  delete mon.index;
+  delete mon.source;
+  const extras = adapter.pokemon!.speciesExtras!("RATTATA", "STUDIO_MON", ctx);
+  check("new species takes its source's icon and colors", extras.some((x) => x.registry === "icons" && x.value === content.icons.RATTATA) && extras.some((x) => x.registry === "palettes" && !!(x.value as Rec).STUDIO_MON), JSON.stringify(extras.map((x) => x.registry)));
+  const edits: Record<string, Rec> = { pokemon: { STUDIO_MON: mon } };
+  for (const x of extras) edits[x.registry] = { ...(edits[x.registry] ?? {}), [x.id]: x.value };
+  const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, ...edits });
+  const helper = adapter.saveHelpers!(edits, content as Record<string, Record<string, unknown>>);
+  check("Pokédex helper written for a new species", helper.includes("game.ready") && !helper.includes("`"));
+  check("no Pokédex helper without one", adapter.saveHelpers!({ pokemon: { RATTATA: content.pokemon.RATTATA as Rec } }, content as Record<string, Record<string, unknown>>) === "");
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter), helper);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, src]]), "studio_selftest", f, null);
+  check("new species file runs", ran.errors.length === 0, ran.errors.join("; "));
+  check("new species registered, colors patched", src.includes('pokemon:register("STUDIO_MON"') && /palettes:patch\("pokemon", \{\s+STUDIO_MON = /.test(src) && src.includes('icons:register("STUDIO_MON"'));
+  const dropped = adapter.pokemon!.dropExtras!("STUDIO_MON", { ...ctx, records: { ...ctx.records, ...edits } });
+  check("deleting it drops its icon row and colors", dropped.some((x) => x.registry === "icons" && x.value === undefined) && dropped.some((x) => x.registry === "palettes" && !("STUDIO_MON" in (x.value as Rec))));
+}
+
+// start values: the helper wraps save.new_game and moves the home spawn
+{
+  const { startRegistration2 } = await import("../src/lua/startRuntime2.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const code = startRegistration2("studio_selftest", "studio_start.lua");
+  check("start helper has no backticks", !code.includes("`"));
+  const data = dataFile("studio_selftest", "start values", { start: { map: "NEW_BARK_TOWN", x: 6, y: 4, money: 12345 } }, ["map", "x", "y", "money"]);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, code)], ["mods/studio_selftest/studio_start.lua", data]]), "studio_selftest", f, null);
+  check("start helper runs", ran.errors.length === 0, ran.errors.join("; "));
+}
+
+// starters: the three balls are found in Elm's lab scripts, with the question
+// before their yes/no; the helper loads
+{
+  const { STARTER_RUNTIME2, starterRegistration2 } = await import("../src/lua/starterRuntime2.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
+  const balls = adapter.globals!.starters!.balls(ctx);
+  const ids = balls.map((b) => b.ball).sort().join(",");
+  check("the three starter balls", ids === "CHIKORITA,CYNDAQUIL,TOTODILE" && balls.every((b) => typeof content.text[b.ask] === "string" && b.level === 5), JSON.stringify(balls));
+  const code = STARTER_RUNTIME2 + "\n" + starterRegistration2("studio_selftest", "studio_starters.lua");
+  check("starter helper has no backticks", !code.includes("`"));
+  const data = dataFile("studio_selftest", "starter Pokémon", { CYNDAQUIL: { species: "PIKACHU", level: 7 } }, ["species", "level"]);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, code)], ["mods/studio_selftest/studio_starters.lua", data]]), "studio_selftest", f, null);
+  check("starter helper runs", ran.errors.length === 0, ran.errors.join("; "));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);
 

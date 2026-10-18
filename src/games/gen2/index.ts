@@ -14,6 +14,9 @@ import { gen2EffectTemplate, gen2EffectText, GEN2_STATS, GEN2_STATUSES } from ".
 import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
 import { effectRegistration } from "../../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME2, itemEffectRegistration2 } from "../../lua/itemEffectRuntime2.ts";
+import { DEX_RUNTIME2 } from "../../lua/dexRuntime2.ts";
+import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
+import { STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
 import { GEN2_EXP_STATS, GEN2_ITEM_STATUSES, gen2ItemTemplate, gen2ItemText, gen2PicksMove, gen2SpecialItem } from "./items.ts";
 import { playtestMain2 } from "../../lua/playRuntime.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
@@ -110,7 +113,8 @@ const content: ContentSpec[] = [
   { registry: "rom_text", file: "rom_text.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([, v]) => typeof v === "string")) },
   // palettes.lua subtables are the registry's ids (trainers, pokemon, ...);
   // the studio edits trainers (a new class's portrait colors)
-  { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => k === "trainers" && !!v && typeof v === "object")) },
+  // trainers[class] / pokemon[species] colors: a copied class or species takes its source's
+  { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => (k === "trainers" || k === "pokemon") && !!v && typeof v === "object")) },
   // sprites (filled from Dataset.sprites in load): the game's art is replaced
   // by patching `image`, the mod's own are registered whole
   { registry: "sprites", editable: true, build: () => ({}), fieldOrder: ["id", "image", "frames", "walker", "spriteType", "palette", "paletteId", "trueColor"] },
@@ -119,6 +123,17 @@ const content: ContentSpec[] = [
   {
     registry: "studio_effects", editable: true, build: () => ({}), studioFile: "studio_effects.lua",
     generator: { what: "custom move effects", order: ["kind", "canMiss", "steps"], runtime: EFFECT_RUNTIME2, registration: effectRegistration, writes: ["move_effects"] },
+  },
+  // start values: Gold has no data for them (Save.newGame money 3000,
+  // landmarks.lua spawns.SPAWN_HOME = PLAYERS_HOUSE_2F 3, 3 in all three games)
+  {
+    registry: "studio_start", editable: true, build: () => ({ start: { map: "PLAYERS_HOUSE_2F", x: 3, y: 3, money: 3000 } }), studioFile: "studio_start.lua",
+    generator: { what: "start values", order: ["map", "x", "y", "money"], runtime: START_RUNTIME2, registration: startRegistration2, writes: [] },
+  },
+  // starter balls: the game's ball species -> { species, level }
+  {
+    registry: "studio_starters", editable: true, build: () => ({}), studioFile: "studio_starters.lua",
+    generator: { what: "starter Pokémon", order: ["species", "level"], runtime: STARTER_RUNTIME2, registration: starterRegistration2, writes: [] },
   },
   // custom item effects, keyed by the item they belong to (Gold's
   // item_effects are), registered by the generated helper
@@ -309,7 +324,9 @@ const pokemon: PokemonSpec = {
   battleScale: { front: 1, back: 1, choices: [1, 1.5, 2] },
   // palettes.lua pokemon[id].normal: the two middle colors between white and black
   monColors: (ctx, id) => {
-    const pair = (palettes(ctx) as { pokemon?: Record<string, { normal?: [number, number, number][] }> }).pokemon?.[id]?.normal;
+    // the live record first: a new species' colors are only there
+    type MonPal = Record<string, { normal?: [number, number, number][] }>;
+    const pair = ((recordsOf(ctx, "palettes").pokemon as MonPal | undefined)?.[id] ?? (palettes(ctx) as { pokemon?: MonPal }).pokemon?.[id])?.normal;
     return pair?.length === 2 ? [[255, 255, 255], pair[0], pair[1], [0, 0, 0]].map((c) => [c[0], c[1], c[2]] as Rgb) : null;
   },
   // menu icons are the icons registry: species -> ICON_* sheet name
@@ -325,7 +342,26 @@ const pokemon: PokemonSpec = {
       return typeof name === "string" ? { name } : {};
     },
   },
-  without: ["newSpecies"],
+  // a copy keeps its source's menu icon (icons[species] = sheet name) and colors
+  speciesExtras: (sourceId, newId, ctx) => {
+    const out: { registry: string; id: string; value: unknown }[] = [];
+    const icon = ctx.records.icons?.[sourceId];
+    if (typeof icon === "string") out.push({ registry: "icons", id: newId, value: icon });
+    const table = recordsOf(ctx, "palettes").pokemon as Record<string, unknown> | undefined;
+    if (table?.[sourceId]) out.push({ registry: "palettes", id: "pokemon", value: { ...table, [newId]: structuredClone(table[sourceId]) } });
+    return out;
+  },
+  dropExtras: (id, ctx) => {
+    const out: { registry: string; id: string; value: unknown }[] = [];
+    if (ctx.records.icons?.[id] !== undefined) out.push({ registry: "icons", id, value: undefined });
+    const table = recordsOf(ctx, "palettes").pokemon as Record<string, unknown> | undefined;
+    if (table?.[id]) {
+      const rest = { ...table };
+      delete rest[id];
+      out.push({ registry: "palettes", id: "pokemon", value: rest });
+    }
+    return out;
+  },
   // gen1recomp PokedexText.apply copies pokemon.dexEntry onto pokedex.lua's entry
   dexInline: { lines: 3, lineMax: 18 },
   // pokedex.lua newOrder: the Pokédex's New (Johto) mode
@@ -645,11 +681,36 @@ const globals: GlobalsSpec = {
   sections: [
     { id: "fishing", group: "Wild Pokémon", label: "Fishing groups", hint: "What bites on each rod. Maps with the same water share a group; a map picks its group in its Encounters tab." },
     { id: "treesets", group: "Wild Pokémon", label: "Headbutt & Rock Smash sets", hint: "What falls out of trees and rocks. Many maps share a set; a map picks its sets in its Encounters tab." },
+    { id: "start", group: "New game", label: "Start values", hint: "Where a new game starts and the money the player has." },
+    { id: "starters", group: "New game", label: "Starter Pokémon", hint: "What the three balls in Elm's lab give, at which level." },
     { id: "types", group: "Game", label: "Type chart", hint: "Type effectiveness, and which types are physical or special (Gold decides by type, like Red)." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],
   numbers: [],
   defaults: {},
+  starters: {
+    // the ELMS_LAB objects whose script gives a Pokémon (givepoke), read from
+    // the game's own rows: the species number, the question before yesorno
+    balls: (ctx) => {
+      const mons = recordsOf(ctx, "pokemon");
+      const byNumber = (n: unknown) => Object.keys(mons).find((id) => mons[id].index === n);
+      const out: { ball: string; ask: string; level: number }[] = [];
+      for (const o of asList(ctx.maps.ELMS_LAB?.objects) as { scriptKey?: unknown }[]) {
+        const rows = typeof o.scriptKey === "string" ? (scriptRows[o.scriptKey] as Record<string, unknown>[] | undefined) : undefined;
+        const give = rows?.find((r) => r.op === "givepoke");
+        const ask = rows?.[rows.findIndex((r) => r.op === "yesorno") - 1]?.text;
+        const ball = give && byNumber(give.species);
+        if (ball && typeof ask === "string" && !out.some((b) => b.ball === ball)) out.push({ ball, ask, level: Number(give.level ?? 5) });
+      }
+      return out;
+    },
+    question: (name, type) => `ELM: Do you want\n${name}, the\v${type.toLowerCase()} POKéMON?{DONE}`,
+    rivals: [{ id: "RIVAL1", label: "Rival (early)" }, { id: "RIVAL2", label: "Rival (later)" }],
+    // the World gives a mon by its number (givepoke): a new species has none
+    canGive: (r) => typeof r.index === "number",
+    note: "He steals the ball strong against yours, but his teams are trainer data: change the rival's teams to match.",
+  },
+  start: { registry: "studio_start", id: "start", maxMoney: 999999, note: "The game starts in the bedroom upstairs (PLAYERS_HOUSE_2F 3, 3). The same cell is where the player wakes up after blacking out before visiting a Pokémon Center. The player faces the way the game's start does." },
   typeChart: {
     registry: "type_chart",
     multipliers: [
@@ -732,6 +793,8 @@ export const gen2: GameAdapter = {
   },
   // Game2:continueGame on the picked cell (src/lua/playRuntime.ts)
   playtestMain: playtestMain2,
+  // new species: their Pokédex entries (the #DEX lists only pokedex.lua's, ISSUES #11)
+  saveHelpers: (edited, bases) => (Object.keys(edited.pokemon ?? {}).some((id) => edited.pokemon[id] && !bases.pokemon?.[id]) ? DEX_RUNTIME2 : ""),
 
   async load(read): Promise<Dataset> {
     gen2.viewOnly = undefined;

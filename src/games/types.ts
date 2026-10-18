@@ -421,6 +421,19 @@ export interface GlobalsSpec {
   // type effectiveness rows ("ATK>DEF" -> { multiplier } x10) and type
   // records ({ category }) in one registry
   typeChart?: { registry: string; multipliers: { value: number; label: string }[]; categories?: string[] };
+  // Gen 2's start values: one record { map, x, y, money } (no facing, the
+  // blackout point is the same cell); `note` says what the cell also is
+  start?: { registry: string; id: string; maxMoney: number; note: string };
+  // Gen 2's starter balls (Gen 1's are restated in the UI): each ball's game
+  // species, its question text key and level; the question for a new species;
+  // the rival classes to open; which species a script can give
+  starters?: {
+    balls(ctx: GameContext): { ball: string; ask: string; level: number }[];
+    question(name: string, typeName: string): string;
+    rivals: { id: string; label: string }[];
+    canGive(rec: Record<string, unknown>): boolean;
+    note: string;
+  };
 }
 
 // ------------------------------------------------------------------ pokemon
@@ -462,6 +475,11 @@ export interface PokemonSpec {
   dexInline?: { lines: number; lineMax: number };
   // what this generation can't edit yet
   without?: ("newSpecies" | "dexEntry" | "cry" | "iconImport")[];
+  // records of other registries a copied species takes along (Gen 2: its
+  // menu icon row and its colors), as whole new values
+  speciesExtras?(sourceId: string, newId: string, ctx: GameContext): { registry: string; id: string; value: unknown }[];
+  // the same records without a deleted species (value undefined = remove)
+  dropExtras?(id: string, ctx: GameContext): { registry: string; id: string; value: unknown }[];
   // TM/HM moves in machine order, labelled "TM01 MEGA_PUNCH"
   machines(ctx: GameContext): { move: string; label: string }[];
   moveNames(ctx: GameContext): string[];
@@ -761,6 +779,9 @@ export interface GameAdapter {
   // the Play-from-here helper's main.lua for this generation (unset: Gen 1's,
   // src/lua/playRuntime.ts playtestMain)
   playtestMain?(t: { map: string; x: number; y: number }): string;
+  // fixed Lua the save writes into studio_content.lua for the mod's edits
+  // (Gen 2: Pokédex entries for new species); "" = none
+  saveHelpers?(edited: Record<string, Record<string, unknown>>, bases: Record<string, Record<string, unknown>>): string;
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;

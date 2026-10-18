@@ -10,6 +10,9 @@ import type { Rgb } from "../../render/color.ts";
 import { MONO } from "../../render/color.ts";
 import { TILESET_RUNTIME2, tilesetRegistration2 } from "../../lua/tilesetRuntime2.ts";
 import { GEN2_EVENTS } from "./events.ts";
+import { gen2EffectTemplate, gen2EffectText, GEN2_STATS, GEN2_STATUSES } from "./moveEffects.ts";
+import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
+import { effectRegistration } from "../../lua/effectRuntime.ts";
 import { playtestMain2 } from "../../lua/playRuntime.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalsSpec, ItemSpec, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
@@ -109,6 +112,12 @@ const content: ContentSpec[] = [
   // sprites (filled from Dataset.sprites in load): the game's art is replaced
   // by patching `image`, the mod's own are registered whole
   { registry: "sprites", editable: true, build: () => ({}), fieldOrder: ["id", "image", "frames", "walker", "spriteType", "palette", "paletteId", "trueColor"] },
+  // custom move effects: plain data in studio_effects.lua, registered as
+  // move_effects records by the generated helper (Gold's shapes)
+  {
+    registry: "studio_effects", editable: true, build: () => ({}), studioFile: "studio_effects.lua",
+    generator: { what: "custom move effects", order: ["kind", "canMiss", "steps"], runtime: EFFECT_RUNTIME2, registration: effectRegistration, writes: ["move_effects"] },
+  },
   // tilesets (filled from Dataset.tilesets in load): the mod's own are
   // registered whole (sheet in assets/studio, a collision quad per block, a
   // palette slot per tile); the game's are only extended, through studio_tilesets
@@ -316,7 +325,10 @@ const moves: MoveSpec = {
   nameMax: 12,
   maxPp: 40,
   // EFFECT_* of the game's moves (behaviour lives in the engine)
-  effects: (ctx) => [...new Set(Object.values(recordsOf(ctx, "moves")).map((m) => m.effect).filter((e): e is string => typeof e === "string"))].sort(),
+  effects: (ctx) => [...new Set([
+    ...Object.values(recordsOf(ctx, "moves")).map((m) => m.effect).filter((e): e is string => typeof e === "string"),
+    ...Object.keys(recordsOf(ctx, "studio_effects")),
+  ])].sort(),
   categories: [],
   battleDetails: false,
   effectChance: true,
@@ -324,6 +336,15 @@ const moves: MoveSpec = {
   // gen1recomp Battle.lua reads accuracyRaw / effectChanceRaw first
   rawBytes: { accuracy: "accuracyRaw", effectChance: "effectChanceRaw" },
   newMoves: false,
+  // studio_effects.lua -> src/lua/effectRuntime2.ts (Gold's record shapes)
+  custom: {
+    registry: "studio_effects",
+    stats: GEN2_STATS,
+    statuses: GEN2_STATUSES,
+    describe: gen2EffectText,
+    template: gen2EffectTemplate,
+    secondaryOnly: true,
+  },
 };
 
 // ------------------------------------------------------------------ items

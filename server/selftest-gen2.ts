@@ -269,6 +269,16 @@ for (const [registry, records] of Object.entries(edited)) {
   check("the game's shops are loaded", ((project.data.extra as { marts?: unknown[] }).marts ?? []).length > 20);
 }
 
+// custom move effects: Gold's helper is plain Lua, and the game's stat and
+// status effects start from their blocks
+{
+  const { EFFECT_RUNTIME2 } = await import("../src/lua/effectRuntime2.ts");
+  const { gen2EffectTemplate } = await import("../src/games/gen2/moveEffects.ts");
+  check("Gen 2 effect helper has no backticks", !EFFECT_RUNTIME2.includes("`"));
+  const growl = gen2EffectTemplate("EFFECT_ATTACK_DOWN");
+  check("Growl's effect has a template", growl?.kind === "status" && growl.steps[0]?.stat === "attack" && growl.steps[0]?.delta === -1, JSON.stringify(growl));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);
 

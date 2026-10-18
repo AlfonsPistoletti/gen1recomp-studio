@@ -393,7 +393,16 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
       edit(id, "Move effect", (d) => (d.effect = v));
       dropUnusedEffects();
     }));
-  for (const o of sel.options) if (o.value) o.title = custom?.describe(o.value) || (specs[o.value] ? "Custom effect" : "");
+  // each option says what the effect does, faint on the right (a customizable
+  // select, styles.css .effect-select; the closed box shows the name only)
+  const hintOf = (e: string) => custom?.describe(e) || (specs[e] && custom ? describeEffect(specs[e], custom.statuses) : "");
+  sel.classList.add("effect-select");
+  sel.prepend(h("button", {}, document.createElement("selectedcontent")));
+  for (const o of sel.options) {
+    const hint = o.value ? hintOf(o.value) : "";
+    o.title = hint;
+    if (hint) o.append(h("span", { class: "effect-hint" }, hint));
+  }
   const card = h("section", { class: "card" }, h("h4", {}, "Effect"), field("Effect", sel));
   if (s.effectChance) {
     card.append(
@@ -448,8 +457,12 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
     return h("label", { class: "ai-layer" }, box, h("span", {}, h("strong", {}, label), h("span", { class: "hint" }, hint)));
   };
 
+  // Gen 2: a damaging effect is one status, rolled with the move's effect chance
+  const onlyStatus = !!custom.secondaryOnly && spec.kind === "damaging";
   const options: HTMLElement[] = [];
-  if (spec.kind === "status") {
+  if (onlyStatus) {
+    options.push(h("p", { class: "hint" }, "In this game a damaging move's own effect can add one status (or confusion) after the hit, rolled with the move's Effect chance above. Hits, fixed damage, recoil, drain and stat changes on a hit are fixed in the game's code."));
+  } else if (spec.kind === "status") {
     options.push(check("Can miss", spec.canMiss !== false, (d, v) => (v ? delete d.canMiss : (d.canMiss = false)), "Rolls the move's accuracy when it targets the foe."));
   } else {
     const hits = h("select", {}, ...["1", "2", "3", "4", "5", "2-5"].map((v) => h("option", { value: v, selected: String(spec.hits ?? 1) === v }, v === "1" ? "Once" : v === "2-5" ? "2 to 5 times" : `${v} times`)));
@@ -467,13 +480,15 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
     );
   }
 
-  const acts: { id: EffectStep["act"]; label: string }[] = [
-    { id: "stage", label: "Stat change" },
-    { id: "status", label: "Status" },
-    { id: "confuse", label: "Confuse" },
-    ...(spec.kind === "damaging" ? [{ id: "flinch" as const, label: "Flinch" }] : []),
-    { id: "heal", label: "Heal" },
-  ];
+  const acts: { id: EffectStep["act"]; label: string }[] = onlyStatus
+    ? [{ id: "status", label: "Status" }, { id: "confuse", label: "Confuse" }]
+    : [
+        { id: "stage", label: "Stat change" },
+        { id: "status", label: "Status" },
+        { id: "confuse", label: "Confuse" },
+        ...(spec.kind === "damaging" ? [{ id: "flinch" as const, label: "Flinch" }] : []),
+        { id: "heal", label: "Heal" },
+      ];
   const editStep = (i: number, label: string, mutate: (st: EffectStep) => void) =>
     editSpec(label, (d) => {
       d.steps = d.steps.map((x, j) => (j === i ? { ...x } : x));
@@ -490,7 +505,7 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
     act.addEventListener("change", () => editStep(i, "Step action", (x) => {
       const keep = { act: act.value as EffectStep["act"], ...(x.chance ? { chance: x.chance } : {}) };
       for (const k of Object.keys(x)) delete (x as unknown as Record<string, unknown>)[k];
-      Object.assign(x, keep, defaults(keep.act, spec.kind));
+      Object.assign(x, keep, defaults(keep.act, spec.kind, custom.statuses));
     }));
     const who = st.act === "flinch" ? h("span", { class: "muted" }, "target") : selectInput(st.who ?? "target", ["target", "user"], (v) => editStep(i, "Step target", (x) => (x.who = v as "user" | "target")));
     const value: HTMLElement[] = [];
@@ -509,7 +524,8 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
     return h(
       "div",
       { class: "step-row" },
-      h("span", { class: "step-chance" }, chance, h("span", { class: "muted" }, "%")),
+      // Gen 2 damaging: the move's Effect chance is the roll
+      onlyStatus ? h("span", { class: "step-chance muted" }, "chance") : h("span", { class: "step-chance" }, chance, h("span", { class: "muted" }, "%")),
       act,
       who,
       h("div", { class: "row nowrap" }, ...value),
@@ -526,7 +542,8 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
     h(
       "div",
       { class: "row" },
-      h("button", { class: "btn small", onclick: () => editSpec("Add step", (d) => (d.steps = [...d.steps, { act: "stage", ...defaults("stage", spec.kind) }])) }, "+ Step"),
+      // Gen 2 damaging: one status only
+      onlyStatus && spec.steps.length >= 1 ? null : h("button", { class: "btn small", onclick: () => editSpec("Add step", (d) => (d.steps = [...d.steps, onlyStatus ? { act: "status", who: "target", status: custom.statuses[0].id } : { act: "stage", ...defaults("stage", spec.kind, custom.statuses) }])) }, "+ Step"),
       users.length > 1 ? h("span", { class: "hint" }, `Shared by ${users.length} moves: ${users.join(", ")}.`) : null,
     ),
   );
@@ -535,13 +552,14 @@ function effectCard(s: MoveSpec, id: string, r: Rec): HTMLElement {
 }
 
 // sensible values for a new step of an action
-function defaults(act: EffectStep["act"], kind: EffectSpec["kind"]): Partial<EffectStep> {
+// (`statuses`: the game's; paralysis when it has one by that id, else the first)
+function defaults(act: EffectStep["act"], kind: EffectSpec["kind"], statuses: { id: string }[]): Partial<EffectStep> {
   const side = kind === "damaging";
   switch (act) {
     case "stage":
       return side ? { who: "target", stat: "defense", delta: -1, chance: 85 } : { who: "target", stat: "attack", delta: -1 };
     case "status":
-      return { who: "target", status: "PAR", ...(side ? { chance: 77 } : {}) };
+      return { who: "target", status: statuses.some((x) => x.id === "PAR") ? "PAR" : statuses[0]?.id, ...(side ? { chance: 77 } : {}) };
     case "confuse":
       return { who: "target", ...(side ? { chance: 26 } : {}) };
     case "flinch":

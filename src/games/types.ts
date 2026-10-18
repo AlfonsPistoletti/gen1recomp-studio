@@ -125,6 +125,9 @@ export interface MoveSpec {
     // what a vanilla effect does, and its blocks when it is one
     describe(effect: string): string;
     template(effect: string): EffectSpec | null;
+    // Gen 2: a damaging move's custom effect can only add one status (rolled
+    // with the move's effect chance): no hits / damage / recoil / drain / flinch
+    secondaryOnly?: boolean;
   };
 }
 

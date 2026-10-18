@@ -999,3 +999,16 @@ dialog.modal { min-width: 420px; }
 /* "+ Import tiles": the picture in the shades it gets */
 .import-preview { display: flex; justify-content: center; margin: 8px 0; max-height: 320px; overflow: auto; }
 .import-canvas { image-rendering: pixelated; }
+
+/* the move effect list: each option's name, and what it does faint on the
+   right (a customizable select; the closed box shows the name only) */
+.effect-select, .effect-select::picker(select) { appearance: base-select; }
+/* short enough to open below the field (it flips above only without room) */
+.effect-select::picker(select) { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; max-height: 320px; }
+.effect-select { align-items: center; }
+.effect-select > button { display: flex; align-items: center; }
+.effect-select option { display: flex; gap: 16px; padding: 3px 10px; }
+.effect-select option:checked { font-weight: 600; }
+.effect-select option::checkmark { display: none; }
+.effect-hint { margin-left: auto; padding-left: 16px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.effect-select selectedcontent .effect-hint { display: none; }

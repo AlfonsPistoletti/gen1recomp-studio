@@ -329,7 +329,7 @@ for (const [registry, records] of Object.entries(edited)) {
   const { dataFile } = await import("../src/lua/writer.ts");
   const code = startRegistration2("studio_selftest", "studio_start.lua");
   check("start helper has no backticks", !code.includes("`"));
-  const data = dataFile("studio_selftest", "start values", { start: { map: "NEW_BARK_TOWN", x: 6, y: 4, money: 12345 } }, ["map", "x", "y", "money"]);
+  const data = dataFile("studio_selftest", "start values", { start: { map: "NEW_BARK_TOWN", x: 6, y: 4, money: 12345 }, names: { player: ["ETHAN", "HIRO", "TAYLOR", "KARL"] } }, ["map", "x", "y", "money", "player"]);
   const f = "mods/studio_selftest/studio_content.lua";
   const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, code)], ["mods/studio_selftest/studio_start.lua", data]]), "studio_selftest", f, null);
   check("start helper runs", ran.errors.length === 0, ran.errors.join("; "));

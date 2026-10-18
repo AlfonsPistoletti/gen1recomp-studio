@@ -423,7 +423,7 @@ export interface GlobalsSpec {
   typeChart?: { registry: string; multipliers: { value: number; label: string }[]; categories?: string[] };
   // Gen 2's start values: one record { map, x, y, money } (no facing, the
   // blackout point is the same cell); `note` says what the cell also is
-  start?: { registry: string; id: string; maxMoney: number; note: string };
+  start?: { registry: string; id: string; maxMoney: number; note: string; names?: { id: string; max: number; note: string } };
   // Gen 2's starter balls (Gen 1's are restated in the UI): each ball's game
   // species, its question text key and level; the question for a new species;
   // the rival classes to open; which species a script can give

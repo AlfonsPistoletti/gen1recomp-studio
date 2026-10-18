@@ -89,7 +89,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (registry === INTRO || (registry === "field" && id === "oakSpeech")) return "intro";
   if (registry === "field" && id === "fishing") return "wild";
   if (registry === "field" && id === "boot") return "names";
-  if (s.start && registry === s.start.registry && id === s.start.id) return "start";
+  if (s.start && registry === s.start.registry && (id === s.start.id || id === s.start.names?.id)) return "start";
   if (registry === "field" && id === SLOTS_ID) return "slots";
   if ((registry === MUSIC || registry === SFX) && s.sections.some((x) => x.id === "sounds")) return "sounds";
   const odds = store.adapter.encounters?.sharedOdds;
@@ -123,7 +123,7 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (section === "intro") return "Oak's speech";
   if (registry === "field" && id === "fishing") return "Old Rod and Good Rod";
   if (registry === "field" && id === "boot") return "New game start";
-  if (section === "start") return "New game start";
+  if (section === "start") return id === s.start?.names?.id ? "Player names" : "New game start";
   if (registry === "field" && id === SLOTS_ID) return "Slot machine wheels";
   if (registry === MUSIC) return `Song: ${songLabel(id)}`;
   if (registry === SFX) return `Sound: ${id}`;
@@ -611,6 +611,31 @@ function startCard(st: NonNullable<GlobalsSpec["start"]>): HTMLElement {
   );
 }
 
+// Gen 2: the naming menu's player names, a record beside the start
+function startNamesCard(st: NonNullable<GlobalsSpec["start"]>, nm: NonNullable<NonNullable<GlobalsSpec["start"]>["names"]>): HTMLElement {
+  type Names = { player: string[] };
+  const cur = (store.table(st.registry)[nm.id] ?? store.baseTable(st.registry)[nm.id]) as Names | undefined;
+  if (!cur?.player) return h("p", { class: "hint" }, "This game has no preset names.");
+  const inputs = cur.player.map((n, i) => {
+    const input = h("input", { type: "text", value: n, maxLength: nm.max, spellcheck: false });
+    input.addEventListener("change", () => {
+      const v = input.value.trim().toUpperCase().slice(0, nm.max);
+      if (!v) return toast("A name can't be empty", "error");
+      store.editRecord<Names>(st.registry, nm.id, `Player name ${i + 1}`, (d) => (d.player = d.player.map((x, j) => (j === i ? v : x))));
+      store.seal();
+    });
+    return input;
+  });
+  return h("section", { class: "card names-card" },
+    h("h4", {}, "Names"),
+    field("The player", h("div", { class: "row nowrap" }, ...inputs)),
+    h("p", { class: "hint" }, `Names fit ${nm.max} letters. ${nm.note}`),
+    store.isRecordEdited(st.registry, nm.id)
+      ? h("button", { class: "btn small danger", onclick: () => store.revertRecord(st.registry, nm.id, "Names: the game's") }, "Back to the game's names")
+      : null,
+  );
+}
+
 function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   const out: HTMLElement[] = [h("p", { class: "hint" }, hint)];
   if (id === "wild") {
@@ -629,7 +654,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "badges") out.push(badgesCard());
   if (id === "intro") out.push(...introCards());
   if (id === "names") out.push(newGameCard(), namesCard());
-  if (id === "start" && s.start) out.push(startCard(s.start));
+  if (id === "start" && s.start) out.push(startCard(s.start), ...(s.start.names ? [startNamesCard(s.start, s.start.names)] : []));
   if (id === "slots") out.push(...slotCards());
   if (id === "sounds") out.push(...soundCards());
   const towns = store.adapter.towns;

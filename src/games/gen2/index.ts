@@ -127,8 +127,10 @@ const content: ContentSpec[] = [
   // start values: Gold has no data for them (Save.newGame money 3000,
   // landmarks.lua spawns.SPAWN_HOME = PLAYERS_HOUSE_2F 3, 3 in all three games)
   {
-    registry: "studio_start", editable: true, build: () => ({ start: { map: "PLAYERS_HOUSE_2F", x: 3, y: 3, money: 3000 } }), studioFile: "studio_start.lua",
-    generator: { what: "start values", order: ["map", "x", "y", "money"], runtime: START_RUNTIME2, registration: startRegistration2, writes: [] },
+    // names: the naming menu's player names (data/player_names.asm PlayerNameArray, per edition)
+    registry: "studio_start", editable: true, studioFile: "studio_start.lua",
+    build: () => ({ start: { map: "PLAYERS_HOUSE_2F", x: 3, y: 3, money: 3000 }, names: { player: [...(PLAYER_NAMES[gameVersion] ?? PLAYER_NAMES.gold)] } }),
+    generator: { what: "start values", order: ["map", "x", "y", "money", "player"], runtime: START_RUNTIME2, registration: startRegistration2, writes: [] },
   },
   // starter balls: the game's ball species -> { species, level }
   {
@@ -207,6 +209,15 @@ const NUM_EVENTS = 0x800;
 
 // "<class index>:<member>" -> where a script starts that battle (see load)
 const scriptFights = new Map<string, { mapId: string; index: number }[]>();
+// the edition load() was called for, and its naming menu's player names
+// (gen1recomp src/ui/gen2/NamePick.lua PRESETS; Crystal's girl has her own,
+// but the engine's namePresets override is one list for both)
+let gameVersion = "gold";
+const PLAYER_NAMES: Record<string, string[]> = {
+  gold: ["GOLD", "HIRO", "TAYLOR", "KARL"],
+  silver: ["SILVER", "KAMON", "OSCAR", "MAX"],
+  crystal: ["CHRIS", "MAT", "ALLAN", "JON"],
+};
 // mart number -> the map people whose script opens it (see load)
 const martClerks = new Map<number, { mapId: string; index: number }[]>();
 
@@ -710,7 +721,9 @@ const globals: GlobalsSpec = {
     canGive: (r) => typeof r.index === "number",
     note: "He steals the ball strong against yours, but his teams are trainer data: change the rival's teams to match.",
   },
-  start: { registry: "studio_start", id: "start", maxMoney: 999999, note: "The game starts in the bedroom upstairs (PLAYERS_HOUSE_2F 3, 3). The same cell is where the player wakes up after blacking out before visiting a Pokémon Center. The player faces the way the game's start does." },
+  start: {
+    names: { id: "names", max: 7, note: "The names the player can pick when Oak asks for one; NEW NAME, the last entry, lets them type one. A mod's names are used in Gold, Silver and Crystal alike (Crystal's girl too). The rival is always typed, so he has none." },
+    registry: "studio_start", id: "start", maxMoney: 999999, note: "The game starts in the bedroom upstairs (PLAYERS_HOUSE_2F 3, 3). The same cell is where the player wakes up after blacking out before visiting a Pokémon Center. The player faces the way the game's start does." },
   typeChart: {
     registry: "type_chart",
     multipliers: [
@@ -796,7 +809,8 @@ export const gen2: GameAdapter = {
   // new species: their Pokédex entries (the #DEX lists only pokedex.lua's, ISSUES #11)
   saveHelpers: (edited, bases) => (Object.keys(edited.pokemon ?? {}).some((id) => edited.pokemon[id] && !bases.pokemon?.[id]) ? DEX_RUNTIME2 : ""),
 
-  async load(read): Promise<Dataset> {
+  async load(read, version): Promise<Dataset> {
+    gameVersion = version ?? "gold";
     gen2.viewOnly = undefined;
     const [maps, tilesets, sprites, pal, roofs, initial, constants, ...tables] = await Promise.all([
       read("maps.lua") as Promise<Record<string, MapDef>>,

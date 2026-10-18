@@ -4,9 +4,12 @@
 // palettes }) patches that tileset in place:
 //   blocks       the tileset's blocks + the added ones (16 tile ids each)
 //   collision    the tileset's collision quads + one per added block
-//   tilePalettes the tileset's palette slot per tile + the added tiles'
+//   tilePalettes the tileset's palette slot per tile + the added tiles' (tile
+//                first + i; Crystal's list has gaps, so it is copied by key)
 //   image        the sheet the assets_transforms recipe builds on the
-//                player's machine when tiles were added (as for Gen 1)
+//                player's machine when tiles were added (as for Gen 1):
+//                below the sheet, or into its blank slots (Crystal: `first`
+//                lies inside the sheet, `sheet` holds the sheet's tile count)
 // The lists come from mod.content.tilesets:get(id) while the mod loads (a
 // patch replaces lists), so no vanilla data is written into the mod.
 // Plain Lua 5.1/LuaJIT, and no backticks (it lives in a template string).
@@ -22,7 +25,7 @@ export const TILESET_RUNTIME2 = String.raw`
     local per = base.tilesPerRow or math.floor(w / 8)
     -- the added tiles start right after the sheet's own; a sheet of another
     -- size (another mod replaced it) would shift them all
-    if math.floor(w / 8) * math.floor(h / 8) ~= ext.first then
+    if math.floor(w / 8) * math.floor(h / 8) ~= (ext.sheet or ext.first) then
       mod.log:info("tileset " .. id .. " is not the sheet the studio extended; extension skipped")
       return
     end
@@ -33,11 +36,16 @@ export const TILESET_RUNTIME2 = String.raw`
       return out
     end
     local patch = { blocks = joined(base.blocks, ext.blocks), collision = joined(base.collision, ext.collision) }
-    if #(ext.palettes or {}) > 0 then patch.tilePalettes = joined(base.tilePalettes, ext.palettes) end
-    local rows = math.ceil(#(ext.tiles or {}) / per)
-    if rows > 0 then
+    if #(ext.palettes or {}) > 0 then
+      local pals = {}
+      for k, v in pairs(base.tilePalettes or {}) do pals[k] = v end
+      for i, v in ipairs(ext.palettes) do pals[ext.first + i] = v end
+      patch.tilePalettes = pals
+    end
+    local count = #(ext.tiles or {})
+    if count > 0 then
       patch.image = dir .. id:lower() .. ".png"
-      patch.imageHeight = h + rows * 8
+      patch.imageHeight = math.max(h, math.ceil((ext.first + count) / per) * 8)
     end
     mod.content.tilesets:patch(id, patch)
   end

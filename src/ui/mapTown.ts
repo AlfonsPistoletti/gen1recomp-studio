@@ -16,14 +16,13 @@ import { comboInput, field, h, numberInput, selectInput, toast } from "./dom.ts"
 import { idBase, newTextId, pointerEntry, type PointerEntry } from "./mapText.ts";
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
+import { ROLE_LABEL, type RoleSet } from "./roles.ts";
 import { counterId, counters, freshCounter, prizeCounterEditor } from "./prizeEditor.ts";
 import { createEvent, eventId, gameTalkEvent, splitEventId, studioEvent, studioEventsOf } from "./eventEditor.ts";
 import { isItemBall } from "./inspector.ts";
 import { buildTrainer, currentSetup, facingOf, isStale, removeTrainer, trainerEventOf, type TrainerSetup } from "./trainerEvents.ts";
 
 type Role = "" | "mart" | "nurse" | "pc" | "prizes" | "event" | "trainer" | "item";
-
-const ROLE_LABEL: Record<Role, string> = { "": "Normal (says its text)", item: "Item ball (picked up)", trainer: "Trainer (battles)", event: "Event (runs commands)", mart: "Shop clerk", nurse: "Nurse (heals)", pc: "PC", prizes: "Prize counter" };
 
 function spec(): TownSpec | undefined {
   return store.adapter?.towns;
@@ -47,15 +46,16 @@ function editPointer(s: TownSpec, label: string, textId: string, what: string, m
   }, { create: () => ({}) });
 }
 
-export function roleSection(map: MapDef, entity: EntityRecord, kind: string, index: number, setTextId: (id: string) => void, editEntity?: (label: string, mutate: (e: EntityRecord) => void) => void): HTMLElement | null {
+// Gen 1's roles for the shared Role box (roles.ts)
+export const gen1Roles: RoleSet = (c) => {
+  const { map, entity, kind, index, setTextId, editEntity } = c;
   const s = spec();
   if (!s) return null;
   const label = typeof map.label === "string" ? map.label : "";
-  const wrap = h("div", { class: "field-group" }, h("h4", {}, "Role"));
-  if (!label) {
-    wrap.append(h("p", { class: "hint warn" }, "Give the map a Label (map properties) to set a role."));
-    return wrap;
-  }
+  const panels: HTMLElement[] = [];
+  // the role's fields, in the order they used to be appended to the box
+  const wrap = { append: (...els: (HTMLElement | null)[]) => panels.push(...els.filter((e): e is HTMLElement => !!e)) };
+  if (!label) return { blocked: h("p", { class: "hint warn" }, "Give the map a Label (map properties) to set a role."), current: "", options: [], set: () => {}, panels };
   const textId = typeof entity.text === "string" && /^TEXT_[A-Z0-9_]+$/.test(entity.text) ? entity.text : "";
   const role: Role = kind === "npc" && typeof entity.trainerClass === "string" ? "trainer"
     : kind === "npc" && isItemBall(entity) ? "item"
@@ -106,13 +106,7 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
     store.seal();
   };
 
-  if (vanillaCounter) {
-    wrap.append(h("p", { class: "hint" }, "One of the game's prize counters."));
-  } else {
-    const sel = selectInput(role, roles, (v) => setRole(v as Role));
-    for (const o of sel.options) o.textContent = ROLE_LABEL[o.value as Role];
-    wrap.append(sel);
-  }
+  const note = vanillaCounter ? h("p", { class: "hint" }, "One of the game's prize counters.") : undefined;
 
   if (role === "trainer") wrap.append(...trainerFields(map, entity, index, setTextId, editEntity));
   if (role === "item") {
@@ -154,8 +148,8 @@ export function roleSection(map: MapDef, entity: EntityRecord, kind: string, ind
       h("p", { class: "hint" }, "Coins for prizes, in the game's prize window (three prizes). Mods with prize counters get the engine_internals permission."),
     );
   }
-  return wrap;
-}
+  return { note, current: role, options: roles, set: (v) => setRole(v as Role), panels };
+};
 
 // the clerk's stock: same list the Items workspace's "Sold at" edits
 function stockEditor(s: TownSpec, label: string, textId: string): HTMLElement {

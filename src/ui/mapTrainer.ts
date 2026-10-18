@@ -21,38 +21,55 @@ function newTextKey(kind: string): string {
   return `STUDIO_TRAINER_${n}_${kind}`;
 }
 
-export function objectTrainerSection(record: EntityRecord, edit: (label: string, mutate: (r: Rec) => void) => void): HTMLElement | null {
+type Edit = (label: string, mutate: (r: Rec) => void) => void;
+
+// Makes the person a trainer (a free beaten flag, new seen/win texts). Run it
+// inside the caller's undo group (the Role box's).
+export function makeTrainer(edit: Edit): boolean {
+  const s = store.adapter.trainers;
+  const ot = s?.objectTrainer;
+  if (!s || !ot) return false;
+  const ctx = store.ctx;
+  const flag = ot.freeFlag(ctx);
+  if (flag === null) {
+    toast("No free event flag left for another trainer", "error");
+    return false;
+  }
+  const classes = Object.keys(store.table(s.registry)).filter((id) => ot.classIndex(ctx, id) !== undefined).sort();
+  const cls = classes.includes("YOUNGSTER") ? "YOUNGSTER" : classes[0];
+  const seen = newTextKey("SEEN");
+  const win = newTextKey("WIN");
+  store.setRecord(ot.textRegistry, seen, "Trainer text", "Let's battle!{DONE}");
+  store.setRecord(ot.textRegistry, win, "Trainer text", "I lost…{DONE}");
+  edit("Make a trainer", (r) => {
+    r[ot.key] = { class: ot.classIndex(ctx, cls), member: 1, event: flag, seenText: seen, winText: win };
+    r[ot.typeKey] = ot.typeValue;
+    r[ot.sightKey] = 3;
+  });
+  return true;
+}
+
+// No longer a trainer: the record goes, and the texts the studio made for it
+export function removeTrainer(record: EntityRecord, edit: Edit): void {
+  const ot = store.adapter.trainers?.objectTrainer;
+  const t = ot ? (record[ot.key] as Struct | undefined) : undefined;
+  if (!ot || !t) return;
+  for (const k of [t.seenText, t.winText]) if (k && k.startsWith("STUDIO_TRAINER_") && store.baseTable(ot.textRegistry)[k] === undefined) store.setRecord(ot.textRegistry, k, "Remove trainer text", undefined);
+  edit("Not a trainer", (r) => {
+    delete r[ot.key];
+    r[ot.typeKey] = 0;
+  });
+}
+
+// the trainer's fields (the Role box's Trainer panel)
+export function objectTrainerSection(record: EntityRecord, edit: Edit): HTMLElement | null {
   const s = store.adapter.trainers;
   const ot = s?.objectTrainer;
   if (!s || !ot) return null;
   const ctx = store.ctx;
   const t = record[ot.key] as Struct | undefined;
   const classes = Object.keys(store.table(s.registry)).filter((id) => ot.classIndex(ctx, id) !== undefined).sort();
-
-  if (!t) {
-    const make = h("button", {
-      class: "btn small",
-      title: "The person fights when it sees the player (or is talked to), like the game's own trainers",
-      onclick: () => {
-        const flag = ot.freeFlag(ctx);
-        if (flag === null) return toast("No free event flag left for another trainer", "error");
-        const cls = classes.includes("YOUNGSTER") ? "YOUNGSTER" : classes[0];
-        const seen = newTextKey("SEEN");
-        const win = newTextKey("WIN");
-        store.group("Make a trainer", () => {
-          store.setRecord(ot.textRegistry, seen, "Trainer text", "Let's battle!{DONE}");
-          store.setRecord(ot.textRegistry, win, "Trainer text", "I lost…{DONE}");
-          edit("Make a trainer", (r) => {
-            r[ot.key] = { class: ot.classIndex(ctx, cls), member: 1, event: flag, seenText: seen, winText: win };
-            r[ot.typeKey] = ot.typeValue;
-            r[ot.sightKey] = 3;
-          });
-        });
-        store.seal();
-      },
-    }, "Make this a trainer");
-    return h("div", { class: "field-group npc-text" }, h("h4", {}, "Trainer"), h("div", { class: "row" }, make));
-  }
+  if (!t) return null;
 
   const classId = ot.classOf(ctx, Number(t.class)) ?? "";
   const set = (label: string, mutate: (x: Struct) => void) => edit(label, (r) => {
@@ -73,7 +90,7 @@ export function objectTrainerSection(record: EntityRecord, edit: (label: string,
     o.textContent = `${name || `#${o.value}`} · ${teams[i]?.map((m) => `${m.species} ${m.level}`).join(", ") ?? ""}`;
   }
   const after = ot.afterScripts(store.map!);
-  const afterSel = selectInput(t.scriptKey ?? "", after.map((a) => a.key), (v) => edit("After the battle", (r) => {
+  const afterSel = selectInput(typeof t.scriptKey === "string" ? t.scriptKey : "", after.map((a) => a.key), (v) => edit("After the battle", (r) => {
     r[ot.key] = { ...(r[ot.key] as Struct), scriptKey: v || undefined };
     if (!v) delete (r[ot.key] as Struct).scriptKey;
     // talking to a beaten trainer runs the person's own script
@@ -93,22 +110,8 @@ export function objectTrainerSection(record: EntityRecord, edit: (label: string,
     ),
     t.seenText ? textEditor(t.seenText, { rows: 3, label: "When it sees the player", compact: true }) : null,
     t.winText ? textEditor(t.winText, { rows: 2, label: "When it loses", compact: true }) : null,
-    field("Talked to after the battle", afterSel, "Says what another trainer here says after its battle (scripts are cart code)."),
-    h(
-      "div",
-      { class: "row" },
-      classId ? h("button", { class: "btn small", onclick: () => nav.openTrainer(classId, Number(t.member ?? 1)) }, "Open in Trainers →") : null,
-      h("button", {
-        class: "btn small ghost danger",
-        onclick: () => store.group("Not a trainer", () => {
-          // texts the studio made for it go too
-          for (const k of [t.seenText, t.winText]) if (k && k.startsWith("STUDIO_TRAINER_") && store.baseTable(ot.textRegistry)[k] === undefined) store.setRecord(ot.textRegistry, k, "Remove trainer text", undefined);
-          edit("Not a trainer", (r) => {
-            delete r[ot.key];
-            r[ot.typeKey] = 0;
-          });
-        }),
-      }, "Not a trainer"),
-    ),
+    // its own after-battle event (an inline list) is linked below the box instead
+    Array.isArray(t.scriptKey) ? null : field("Talked to after the battle", afterSel, "Says what another trainer here says after its battle, or make its own words below."),
+    classId ? h("div", { class: "row" }, h("button", { class: "btn small", onclick: () => nav.openTrainer(classId, Number(t.member ?? 1)) }, "Open in Trainers →")) : null,
   );
 }

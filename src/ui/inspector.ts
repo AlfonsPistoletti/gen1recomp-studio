@@ -13,14 +13,16 @@ import type { EntityLayer, FieldSpec } from "../games/types.ts";
 import type { MapView } from "../render/mapView.ts";
 import { clear, comboInput, field, h, numberInput, rerender, selectInput, toast, errorText, onFocusLeave } from "./dom.ts";
 import { npcTextSection } from "./mapText.ts";
-import { roleSection, townSection } from "./mapTown.ts";
+import { gen1Roles, townSection } from "./mapTown.ts";
+import { roleBox, type RoleCtx, type RoleSet } from "./roles.ts";
+import { freshRole, gen2Roles } from "./roles2.ts";
 import { changedParts, resetMapDialog } from "./mapReset.ts";
 import { nav } from "./nav.ts";
+import { createEvent, eventId } from "./eventEditor.ts";
 import { songLabel } from "./soundEditor.ts";
 import { warpProblem } from "../core/checks.ts";
 import { liveTileset, tilesetIds } from "../core/tilesets.ts";
 import { mapRulesSection } from "./mapRules.ts";
-import { objectTrainerSection } from "./mapTrainer.ts";
 import { FEATURES } from "../features.ts";
 import { gameRoof, gbcAvailable, ROOFS, roofColors, tilesetHasRoof, townRoofs, type RoofRecord } from "../core/gbc.ts";
 import type { Rgb } from "../render/color.ts";
@@ -135,6 +137,8 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
       const empty = typeof spec.emptyLabel === "function" ? spec.emptyLabel(record, store.ctx) : spec.emptyLabel;
       // a number (Gen 2's variable sprites) shows as its own entry, not as the list's first
       const raw = getPath(record, spec.key);
+      // a Gen 2 script given inline (an event): its Event section shows it
+      if (Array.isArray(raw)) return null;
       const value = typeof raw === "string" || typeof raw === "number" ? String(raw) : "";
       const map = store.map;
       const sel = selectInput(value, spec.options(store.ctx, map), (v) =>
@@ -560,16 +564,18 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
     if (el) fields.push(el);
   }
   if (says && !fields.includes(says)) fields.push(says);
-  const fights = layer.kind === "npc"
-    // (people with their own trainer record exist only in Gen 2: release builds drop the module)
-    ? trainerSection(record) ?? (FEATURES.gen2 ? objectTrainerSection(record, (label, mutate) => store.edit(map.id, label, (d) => mutate(store.entities(d, layer.key)[index]))) : null)
-    : null;
+  const fights = layer.kind === "npc" ? trainerSection(record) : null;
   if (fights) fields.splice(fields.indexOf(says ?? fields[fields.length - 1]), 0, fights);
-  // what it does (shop, nurse, PC, prizes) goes right above what it says
-  const role = layer.kind === "npc" || layer.kind === "sign"
-    ? roleSection(map, record, layer.kind, index, (id) => store.edit(map.id, "Text id", (d) => (store.entities(d, layer.key)[index].text = id)), (label, mutate) => store.edit(map.id, label, (d) => mutate(store.entities(d, layer.key)[index])))
+  // what it does (says a text, an event, a trainer, a shop, a nurse …) goes
+  // right above what it says
+  const roles = rolesFor();
+  const role = roles && (layer.kind === "npc" || layer.kind === "sign")
+    ? roleBox(roles, roleCtx(map, layer, index, record))
     : null;
   if (role) fields.splice(says ? fields.indexOf(says) : fields.length, 0, role);
+  // Gen 2: a step trigger's own event (an inline script)
+  const own = layer.kind === "trigger" ? inlineEventSection(map, layer.kind, index, record) : null;
+  if (own) fields.push(own);
   // a mod's own kind (studio extensions): its fields first
   const kind = extKind((record.custom as Rec | undefined)?.kind);
   if (kind) {
@@ -577,6 +583,40 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
       edit(`${kind.label}: ${key}`, (e) => (e.custom = { ...(e.custom as Rec), [key]: v }))));
   }
   return [pos, ...fields, actions];
+}
+
+// the Role box this generation offers (Gen 2's only in builds with Gen 2)
+function rolesFor(): RoleSet | null {
+  if (store.adapter.roles === "gen2") return FEATURES.gen2 ? gen2Roles : null;
+  return gen1Roles;
+}
+
+function roleCtx(map: MapDef, layer: EntityLayer, index: number, record: EntityRecord): RoleCtx {
+  return {
+    map,
+    entity: record,
+    kind: layer.kind,
+    index,
+    layer: layer.key,
+    setTextId: (id) => store.edit(map.id, "Text id", (d) => (store.entities(d, layer.key)[index].text = id)),
+    editEntity: (label, mutate) => store.edit(map.id, label, (d) => mutate(store.entities(d, layer.key)[index])),
+  };
+}
+
+// Gen 2 (EventSpec.inline): what stepping on a trigger does is a script of its
+// own, made and edited in the Events workspace (people and signs: the Role box)
+function inlineEventSection(map: MapDef, _kind: string, index: number, record: EntityRecord): HTMLElement | null {
+  if (!store.adapter.events?.inline) return null;
+  const id = eventId(map.id, "step", String(index));
+  const has = Array.isArray(record.scriptKey);
+  return h("div", { class: "field-group" },
+    h("h4", {}, "Event"),
+    h("div", { class: "row" },
+      h("span", {}, has ? "Stepping here: its own event" : "Stepping here: the game's script"),
+      has
+        ? h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(id) }, "Edit event →")
+        : h("button", { class: "btn small", title: "Replace what it does with an event made of commands", onclick: () => { const nid = createEvent(map.id, "step", String(index)); if (nid) nav.openEvent(nid); } }, "Make an event")),
+  );
 }
 
 // For an NPC that is a trainer: which class and team it fights with, and a
@@ -632,11 +672,16 @@ export function addEntity(layerKey: string, cx: number, cy: number, variantId?: 
   if (!layer) return;
   const variant = layer.variants?.find((v) => v.id === variantId);
   let index = 0;
-  store.edit(store.currentMap, `Add ${variant?.label.toLowerCase() ?? layer.singular}`, (d) => {
-    const list = store.entities(d, layer.key);
-    list.push((variant ?? layer).create(d, cx, cy, store.ctx));
-    d[layer.key] = list;
-    index = list.length - 1;
+  const label = `Add ${variant?.label.toLowerCase() ?? layer.singular}`;
+  store.group(label, () => {
+    store.edit(store.currentMap, label, (d) => {
+      const list = store.entities(d, layer.key);
+      list.push((variant ?? layer).create(d, cx, cy, store.ctx));
+      d[layer.key] = list;
+      index = list.length - 1;
+    });
+    // Gen 2: a new person / sign says a text of its own
+    if (FEATURES.gen2 && store.adapter.roles === "gen2" && !variant && (layer.kind === "npc" || layer.kind === "sign")) freshRole(store.map, layer.key, index, layer.kind);
   });
   store.seal();
   store.setTool("select");

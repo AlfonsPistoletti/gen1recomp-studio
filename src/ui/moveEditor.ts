@@ -94,7 +94,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
         label: String(all[id].name ?? id),
         meta: meta(id),
         search: `${id} ${String(all[id].type ?? "")} ${String(all[id].effect ?? "")}`,
-        edited: store.isRecordEdited(s.registry, id) || (!!s.animRegistry && store.isRecordEdited(s.animRegistry, id)),
+        edited: store.isRecordEdited(s.registry, id) || (!!s.animRegistry && store.isRecordEdited(s.animRegistry, id)) || (!!s.animTable && animTableEdited(s.animTable, id)),
         isNew: store.baseTable(s.registry)[id] === undefined,
       }));
     },
@@ -116,6 +116,11 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
       store.group(`Revert ${id}`, () => {
         store.revertRecord(s.registry, id);
         if (s.animRegistry) store.revertRecord(s.animRegistry, id);
+        if (s.animTable && animTableEdited(s.animTable, id)) {
+          const t = s.animTable;
+          const base = (store.baseTable(t.registry)[t.id] ?? {}) as Record<string, unknown>;
+          store.editRecord<Record<string, unknown>>(t.registry, t.id, `Revert ${id}`, (d) => (d[id] = base[id]));
+        }
         dropUnusedEffects();
       });
     },
@@ -157,6 +162,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
     store.group(`New move ${res.id}`, () => {
       store.setRecord(s.registry, res.id, `New move ${res.id}`, rec);
       if (s.animRegistry) store.setRecord(s.animRegistry, res.id, "Move animation", { __ref: `${s.animRegistry}:${animOf(res.source)}` });
+      for (const x of s.moveExtras?.(res.source, res.id, store.ctx) ?? []) store.setRecord(x.registry, x.id, `New move ${res.id}`, x.value);
     });
     open(res.id);
   };
@@ -168,6 +174,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
     store.group(`Delete ${id}`, () => {
       store.setRecord(s.registry, id, `Delete ${id}`, undefined);
       if (s.animRegistry) store.setRecord(s.animRegistry, id, "Delete move animation", undefined);
+      for (const x of s.dropMoveExtras?.(id, store.ctx) ?? []) store.setRecord(x.registry, x.id, `Delete ${id}`, x.value);
       dropUnusedEffects();
     });
     current = ordered()[0] ?? null;
@@ -189,7 +196,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
     newBtn.hidden = s.newMoves === false;
     const isNew = store.baseTable(s.registry)[id] === undefined;
     revert.textContent = isNew ? "Delete move" : "Revert to base";
-    revert.hidden = !isNew && !(store.isRecordEdited(s.registry, id) || (!!s.animRegistry && store.isRecordEdited(s.animRegistry, id)));
+    revert.hidden = !isNew && !(store.isRecordEdited(s.registry, id) || (!!s.animRegistry && store.isRecordEdited(s.animRegistry, id)) || (!!s.animTable && animTableEdited(s.animTable, id)));
     if (force) {
       clear(main);
       clear(side);
@@ -213,7 +220,7 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
     if (reason === "project") {
       if (!current || !moves()[current]) current = ordered()[0] ?? null;
       render(true);
-    } else if (reason === "content" && s && (registry === s.registry || registry === s.animRegistry || registry === s.custom?.registry || registry === "pokemon" || registry === "trainers" || registry === "type_chart")) {
+    } else if (reason === "content" && s && (registry === s.registry || registry === s.animRegistry || registry === s.animTable?.registry || registry === s.custom?.registry || registry === "pokemon" || registry === "trainers" || registry === "type_chart")) {
       schedule();
     } else if (reason === "reveal" && s && (registry === s.registry || registry === s.animRegistry) && id) {
       nav.openMove(id);
@@ -292,6 +299,7 @@ function moveForm(s: MoveSpec, id: string, r: Rec): HTMLElement[] {
   );
 
   const out = [basics, effectCard(s, id, r), ...(details ? [extras] : [])];
+  if (s.animTable) out.push(animTableCard(s.animTable, s.registry, id));
   if (s.animRegistry) {
     const reg = s.animRegistry;
     const ref = (store.table(reg)[id] as { __ref?: string } | undefined)?.__ref;
@@ -609,4 +617,37 @@ function usedBy(id: string): HTMLElement[] {
   if (!uses.length) out.push(h("p", { class: "hint" }, "No Pokémon learns this move and no trainer uses it."));
   for (const u of uses) out.push(h("button", { class: "use-row", onclick: u.open }, h("span", { class: "use-map" }, u.label)));
   return out;
+}
+
+// Gen 2: this move's entry differs from the game's
+function animTableEdited(t: { registry: string; id: string }, id: string): boolean {
+  const table = (store.table(t.registry)[t.id] ?? {}) as Record<string, unknown>;
+  const base = (store.baseTable(t.registry)[t.id] ?? {}) as Record<string, unknown>;
+  return base[id] !== undefined && table[id] !== base[id];
+}
+
+// Gen 2: one record maps every move to its animation; this move plays the
+// animation of the game move whose value it holds
+function animTableCard(t: { registry: string; id: string }, registry: string, id: string): HTMLElement {
+  const table = (store.table(t.registry)[t.id] ?? {}) as Record<string, unknown>;
+  const base = (store.baseTable(t.registry)[t.id] ?? {}) as Record<string, unknown>;
+  const all = moves();
+  const gameMoves = ordered().filter((m) => store.baseTable(registry)[m] !== undefined && base[m] !== undefined);
+  const value = table[id];
+  const current = base[id] !== undefined && base[id] === value ? id : (gameMoves.find((m) => base[m] === value) ?? "");
+  const sel = selectInput(current, gameMoves, (v) => {
+    store.editRecord<Record<string, unknown>>(t.registry, t.id, "Move animation", (d) => {
+      if (v) d[id] = base[v];
+      else delete d[id];
+    });
+    store.seal();
+  }, base[id] === undefined ? "(none)" : undefined);
+  for (const o of sel.options) if (o.value) o.textContent = String(all[o.value]?.name ?? o.value) + (o.value === id ? " (its own)" : "");
+  return h("section", { class: "card" },
+    h("h4", {}, "Battle animation"),
+    field("Plays the animation of", sel, "The game's own animation of that move: no animation data is copied into the mod."),
+    base[id] !== undefined && value !== base[id]
+      ? h("button", { class: "btn small danger", onclick: () => (store.editRecord<Record<string, unknown>>(t.registry, t.id, "Move animation: the game's", (d) => (d[id] = base[id])), store.seal()) }, "Back to the game's animation")
+      : null,
+  );
 }

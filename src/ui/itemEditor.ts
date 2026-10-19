@@ -215,8 +215,15 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     rec.name = res.name;
     delete rec.index;
     delete rec.source;
+    // Gen 2: a free number (scripts and item balls name items by it)
+    const index = s.newIndex?.(store.ctx);
+    if (index !== undefined) rec.index = index;
+    else if (s.noIndex) toast(s.noIndex, "info");
     store.group(`New item ${res.id}`, () => {
-      if (!rec.effect) {
+      // Gen 2: the effect is the record under the item's own id
+      const ownTemplate = s.byItem ? s.template(res.source, src) : null;
+      if (ownTemplate) store.setRecord(s.effectRegistry, res.id, "New custom item effect", ownTemplate);
+      if (!rec.effect && !s.byItem) {
         const template = s.template(res.source, src);
         if (template) {
           const fxId = effectIdFor(res.id);
@@ -281,7 +288,9 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     }
     const id = current;
     title.textContent = String(r.name ?? id);
-    newBtn.hidden = newMachine.hidden = s.newItems === false;
+    newBtn.hidden = s.newItems === false;
+    // a TM/HM needs a machine record the game reads (Gen 2's are fixed)
+    newMachine.hidden = s.newItems === false || s.machineEdit === false;
     const isNew = isNewItem(id);
     revert.textContent = isNew ? "Delete item" : "Revert to base";
     revert.hidden = !isNew && !itemEdited(id);

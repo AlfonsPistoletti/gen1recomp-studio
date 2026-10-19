@@ -311,6 +311,31 @@ function updateTimeSelect(): void {
   timeSelect.replaceChildren(...times.map((t) => h("option", { value: t.key, selected: t.key === store.timeOfDay }, t.label)));
 }
 
+// the scene the open map is shown and painted in (games with scenes: Gen 2)
+const sceneSelect = h("select", { class: "time-select", title: "The map's scene (its story stage): step triggers of other scenes are faint, and in scenes above 0 the block brush paints that scene's own blocks" });
+sceneSelect.addEventListener("change", () => {
+  const scenes = store.adapter.scenes;
+  if (!scenes) return;
+  if (sceneSelect.value === "new") {
+    const n = Math.max(0, ...scenes.list(store.map, store.ctx)) + 1;
+    store.edit(store.currentMap, "New scene", (d) => scenes.setName(d, n, `Scene ${n}`));
+    store.seal();
+    store.setScene(n);
+  } else store.setScene(Number(sceneSelect.value));
+});
+function updateSceneSelect(): void {
+  const scenes = store.project && store.map ? store.adapter.scenes : undefined;
+  sceneSelect.hidden = !scenes;
+  if (!scenes) return;
+  const names = scenes.names(store.map);
+  const list = scenes.list(store.map, store.ctx);
+  if (!list.includes(store.scene)) list.push(store.scene);
+  sceneSelect.replaceChildren(
+    ...list.sort((a, b) => a - b).map((n) => h("option", { value: String(n), selected: n === store.scene }, n === 0 ? `Scene 0 (start)${names["0"] ? ` · ${names["0"]}` : ""}` : `Scene ${n}${names[String(n)] && names[String(n)] !== `Scene ${n}` ? ` · ${names[String(n)]}` : ""}`)),
+    h("option", { value: "new" }, "+ New scene"),
+  );
+}
+
 function updateColorButton(): void {
   const ok = gbcAvailable();
   colorButton.disabled = !ok;
@@ -319,10 +344,12 @@ function updateColorButton(): void {
     ? "RED++ colors: show maps in the game's COLORS=RED++ mode (from pokered-gbc). Off: the Game Boy palettes. (P)"
     : "RED++ colors need a gen1recomp source checkout (its data/palettes_gbc.lua)";
 }
-store.on((reason) => {
+store.on((reason, _id) => {
   if (reason === "project" || reason === "colors") updateColorButton();
   if (reason === "project") updateTimeSelect();
+  if (reason === "project" || reason === "map" || reason === "scene" || (reason === "edit" && !store.brushing)) updateSceneSelect();
   // an edit of a registry this game only shows (Gen 2 maps), once per gesture
+  if (reason === "notice" && _id) toast(_id, "error");
   if (reason === "viewonly" && !viewOnlyShown) {
     viewOnlyShown = true;
     toast(store.adapter.viewOnly?.reason ?? "This can't be changed here yet", "info");
@@ -376,6 +403,7 @@ $("#toolbar").append(
   h("div", { class: "seg" }, ...toolButtons),
   h("div", { class: "seg" }, ...overlayButtons, colorButton),
   timeSelect,
+  sceneSelect,
   addGroup,
 );
 

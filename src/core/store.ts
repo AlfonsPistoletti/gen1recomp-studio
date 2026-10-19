@@ -133,7 +133,7 @@ export class Store {
   }
 
   get ctx(): GameContext {
-    return { data: this.project.data, maps: this.maps, records: this.records, time: this.timeOfDay };
+    return { data: this.project.data, maps: this.maps, records: this.records, time: this.timeOfDay, scene: this.scene };
   }
 
   refreshPalettes(): void {
@@ -154,6 +154,7 @@ export class Store {
     if (!this.maps[id] || id === this.currentMap) return;
     this.currentMap = id;
     this.selection = null;
+    this.scene = 0;
     this.emit("map");
   }
 
@@ -197,6 +198,14 @@ export class Store {
   setColorMode(mode: "sgb" | "redpp"): void {
     this.colorMode = mode;
     this.emit("colors");
+  }
+
+  // the scene the map view shows and paints (games with `adapter.scenes`;
+  // 0 = the map as it is, reset when another map opens)
+  scene = 0;
+  setScene(n: number): void {
+    this.scene = n;
+    this.emit("scene");
   }
 
   // the time of day the map view shows (games with `adapter.times`)

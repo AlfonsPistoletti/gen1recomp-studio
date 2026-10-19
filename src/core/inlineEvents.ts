@@ -6,6 +6,7 @@
 //   <MAP>:talk:sign<k>      the k-th sign (0-based place)
 //   <MAP>:step:<k>          the k-th step trigger
 //   <MAP>:after:obj<index>  a trainer's talk after the battle (trainer.scriptKey)
+//   <MAP>:enter:scene<n>    entering the map in scene n (adapter.scenes script)
 // Edits go through the maps registry (one undo history, saved with the map).
 
 import type { EventRow } from "../games/types.ts";
@@ -19,7 +20,10 @@ export interface InlineEvent {
   rows: EventRow[];
 }
 
-export type InlineKind = "talk" | "step" | "after";
+export type InlineKind = "talk" | "step" | "after" | "enter";
+
+// "scene<n>" -> n
+const sceneNo = (key: string) => (/^scene(\d+)$/.exec(key) ? Number(key.slice(5)) : null);
 
 const layerOf = (kind: "npc" | "sign" | "trigger") => store.adapter.layers.find((l) => l.kind === kind);
 
@@ -65,6 +69,11 @@ export function inlineEvents(all = false): Record<string, InlineEvent> {
     (trig ? store.entities(map, trig.key) : []).forEach((e, k) => {
       if (Array.isArray(e.scriptKey)) out[`${mapId}:step:${k}`] = { x: e.x, y: e.y, rows: e.scriptKey as EventRow[] };
     });
+    const scenes = store.adapter.scenes;
+    for (const n of scenes ? scenes.withScripts(map) : []) {
+      const rows = scenes!.script(map, n);
+      if (Array.isArray(rows)) out[`${mapId}:enter:scene${n}`] = { rows: rows as EventRow[] };
+    }
   }
   if (preset) for (const [id, ev] of Object.entries(out)) if (!id.includes(":after:") && preset(ev.rows)) delete out[id];
   return out;
@@ -87,6 +96,11 @@ export function inlineGameEvents(): Record<string, string> {
     (trig ? store.entities(map, trig.key) : []).forEach((e, k) => {
       if (typeof e.scriptKey === "string") out[`${mapId}:step:${k}`] = e.scriptKey;
     });
+    const scenes = store.adapter.scenes;
+    for (const n of scenes ? scenes.withScripts(map) : []) {
+      const key = scenes!.script(map, n);
+      if (typeof key === "string") out[`${mapId}:enter:scene${n}`] = key;
+    }
   }
   return out;
 }
@@ -127,6 +141,16 @@ function split(id: string): { mapId: string; kind: string; key: string } {
 export function writeInline(id: string, label: string, ev: InlineEvent | undefined): void {
   const { mapId, kind, key } = split(id);
   if (!store.maps[mapId]) return;
+  // a scene's entering script: the rows, or the game's script for it back
+  const scenes = store.adapter.scenes;
+  const n = kind === "enter" ? sceneNo(key) : null;
+  if (scenes && n !== null) {
+    const base = store.base[mapId];
+    store.edit(mapId, label, (d) => scenes.setScript(d, n, ev ? clone(ev.rows) : base ? clone(scenes.script(base, n)) : undefined));
+    syncEventTexts();
+    store.seal();
+    return;
+  }
   store.edit(mapId, label, (d) => {
     const t = entityIn(d, kind, key);
     if (!t) return;

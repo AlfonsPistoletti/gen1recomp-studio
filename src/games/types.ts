@@ -29,6 +29,8 @@ export interface GameContext {
   records: Record<string, Record<string, unknown>>;
   // the time of day the map view shows (one of `GameAdapter.times`)
   time?: string;
+  // the scene the map view shows (Gen 2), 0 = as the map is
+  scene?: number;
 }
 
 // A content registry the adapter loads besides maps/tilesets/sprites. Mod
@@ -117,6 +119,13 @@ export interface MoveSpec {
   rawBytes?: Record<string, string>;
   // false: no "+ New" (a new move needs data the studio doesn't make yet)
   newMoves?: boolean;
+  // records of other registries a copied move takes along (Gen 2: its
+  // animation), and the same without a deleted move (value undefined: remove)
+  moveExtras?(sourceId: string, newId: string, ctx: GameContext): { registry: string; id: string; value: unknown }[];
+  // Gen 2: the animations are one record mapping move id -> animation (the
+  // Battle animation card copies another move's value)
+  animTable?: { registry: string; id: string };
+  dropMoveExtras?(id: string, ctx: GameContext): { registry: string; id: string; value: unknown }[];
   // battle animations as references to another move's ({ __ref })
   animRegistry?: string;
   // custom effects built from blocks
@@ -209,6 +218,10 @@ export interface ItemSpec {
   byItem?: { field: string; battle: string; on: string; off: string };
   // false: no "+ New Item" / "+ TM/HM"
   newItems?: boolean;
+  // the number a new item gets (Gen 2: a free byte; undefined: none left, and
+  // `noIndex` says what the item then can't do)
+  newIndex?(ctx: GameContext): number | undefined;
+  noIndex?: string;
   // bag pockets (replaces the Key item switch)
   pockets?: string[];
   // the bag's description: lines joined with <NEXT>
@@ -630,6 +643,8 @@ export type FieldSpec =
       get(map: MapDef, index: number, ctx: GameContext): number[] | null;
       set(map: MapDef, index: number, days: number[] | null, ctx: GameContext): void;
     })
+  // a line of information about the entity (null: nothing to say), not edited
+  | (FieldBase & { kind: "info"; text(map: MapDef, index: number, ctx: GameContext): string | null })
   // JSON for every key no other field (and not x/y) claims
   | (FieldBase & { kind: "extras" })
   // two fields side by side
@@ -825,6 +840,22 @@ export interface GameAdapter {
   // the Play-from-here helper's main.lua for this generation (unset: Gen 1's,
   // src/lua/playRuntime.ts playtestMain)
   playtestMain?(t: { map: string; x: number; y: number }): string;
+  // map scenes (Gen 2): a map's story stages; scenes above 0 may change blocks
+  // (all edits work on a draft map). Scene 0 is the map as it is.
+  scenes?: {
+    list(map: MapDef, ctx: GameContext): number[];
+    // the scenes with an entering script (no script walk: for event lists)
+    withScripts(map: MapDef): number[];
+    names(map: MapDef): Record<string, string>;
+    setName(map: MapDef, n: number, name: string): void;
+    blocksIn(map: MapDef, n: number): number[];
+    changedBlocks(map: MapDef, n: number): number;
+    setBlock(map: MapDef, n: number, bx: number, by: number, id: number | null): void;
+    clearBlocks(map: MapDef, n: number): void;
+    // what entering the map in scene n runs (a game key, inline rows, nothing)
+    script(map: MapDef, n: number): unknown;
+    setScript(map: MapDef, n: number, script: unknown): void;
+  };
   // fixed Lua the save writes into studio_content.lua for the mod's edits
   // (Gen 2: Pokédex entries for new species); "" = none
   saveHelpers?(edited: Record<string, Record<string, unknown>>, bases: Record<string, Record<string, unknown>>): string;

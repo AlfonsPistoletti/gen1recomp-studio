@@ -11,6 +11,8 @@ import { MONO } from "../../render/color.ts";
 import { TILESET_RUNTIME2, tilesetRegistration2 } from "../../lua/tilesetRuntime2.ts";
 import { GEN2_EVENTS } from "./events.ts";
 import { setWeekdays, WEEKDAYS, weekdaysOf } from "./weekdays.ts";
+import { visibilityNote } from "./visibility.ts";
+import { blocksInScene, clearSceneBlocks, scenesWithScripts, sceneBlocks, sceneNames, sceneScriptOf, scenesOf, setSceneBlock, setSceneName, setSceneScript } from "./scenes.ts";
 import { gen2EffectTemplate, gen2EffectText, GEN2_STATS, GEN2_STATUSES } from "./moveEffects.ts";
 import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
 import { effectRegistration } from "../../lua/effectRuntime.ts";
@@ -149,6 +151,8 @@ const content: ContentSpec[] = [
     build: (f) => Object.fromEntries(Object.entries((f as { text?: Record<string, unknown> }).text ?? {}).filter(([, v]) => typeof v === "string")),
     generator: { what: "Oak's speech texts", order: [], runtime: INTRO_TEXT_RUNTIME2, registration: introTextRegistration2, writes: [] },
   },
+  // move animations: only "moves" (move id -> script pointer); a new move borrows one
+  { registry: "battle_anims", file: "battle_anims.lua", editable: true, build: (f) => ({ moves: structuredClone((f as { moves?: Record<string, string> }).moves ?? {}) }) },
   // status numbers the battle and catching read off the merged records
   // (gen1recomp src/battle/gen2/Battle.lua STATUSES; patched, the records carry code)
   { registry: "statuses", editable: true, build: () => structuredClone(GOLD_STATUSES) },
@@ -240,6 +244,9 @@ function typeChartRecords(file: Record<string, unknown>): Record<string, unknown
 const palettes = (ctx: GameContext) => (ctx.data.extra.palettes ?? {}) as Palettes;
 // event flags the game's data uses (see load)
 const usedFlags = new Set<number>();
+// the event flags a new game starts with set (initial_events.lua): people with
+// one of them are hidden until a script shows them (see load)
+const startFlags = new Set<number>();
 // scripts.lua (decoded script rows by pointer) and the texts each script
 // shows, worked out on first ask (scriptTexts)
 let scriptRows: Record<string, unknown> = {};
@@ -457,7 +464,20 @@ const moves: MoveSpec = {
   description: { lines: 2, lineMax: 18 },
   // gen1recomp Battle.lua reads accuracyRaw / effectChanceRaw first
   rawBytes: { accuracy: "accuracyRaw", effectChance: "effectChanceRaw" },
-  newMoves: false,
+  animTable: { registry: "battle_anims", id: "moves" },
+  // a copy has no number (Gold's battle, party and TMs go by move id) and plays its
+  // source's animation: battle_anims "moves" maps a move id to a script pointer
+  moveExtras: (sourceId, newId, ctx) => {
+    const table = recordsOf(ctx, "battle_anims").moves as Record<string, unknown> | undefined;
+    return table?.[sourceId] !== undefined ? [{ registry: "battle_anims", id: "moves", value: { ...table, [newId]: table[sourceId] } }] : [];
+  },
+  dropMoveExtras: (id, ctx) => {
+    const table = recordsOf(ctx, "battle_anims").moves as Record<string, unknown> | undefined;
+    if (table?.[id] === undefined) return [];
+    const rest = { ...table };
+    delete rest[id];
+    return [{ registry: "battle_anims", id: "moves", value: rest }];
+  },
   // studio_effects.lua -> src/lua/effectRuntime2.ts (Gold's record shapes)
   custom: {
     registry: "studio_effects",
@@ -509,7 +529,13 @@ const items: ItemSpec = {
   internal: (id, item) => (item?.name === "TERU-SAMA" || /^ITEM_[0-9A-F]{2}$/.test(id) ? "An unused item slot of the game (named TERU-SAMA)." : null),
   picksMove: gen2PicksMove,
   marts: () => [],
-  newItems: false,
+  // Gold's items are numbered 1-250; 251-254 are free (0 = none, 255 ends a list)
+  newIndex: (ctx) => {
+    const used = new Set(Object.values(recordsOf(ctx, "items")).map((r) => r.index));
+    for (let n = 251; n <= 254; n++) if (!used.has(n)) return n;
+    return undefined;
+  },
+  noIndex: "Gold's free item numbers (251-254) are used up: this item has no number, so item balls, hidden items and give-item commands can't hand it out. It works in shops, the bag, as a held item and in trainer AI.",
   // pocketId order (constants/item_constants.asm)
   pockets: ["ITEM", "KEY_ITEM", "BALL", "TM_HM"],
   description: { lines: 2, lineMax: 18 },
@@ -1000,6 +1026,18 @@ export const gen2: GameAdapter = {
   },
   // Game2:continueGame on the picked cell (src/lua/playRuntime.ts)
   playtestMain: playtestMain2,
+  scenes: {
+    list: (map) => scenesOf(map, scriptRows),
+    withScripts: scenesWithScripts,
+    names: sceneNames,
+    setName: setSceneName,
+    blocksIn: blocksInScene,
+    changedBlocks: (map, n) => sceneBlocks(map).get(n)?.size ?? 0,
+    setBlock: setSceneBlock,
+    clearBlocks: clearSceneBlocks,
+    script: sceneScriptOf,
+    setScript: setSceneScript,
+  },
   // new species: their Pokédex entries (the #DEX lists only pokedex.lua's, ISSUES #11)
   saveHelpers: (edited, bases) => (Object.keys(edited.pokemon ?? {}).some((id) => edited.pokemon[id] && !bases.pokemon?.[id]) ? DEX_RUNTIME2 : ""),
 
@@ -1073,6 +1111,8 @@ export const gen2: GameAdapter = {
     // every event flag the game's data names (map people, scripts, new-game
     // flags): a studio trainer's "beaten" flag must be none of them
     usedFlags.clear();
+    startFlags.clear();
+    for (const f of asList((initial as { flags?: unknown }).flags) as number[]) startFlags.add(f);
     for (const src of [maps, scripts, initial]) {
       JSON.stringify(src, (k, v: unknown) => {
         if ((k === "event" || k === "eventFlag" || k === "flag") && typeof v === "number" && v < 0xffff) usedFlags.add(v);
@@ -1219,6 +1259,7 @@ export const gen2: GameAdapter = {
           },
         },
         { kind: "int", key: "eventFlag", label: "Event flag", min: 0, max: 65535, hint: "Hidden while this event flag is set; 65535 = always there" },
+        { kind: "info", label: "When it's there", text: (map, i) => visibilityNote(map, Number((asList(map.objects)[i] as { index?: number } | undefined)?.index ?? i), scriptRows, startFlags) },
         { kind: "select", key: "palette", label: "Colors", numeric: true, options: () => ["0", ...OW_PALETTES.map((_, i) => String(8 + i))], labels: (v) => (v === "0" ? "The sprite's own" : OW_PALETTES[Number(v) - 8]?.toLowerCase()) },
         { kind: "extras", label: "Other fields", hint: "type, sight range, item, script number (cart data)" },
       ],
@@ -1245,7 +1286,9 @@ export const gen2: GameAdapter = {
         const id = typeof o.sprite === "string" ? o.sprite
           : (always && !v.own.get(mapId)?.has(slot) ? v.later.get(slot) : undefined) ?? v.start.get(slot);
         const move = Number(o.movement);
-        return id ? { sprite: id, facing: FACING[move] ?? "down", ghost: false, moving: WALKS.has(move) } : null;
+        // hidden at the start of a new game (its flag is set): it only appears through a script
+        const ghost = !always && startFlags.has(Number(o.eventFlag));
+        return id ? { sprite: id, facing: FACING[move] ?? "down", ghost, moving: WALKS.has(move) } : null;
       },
     },
     {
@@ -1274,11 +1317,16 @@ export const gen2: GameAdapter = {
       singular: "Step trigger",
       color: "#ff7a45",
       fields: [
-        { kind: "int", key: "sceneId", label: "Scene", min: 0, max: 255, hint: "Runs only while the map is in this scene" },
+        {
+          kind: "select", key: "sceneId", label: "Scene", numeric: true, hint: "Runs only while the map is in this scene (the map's Scenes card and the toolbar's Scene menu)",
+          options: (_ctx, map) => (map ? scenesOf(map, scriptRows) : [0]).map(String),
+          labels: (v, _ctx, map) => { const name = map ? sceneNames(map)[v] : undefined; return `Scene ${v}${v === "0" ? " (start)" : ""}${name ? ` · ${name}` : ""}`; },
+        },
         scriptField("coordEvents", "Stepping on it", "What happens: one of the scripts of the step triggers here."),
         { kind: "extras", label: "Other fields" },
       ],
-      create: (_map, x, y) => ({ x, y, sceneId: 0 }),
+      // a new trigger belongs to the scene the map is shown in
+      create: (_map, x, y, ctx) => ({ x, y, sceneId: ctx.scene ?? 0 }),
     },
   ],
 

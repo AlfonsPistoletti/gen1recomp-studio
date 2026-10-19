@@ -451,6 +451,83 @@ for (const [registry, records] of Object.entries(edited)) {
   check("field helpers load in the studio", ran.errors.length === 0, ran.errors.join("; "));
 }
 
+// scenes: Elm's lab's scenes, per-scene block layouts in an own TILES callback
+// that gives the game's key back once empty
+{
+  const sc = await import("../src/games/gen2/scenes.ts");
+  const scripts = (project.data.extra as { scripts?: Record<string, unknown> }).scripts ?? {};
+  const lab = clone(base.ELMS_LAB);
+  const scenes = sc.scenesOf(lab, scripts);
+  check("Elm's lab scenes", [0, 1, 2, 3].every((n) => scenes.includes(n)), scenes.join(","));
+  const tilesMap = Object.keys(base).find((id) => ((base[id] as unknown as { callbacks?: { callback?: string }[] }).callbacks ?? []).some((c) => c.callback === "MAPCALLBACK_TILES"))!;
+  for (const id of [tilesMap, "ELMS_LAB"]) {
+    const m = clone(base[id]);
+    const before = JSON.stringify((m as unknown as { callbacks?: unknown }).callbacks);
+    const other = m.blocks[1] === 7 ? 8 : 7;
+    sc.setSceneBlock(m, 2, 1, 0, other);
+    sc.setSceneBlock(m, 3, 0, 0, other);
+    check(`${id}: scene 2 shows its block`, sc.blocksInScene(m, 2)[1] === other && sc.blocksInScene(m, 0)[1] === m.blocks[1]);
+    sc.setSceneBlock(m, 2, 1, 0, m.blocks[1]);
+    sc.clearSceneBlocks(m, 3);
+    check(`${id}: back to the game's callbacks`, JSON.stringify((m as unknown as { callbacks?: unknown }).callbacks) === before, `${before} / ${JSON.stringify((m as unknown as { callbacks?: unknown }).callbacks)}`.slice(0, 300));
+  }
+}
+
+// scene event commands: Set scene, Set another map's scene, If this map's scene is
+{
+  const { compile: gcompile, parse: gparse } = await import("../src/games/gen2/events.ts");
+  const ctx = { data: project.data, maps: base, records: {} };
+  const blocks = [
+    { t: "cmd", row: ["setscene", 2] },
+    { t: "cmd", row: ["setmapscene", "ELMS_LAB", 1] },
+    { t: "if", cond: ["checkscene", 3], not: false, then: [{ t: "cmd", row: ["writetext", "T_A"] }], else: [{ t: "cmd", row: ["writetext", "T_B"] }] },
+  ];
+  const rows = gcompile(blocks as never, ctx) as unknown as Record<string, unknown>[];
+  const flat = JSON.stringify(rows);
+  check("scene commands compile", flat.includes('"op":"setscene","scene":2') && flat.includes('"op":"setmapscene","group":24,"map":5,"scene":1') && flat.includes('"op":"checkscene"') && flat.includes('"op":"ifequal","value":3'), flat.slice(0, 300));
+  const back = JSON.stringify(gparse(rows as never, ctx));
+  check("scene commands parse back", back === JSON.stringify(blocks), back.slice(0, 400));
+}
+
+// people the game hides at the start: Olivine's rival (flag 1731, set in a new
+// game) is drawn faded, and the inspector says what shows and hides him
+{
+  const ctx = { data: project.data, maps: base, records: {} };
+  const layer = adapter.layers.find((l) => l.key === "objects")!;
+  const map = base.OLIVINE_CITY;
+  const objs = map.objects as unknown as { index: number; eventFlag?: number }[];
+  const at = objs.findIndex((o) => o.eventFlag === 1731);
+  const ref = layer.sprite!(objs[at] as never, "OLIVINE_CITY");
+  check("Olivine's rival is faded (hidden at the start)", at >= 0 && ref?.ghost === true && layer.sprite!(objs[0] as never, "OLIVINE_CITY")?.ghost === false);
+  const info = layer.fields.find((f) => f.kind === "info") as { text(m: unknown, i: number, c: unknown): string | null } | undefined;
+  const note = info?.text(map, at, ctx) ?? "";
+  check("the rival's note names the start flag and the scene 0 triggers", note.includes("flag 1731 is set in a new game") && note.includes("Shown by: step trigger 13, 12 (scene 0)") && note.includes("Hidden by:"), note);
+  check("a plain person has no note", info?.text(map, 0, ctx) === null);
+}
+
+// new moves and items: a copied move borrows its source's animation, a copied
+// item takes a free number (251-254) and its source's effect as its own
+{
+  const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
+  const move: Rec = { ...(clone(content.moves.TACKLE) as Rec), id: "STUDIO_BASH", name: "BASH" };
+  delete move.index;
+  delete move.source;
+  const mx = adapter.moves!.moveExtras!("TACKLE", "STUDIO_BASH", ctx);
+  check("new move borrows the animation", mx.length === 1 && (mx[0].value as Rec).STUDIO_BASH === (content.battle_anims.moves as Rec).TACKLE, JSON.stringify(mx.map((x) => x.id)));
+  const items = adapter.items!;
+  const index = items.newIndex!(ctx);
+  check("new item gets number 251", index === 251, String(index));
+  const item: Rec = { ...(clone(content.items.POTION) as Rec), id: "STUDIO_TONIC", name: "TONIC", index };
+  delete item.source;
+  const edits: Record<string, Rec> = { moves: { STUDIO_BASH: move }, items: { STUDIO_TONIC: item }, battle_anims: { moves: mx[0].value as Rec } };
+  const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, ...edits });
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("new move and item registered, animation patched", src.includes('moves:register("STUDIO_BASH"') && src.includes('items:register("STUDIO_TONIC"') && /battle_anims:patch\("moves", \{\s+STUDIO_BASH = "/.test(src) && !src.includes("assets/generated"), src.split("\n").filter((l) => /register|battle_anims/.test(l)).join(" | "));
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, src]]), "studio_selftest", f, null);
+  check("new move and item file runs", ran.errors.length === 0, ran.errors.join("; "));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);
 

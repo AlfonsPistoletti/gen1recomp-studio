@@ -12,6 +12,7 @@ import { TILESET_RUNTIME2, tilesetRegistration2 } from "../../lua/tilesetRuntime
 import { GEN2_EVENTS } from "./events.ts";
 import { setWeekdays, WEEKDAYS, weekdaysOf } from "./weekdays.ts";
 import { visibilityNote } from "./visibility.ts";
+import { GEN2_IMAGES } from "./images.ts";
 import { blocksInScene, clearSceneBlocks, scenesWithScripts, sceneBlocks, sceneNames, sceneScriptOf, scenesOf, setSceneBlock, setSceneName, setSceneScript } from "./scenes.ts";
 import { gen2EffectTemplate, gen2EffectText, GEN2_STATS, GEN2_STATUSES } from "./moveEffects.ts";
 import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
@@ -22,7 +23,7 @@ import type { GameGift } from "../../project/gameEvents.ts";
 import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
 import { giftRegistration2, STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
 import { TRADE_RUNTIME2, tradeRegistration2 } from "../../lua/tradeRuntime2.ts";
-import { FIELD_RUNTIME2, hmBadgeRegistration2, slotRegistration2 } from "../../lua/fieldRuntime2.ts";
+import { FIELD_RUNTIME2, hmBadgeRegistration2, slotRegistration2, townMapRegistration2 } from "../../lua/fieldRuntime2.ts";
 import { INTRO_RUNTIME } from "../../lua/introRuntime.ts";
 import { INTRO_TEXT_RUNTIME2, introRegistration2, introTextRegistration2 } from "../../lua/introRuntime2.ts";
 import { GEN2_EXP_STATS, GEN2_ITEM_STATUSES, gen2ItemTemplate, gen2ItemText, gen2PicksMove, gen2SpecialItem } from "./items.ts";
@@ -122,7 +123,7 @@ const content: ContentSpec[] = [
   // palettes.lua subtables are the registry's ids (trainers, pokemon, ...);
   // the studio edits trainers (a new class's portrait colors)
   // trainers[class] / pokemon[species] colors: a copied class or species takes its source's
-  { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => (k === "trainers" || k === "pokemon") && !!v && typeof v === "object")) },
+  { registry: "palettes", file: "palettes.lua", editable: true, build: (f) => Object.fromEntries(Object.entries(f).filter(([k, v]) => (k === "trainers" || k === "pokemon" || k === "bg" || k === "environments") && !!v && typeof v === "object")) },
   // sprites (filled from Dataset.sprites in load): the game's art is replaced
   // by patching `image`, the mod's own are registered whole
   { registry: "sprites", editable: true, build: () => ({}), fieldOrder: ["id", "image", "frames", "walker", "spriteType", "palette", "paletteId", "trueColor"] },
@@ -151,6 +152,16 @@ const content: ContentSpec[] = [
     build: (f) => Object.fromEntries(Object.entries((f as { text?: Record<string, unknown> }).text ?? {}).filter(([, v]) => typeof v === "string")),
     generator: { what: "Oak's speech texts", order: [], runtime: INTRO_TEXT_RUNTIME2, registration: introTextRegistration2, writes: [] },
   },
+  // the Town Map: places (the landmarks registry) and the regions' tile grids
+  // (menu_gfx.lua pokegear.maps, set by a helper: no registry reaches them)
+  { registry: "landmarks", file: "landmarks.lua", editable: true, build: (f) => structuredClone((f as { landmarks?: Record<string, unknown> }).landmarks ?? {}) },
+  {
+    registry: "studio_townmap", file: "menu_gfx.lua", editable: true, studioFile: "studio_townmap.lua",
+    build: (f) => structuredClone((f as { pokegear?: { maps?: Record<string, unknown> } }).pokegear?.maps ?? {}),
+    generator: { what: "Town Map tiles", order: [], runtime: FIELD_RUNTIME2, registration: townMapRegistration2, writes: [] },
+  },
+  // replaced game images: files in mods/<id>/overrides/ (not registry calls)
+  { registry: "image_overrides", editable: true, build: () => ({}), files: true },
   // move animations: only "moves" (move id -> script pointer); a new move borrows one
   { registry: "battle_anims", file: "battle_anims.lua", editable: true, build: (f) => ({ moves: structuredClone((f as { moves?: Record<string, string> }).moves ?? {}) }) },
   // status numbers the battle and catching read off the merged records
@@ -402,10 +413,12 @@ const pokemon: PokemonSpec = {
   // Gold's 48x48 back pics fill their box at 1x (docs/mod-api-gen2-compat.md)
   battleScale: { front: 1, back: 1, choices: [1, 1.5, 2] },
   // palettes.lua pokemon[id].normal: the two middle colors between white and black
-  monColors: (ctx, id) => {
+  colorPairs: { registry: "palettes", id: "pokemon" },
+  monColors: (ctx, id, shiny) => {
     // the live record first: a new species' colors are only there
-    type MonPal = Record<string, { normal?: [number, number, number][] }>;
-    const pair = ((recordsOf(ctx, "palettes").pokemon as MonPal | undefined)?.[id] ?? (palettes(ctx) as { pokemon?: MonPal }).pokemon?.[id])?.normal;
+    type MonPal = Record<string, { normal?: [number, number, number][]; shiny?: [number, number, number][] }>;
+    const pal = (recordsOf(ctx, "palettes").pokemon as MonPal | undefined)?.[id] ?? (palettes(ctx) as { pokemon?: MonPal }).pokemon?.[id];
+    const pair = shiny ? pal?.shiny : pal?.normal;
     return pair?.length === 2 ? [[255, 255, 255], pair[0], pair[1], [0, 0, 0]].map((c) => [c[0], c[1], c[2]] as Rgb) : null;
   },
   // menu icons are the icons registry: species -> ICON_* sheet name
@@ -737,6 +750,7 @@ const trainers: TrainerSpec = {
     return out;
   },
   // palettes.lua trainers[class]: the two middle colors between white and black
+  colorPairs: { registry: "palettes", id: "trainers" },
   picColors: (ctx, classId) => {
     // the palettes registry (a mod's new class has its own entry), else the file's
     const own = recordsOf(ctx, "palettes").trainers as Record<string, [number, number, number][]> | undefined;
@@ -991,7 +1005,24 @@ export const gen2: GameAdapter = {
     scriptTextMemo.set(key, list);
     return list;
   },
-  graphicsViews: ["tilesets", "sprites"],
+  graphicsViews: ["tilesets", "sprites", "images", "palettes", "townmap"],
+  // gen1recomp Pokegear:region: from PALLET_TOWN's number on it is Kanto, the FAST_SHIP excepted
+  townMap2: {
+    landmarks: "landmarks", grids: "studio_townmap", sheet: "assets/generated/pokegear/gear.png", nameMax: 11,
+    regionOf: (ctx, id) => {
+      const all = recordsOf(ctx, "landmarks") as Record<string, { index?: number }>;
+      const n = Number(all[id]?.index ?? 0);
+      const pallet = Number(all.LANDMARK_PALLET_TOWN?.index ?? 0x2e);
+      const ship = Number(all.LANDMARK_FAST_SHIP?.index ?? 0x5e);
+      return n !== ship && n >= pallet ? "kanto" : "johto";
+    },
+    // Pokegear:colorsFor (TownMapPals): a nybble per tile id below $60, palette 0 from there
+    colors: (ctx) => {
+      const c = ctx.data.extra.pokegearColors as { palMap: number[]; palettes: [number, number, number][][] } | undefined;
+      return c?.palettes.length ? { ...c, fontFrom: 0x60 } : null;
+    },
+  },
+  images: GEN2_IMAGES,
   // gen1recomp Schemas sprites.gen2Fields: spriteType, palette + paletteId (0-7)
   spriteModel: {
     types: { walker: "WALKING_SPRITE", turner: "STANDING_SPRITE", object: "STILL_SPRITE" },
@@ -1153,7 +1184,8 @@ export const gen2: GameAdapter = {
     type TradeTables = { tradeTexts?: Record<string, unknown>; tradeBuffers?: Record<string, unknown> };
     const eventsFile = tables[content.findIndex((c) => c.registry === "studio_trades")] as TradeTables | undefined;
     const tradeIntro = { texts: eventsFile?.tradeTexts?.TRADE_DIALOG_INTRO ?? {}, buffers: eventsFile?.tradeBuffers?.TRADE_DIALOG_INTRO ?? {} };
-    const menuGfx = await (read("menu_gfx.lua") as Promise<{ battleHud?: { trainerPics?: Record<string, string> } }>).catch(() => ({}) as { battleHud?: { trainerPics?: Record<string, string> } });
+    type MenuGfx = { battleHud?: { trainerPics?: Record<string, string> }; pokegear?: { palMap?: unknown; palettes?: unknown } };
+    const menuGfx = await (read("menu_gfx.lua") as Promise<MenuGfx>).catch(() => ({}) as MenuGfx);
     type Dex = { newOrder?: string[]; entries?: Record<string, { kind?: string; height?: number; weight?: number; text?: string; text2?: string }> };
     const pokedex = await (read("pokedex.lua") as Promise<Dex>).catch(() => ({}) as Dex);
     const contentTables: Dataset["content"] = {};
@@ -1180,7 +1212,7 @@ export const gen2: GameAdapter = {
     return {
       maps, tilesets, sprites, content: contentTables,
       extra: {
-        palettes: pal, roofs, tradeIntro, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists),
+        palettes: pal, roofs, tradeIntro, pokegearColors: { palMap: asList(menuGfx.pokegear?.palMap), palettes: asList(menuGfx.pokegear?.palettes).map((p) => asList(p)) }, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists),
         sfxOrder: asList(lists.sfxOrder), musicOrder: asList(lists.musicOrder), specialOrder: asList(lists.specialOrder),
         // the game's scripts, shown read-only (and copied) in Events
         scripts,
@@ -1364,6 +1396,12 @@ export const gen2: GameAdapter = {
   },
 
   times: [{ key: "MORN", label: "Morning" }, { key: "DAY", label: "Day" }, { key: "NITE", label: "Night" }],
+  bgPalettes: {
+    registry: "palettes", id: "bg",
+    envsId: "environments",
+    envs: (ctx) => (recordsOf(ctx, "palettes").environments as unknown as Record<string, Record<string, number[]>> | undefined) ?? palettes(ctx).environments ?? {},
+    times: [{ key: "MORN", label: "Morning" }, { key: "DAY", label: "Day" }, { key: "NITE", label: "Night" }, { key: "DARK", label: "Dark (before Flash)" }],
+  },
   // one key per environment, map group (the roof colors) and time of day
   paletteKeys(ctx) {
     const out: Record<string, string> = {};
@@ -1377,9 +1415,12 @@ export const gen2: GameAdapter = {
   tileColors(ctx, tileset, key) {
     const p = palettes(ctx);
     const [env, group, time = "DAY"] = key.split("|");
-    const row = p.environments?.[env] ?? p.environments?.TOWN;
+    const envs = (recordsOf(ctx, "palettes").environments as unknown as typeof p.environments) ?? p.environments;
+    const row = envs?.[env] ?? envs?.TOWN;
     const ids = row?.[time] ?? row?.DAY ?? [];
-    const set = Array.from({ length: 8 }, (_, slot) => (p.bg?.[(ids[slot] ?? 1) - 1] ?? MONO).map((c) => [c[0], c[1], c[2]] as Rgb));
+    // the mod's colors (Graphics > Palettes), else the game's
+    const bg = (recordsOf(ctx, "palettes").bg as unknown as [number, number, number][][] | undefined) ?? p.bg;
+    const set = Array.from({ length: 8 }, (_, slot) => (bg?.[(ids[slot] ?? 1) - 1] ?? MONO).map((c) => [c[0], c[1], c[2]] as Rgb));
     const roofs = p.roofs?.[group];
     const roof = env === "TOWN" || env === "ROUTE" ? (time === "NITE" ? roofs?.nite : roofs?.mornDay) : undefined;
     const roofSlot = (p.roofSlot ?? 7) - 1;

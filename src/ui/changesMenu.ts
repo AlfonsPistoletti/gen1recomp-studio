@@ -62,6 +62,10 @@ interface Change {
   // one entry of a record that maps ids to values (Gen 2's move animations):
   // the game's value of that entry (undefined: the entry is new)
   part?: { base: unknown };
+  // what the line says and opens, and what DIFFERENCES.md writes for a change
+  label?: string;
+  open?: () => void;
+  note?: string;
 }
 
 // records listed per changed entry instead of as one: Gen 2's move -> animation table
@@ -75,6 +79,7 @@ function splitRecord(registry: string, id: string): boolean {
 // settings" (the constants group) whatever registry stores it
 function grouped(): [string, Change[]][] {
   const groups = new Map<string, Change[]>();
+  let mapColors = false;
   for (const [registry, records] of Object.entries(store.changed())) {
     for (const id of Object.keys(records).sort()) {
       const group = globalLabelOf(registry, id) ? "constants" : registry;
@@ -83,12 +88,54 @@ function grouped(): [string, Change[]][] {
         const cur = (records[id] ?? {}) as Record<string, unknown>;
         const base = (store.baseTable(registry)[id] ?? {}) as Record<string, unknown>;
         for (const k of [...new Set([...Object.keys(cur), ...Object.keys(base)])].sort()) {
-          if (cur[k] !== base[k]) groups.get(group)!.push({ registry, id: k, record: k in cur ? cur[k] : null, part: { base: base[k] } });
+          if (cur[k] !== base[k]) groups.get(group)!.push({ registry, id: k, record: k in cur ? cur[k] : null, part: { base: base[k] }, note: "plays another move's animation" });
         }
         continue;
       }
+      // Gen 2's palettes: map colors per environment and time, colors per trainer / species
+      const bp = store.adapter?.bgPalettes;
+      if (bp && registry === bp.registry) {
+        if (id === bp.id || id === bp.envsId) {
+          mapColors = true;
+          continue;
+        }
+        if (id === "trainers" || id === "pokemon") {
+          const cur = (records[id] ?? {}) as Record<string, unknown>;
+          const base = (store.baseTable(registry)[id] ?? {}) as Record<string, unknown>;
+          for (const k of [...new Set([...Object.keys(cur), ...Object.keys(base)])].sort()) {
+            if (JSON.stringify(cur[k]) === JSON.stringify(base[k])) continue;
+            // a new class's / species' colors came with it: its own "new" line covers them
+            const owner = id === "trainers" ? "trainers" : "pokemon";
+            if (base[k] === undefined && store.table(owner)[k] !== undefined && store.baseTable(owner)[k] === undefined) continue;
+            const open = id === "trainers" ? (store.table("trainers")[k] ? () => nav.openTrainer(k) : undefined) : store.table("pokemon")[k] ? () => nav.openPokemon(k) : undefined;
+            groups.get(group)!.push({ registry, id: k, record: k in cur ? cur[k] : null, part: { base: base[k] }, label: `${k} · colors`, open, note: base[k] === undefined ? "new colors" : "colors changed" });
+          }
+          continue;
+        }
+      }
       groups.get(group)!.push({ registry, id, record: records[id] });
     }
+  }
+  // the environments and times whose map colors differ from the game's
+  const bp = store.adapter?.bgPalettes;
+  if (bp && mapColors) {
+    const cur = (store.table(bp.registry)[bp.id] ?? []) as unknown[];
+    const base = (store.baseTable(bp.registry)[bp.id] ?? []) as unknown[];
+    const envs = bp.envs(store.ctx);
+    const baseEnvs = (store.baseTable(bp.registry)[bp.envsId] ?? {}) as Record<string, Record<string, number[]>>;
+    const list = groups.get(bp.registry) ?? [];
+    for (const env of Object.keys(envs).sort()) {
+      for (const t of bp.times) {
+        const ids = envs[env]?.[t.key];
+        if (!ids) continue;
+        const moved = JSON.stringify(ids) !== JSON.stringify(baseEnvs[env]?.[t.key]);
+        const recolored = ids.some((n) => JSON.stringify(cur[n - 1]) !== JSON.stringify(base[n - 1]));
+        if (!moved && !recolored) continue;
+        const key = `${env}|${t.key}`;
+        list.push({ registry: bp.registry, id: key, record: true, part: { base: true }, label: `${env} · ${t.label}`, open: () => nav.openPalette(key), note: moved ? "own palettes" : "colors changed" });
+      }
+    }
+    if (list.length) groups.set(bp.registry, list);
   }
   const order = Object.keys(NAMES);
   const rank = (r: string) => (order.includes(r) ? order.indexOf(r) : order.length);
@@ -155,8 +202,25 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     case "text":
     case "rom_text":
       return removed ? null : () => nav.openText(id, registry);
-    case "palettes":
+    case "palettes": {
+      // Gen 2: the bg palettes open the first environment / time they changed
+      const bp = store.adapter?.bgPalettes;
+      if (bp && (id === bp.id || id === bp.envsId)) {
+        const cur = (store.table(bp.registry)[bp.id] ?? []) as unknown[];
+        const base = (store.baseTable(bp.registry)[bp.id] ?? []) as unknown[];
+        const envs = bp.envs(store.ctx);
+        const hit = Object.keys(envs).sort().flatMap((e) => bp.times.map((t) => `${e}|${t.key}`)).find((k) => {
+          const [e, t] = k.split("|");
+          return (envs[e]?.[t] ?? []).some((n) => JSON.stringify(cur[n - 1]) !== JSON.stringify(base[n - 1]));
+        });
+        return () => nav.openPalette(hit ?? "TOWN|DAY");
+      }
+      if (bp) return null;
       return store.table("palettes")[id] ? () => nav.openPalette(id) : null;
+    }
+    case "landmarks":
+    case "studio_townmap":
+      return () => nav.openTownMap();
     case "image_overrides":
       return () => nav.openImage(id);
     case "sprites":
@@ -222,10 +286,10 @@ export function differencesMarkdown(modName: string): string {
   for (const [group, changes] of groups) {
     const [heading] = NAMES[group] ?? [group];
     lines.push(`## ${heading}`, "");
-    for (const { registry, id, record, part } of changes) {
+    for (const { registry, id, record, part, label, note } of changes) {
       const base = store.baseTable(registry);
-      const name = globalLabelOf(registry, id) ?? displayName(record, id, registry);
-      if (part) lines.push(`- ${name}: ${part.base === undefined ? "new" : record === null ? "removed" : "plays another move's animation"}`);
+      const name = label ?? globalLabelOf(registry, id) ?? displayName(record, id, registry);
+      if (part) lines.push(`- ${name}: ${part.base === undefined ? "new" : record === null ? "removed" : note ?? "changed"}`);
       else if (record === null) lines.push(`- ${name}: removed`);
       else if (!(id in base) && !globalLabelOf(registry, id)) lines.push(`- ${name}: new`);
       else {
@@ -261,12 +325,12 @@ export function mountChangesMenu(): HTMLElement {
     for (const [group, changes] of groups) {
       const [heading] = NAMES[group] ?? [group];
       panel.append(h("div", { class: "menu-head" }, h("span", {}, heading), h("span", { class: "muted" }, String(changes.length))));
-      for (const { registry, id, record, part } of changes) {
+      for (const { registry, id, record, part, label, open: own } of changes) {
         const removed = record === null;
-        const global = globalLabelOf(registry, id);
+        const global = label ?? globalLabelOf(registry, id);
         // global settings always exist in the game, even when the dataset omits a default
         const added = !removed && !global && (part ? part.base === undefined : !(id in store.baseTable(registry)));
-        const open = opener(registry, id, removed);
+        const open = label ? own ?? null : opener(registry, id, removed);
         panel.append(
           h(
             "button",

@@ -405,6 +405,9 @@ export interface TrainerSpec {
   // a class's portrait colors (lightest first) when the game has its own
   // per-class palettes (Gen 2) instead of the palettes registry
   picColors?(ctx: GameContext, classId: string): Rgb[] | null;
+  // Gen 2: a class's portrait colors are a record of the class id -> its two
+  // middle colors (light, dark; white and black around them), edited in place
+  colorPairs?: { registry: string; id: string };
 }
 
 // ------------------------------------------------------------------ globals
@@ -514,7 +517,10 @@ export interface PokemonSpec {
   heldItems?: boolean;
   // battle pic colors from the game's per-species palettes (lightest first);
   // unset: the palettes registry and the Colors choice
-  monColors?(ctx: GameContext, id: string): Rgb[] | null;
+  monColors?(ctx: GameContext, id: string, shiny?: boolean): Rgb[] | null;
+  // Gen 2: a record of species id -> { normal, shiny } two middle colors each
+  // (light, dark), edited in place
+  colorPairs?: { registry: string; id: string };
   // a regional Pokédex besides the national one (Gen 2: Johto), species in order
   regionalDex?: { label: string; order(ctx: GameContext): string[] };
   // the Pokédex entry is stored in the record itself (Gen 2: dexEntry
@@ -855,6 +861,31 @@ export interface GameAdapter {
     // what entering the map in scene n runs (a game key, inline rows, nothing)
     script(map: MapDef, n: number): unknown;
     setScript(map: MapDef, n: number, script: unknown): void;
+  };
+  // Gen 2's Town Map (Graphics > Town Map, townMapEditor2.ts): the landmarks
+  // registry (name, pixel x/y), the registry of the regions' 20x18 tile grids
+  // (record per region), the tile sheet, and which region a landmark is on
+  townMap2?: {
+    landmarks: string;
+    grids: string;
+    sheet: string;
+    nameMax: number;
+    regionOf(ctx: GameContext, landmarkId: string): "johto" | "kanto";
+    // the sheet's colors: a palette number per tile (1-based), the palettes
+    // (4 colors, lightest first); tiles from `fontFrom` on use the first
+    colors(ctx: GameContext): { palMap: number[]; palettes: [number, number, number][][]; fontFrom: number } | null;
+  };
+  // Gen 2's map colors (Graphics > Palettes): one record holds every bg palette
+  // (4 colors, lightest first); an environment picks 8 of them per time of day
+  // (1-based ids). Unset: Gen 1's named palettes.
+  bgPalettes?: {
+    registry: string;
+    id: string;
+    // the record holding the environments' palette numbers (editable: an
+    // environment can get its own copy of a shared palette)
+    envsId: string;
+    envs(ctx: GameContext): Record<string, Record<string, number[]>>;
+    times: { key: string; label: string }[];
   };
   // fixed Lua the save writes into studio_content.lua for the mod's edits
   // (Gen 2: Pokédex entries for new species); "" = none

@@ -29,6 +29,25 @@ export function hmBadgeRegistration2(modId: string, file: string): string {
   end`;
 }
 
+// the Town Map's tile grids: data.gen2MenuGfx.pokegear.maps[region] (Pokegear
+// reads them when it opens; plain data, no require)
+export function townMapRegistration2(modId: string, file: string): string {
+  const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
+  return String.raw`
+  -- studio Town Map (Gen 2): the regions' tile grids
+  do
+    local grids = require(${JSON.stringify(module)})
+    mod.events:on("game.ready", function(ev)
+      local gfx = ev and ev.game and ev.game.data and ev.game.data.gen2MenuGfx
+      local maps = gfx and gfx.pokegear and gfx.pokegear.maps
+      if type(maps) ~= "table" then return end
+      for region, grid in pairs(grids) do
+        if type(grid) == "table" then maps[region] = grid end
+      end
+    end)
+  end`;
+}
+
 export function slotRegistration2(modId: string, file: string): string {
   const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
   return String.raw`

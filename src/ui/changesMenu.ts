@@ -59,6 +59,15 @@ interface Change {
   registry: string;
   id: string;
   record: unknown; // null: removed
+  // one entry of a record that maps ids to values (Gen 2's move animations):
+  // the game's value of that entry (undefined: the entry is new)
+  part?: { base: unknown };
+}
+
+// records listed per changed entry instead of as one: Gen 2's move -> animation table
+function splitRecord(registry: string, id: string): boolean {
+  const t = store.adapter?.moves?.animTable;
+  return !!t && t.registry === registry && t.id === id;
 }
 
 // the changed records in display groups: one per registry, except that
@@ -70,6 +79,14 @@ function grouped(): [string, Change[]][] {
     for (const id of Object.keys(records).sort()) {
       const group = globalLabelOf(registry, id) ? "constants" : registry;
       if (!groups.has(group)) groups.set(group, []);
+      if (splitRecord(registry, id)) {
+        const cur = (records[id] ?? {}) as Record<string, unknown>;
+        const base = (store.baseTable(registry)[id] ?? {}) as Record<string, unknown>;
+        for (const k of [...new Set([...Object.keys(cur), ...Object.keys(base)])].sort()) {
+          if (cur[k] !== base[k]) groups.get(group)!.push({ registry, id: k, record: k in cur ? cur[k] : null, part: { base: base[k] } });
+        }
+        continue;
+      }
       groups.get(group)!.push({ registry, id, record: records[id] });
     }
   }
@@ -205,10 +222,11 @@ export function differencesMarkdown(modName: string): string {
   for (const [group, changes] of groups) {
     const [heading] = NAMES[group] ?? [group];
     lines.push(`## ${heading}`, "");
-    for (const { registry, id, record } of changes) {
+    for (const { registry, id, record, part } of changes) {
       const base = store.baseTable(registry);
       const name = globalLabelOf(registry, id) ?? displayName(record, id, registry);
-      if (record === null) lines.push(`- ${name}: removed`);
+      if (part) lines.push(`- ${name}: ${part.base === undefined ? "new" : record === null ? "removed" : "plays another move's animation"}`);
+      else if (record === null) lines.push(`- ${name}: removed`);
       else if (!(id in base) && !globalLabelOf(registry, id)) lines.push(`- ${name}: new`);
       else {
         const fields = changedFields(base[id], record);
@@ -243,11 +261,11 @@ export function mountChangesMenu(): HTMLElement {
     for (const [group, changes] of groups) {
       const [heading] = NAMES[group] ?? [group];
       panel.append(h("div", { class: "menu-head" }, h("span", {}, heading), h("span", { class: "muted" }, String(changes.length))));
-      for (const { registry, id, record } of changes) {
+      for (const { registry, id, record, part } of changes) {
         const removed = record === null;
         const global = globalLabelOf(registry, id);
         // global settings always exist in the game, even when the dataset omits a default
-        const added = !removed && !global && !(id in store.baseTable(registry));
+        const added = !removed && !global && (part ? part.base === undefined : !(id in store.baseTable(registry)));
         const open = opener(registry, id, removed);
         panel.append(
           h(

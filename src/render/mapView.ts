@@ -240,8 +240,22 @@ export class MapView {
     return store.palettes[id] || "ROUTE";
   }
 
-  private mapCanvas(id: string): CachedMap | null {
+  // the map as the view shows it: the open map in the picked scene wears that
+  // scene's blocks (a copy, kept while the map record and scene stay the same)
+  private sceneView: { map: MapDef; scene: number; view: MapDef } | null = null;
+  private viewMap(id: string): MapDef | undefined {
     const map = store.maps[id];
+    const scenes = store.adapter?.scenes;
+    if (!map || !scenes || id !== store.currentMap || store.scene <= 0) return map;
+    const c = this.sceneView;
+    if (c && c.map === map && c.scene === store.scene) return c.view;
+    const view = { ...map, blocks: scenes.blocksIn(map, store.scene) };
+    this.sceneView = { map, scene: store.scene, view };
+    return view;
+  }
+
+  private mapCanvas(id: string): CachedMap | null {
+    const map = this.viewMap(id);
     if (!map) return null;
     const palette = this.paletteKey(id);
     const hit = this.cache.get(id);
@@ -657,15 +671,20 @@ export class MapView {
           ctx.strokeRect(e.x * CELL + 3, e.y * CELL + 3, CELL - 6, CELL - 6);
           this.markerIcon("signpost", Signpost, SIGN_ICON, e);
         } else {
-          ctx.globalAlpha = layer.kind === "warp" ? 0.45 : 0.3;
+          // Gen 2 step triggers run only in their scene: other scenes' are faint
+          const sceneOf = layer.kind === "trigger" && store.adapter.scenes ? Number(e.sceneId ?? 0) : null;
+          const faint = sceneOf !== null && map.id === store.currentMap && sceneOf !== store.scene ? 0.35 : 1;
+          ctx.globalAlpha = (layer.kind === "warp" ? 0.45 : 0.3) * faint;
           ctx.fillStyle = layer.color;
           ctx.fillRect(e.x * CELL, e.y * CELL, CELL, CELL);
-          ctx.globalAlpha = 1;
+          ctx.globalAlpha = faint;
           ctx.strokeStyle = layer.color;
           if (layer.kind === "trigger") ctx.setLineDash([3 / this.zoom, 2 / this.zoom]);
           ctx.strokeRect(e.x * CELL + lw / 2, e.y * CELL + lw / 2, CELL - lw, CELL - lw);
           ctx.setLineDash([]);
+          ctx.globalAlpha = 1;
           if (layer.kind === "warp") this.markerIcon("door-open", DoorOpen, WARP_ICON, e);
+          if (sceneOf) this.badge(e.x * CELL + CELL / 2, e.y * CELL, `S${sceneOf}`, layer.color);
         }
         if (layer.numbered) this.badge(e.x * CELL, e.y * CELL, String(i + 1), layer.color);
       });
@@ -1055,6 +1074,9 @@ export class MapView {
         // like a paint stroke: the panels refresh once the drag is over
         store.brushing = true;
       }
+    } else if (store.adapter.scenes && store.scene > 0 && tool !== "brush" && (tool === "tile" || tool === "rect" || tool === "fill")) {
+      // (no DOM imports here: main.ts shows notices)
+      store.emit("notice", `In a scene only the block brush paints (scene ${store.scene}'s own blocks). Pick Scene 0 to use this tool on the map.`);
     } else if (tool === "brush") {
       store.brushing = true;
       this.paintAt(h.bx, h.by);
@@ -1295,6 +1317,21 @@ export class MapView {
 
   private paintAt(bx: number, by: number): void {
     const s = store.stamp;
+    // a scene above 0: its own layer of block changes
+    const scenes = store.adapter.scenes;
+    if (scenes && store.scene > 0) {
+      const n = store.scene;
+      store.edit(store.currentMap, `Paint (scene ${n})`, (d) => {
+        for (let y = 0; y < s.h; y++) {
+          for (let x = 0; x < s.w; x++) {
+            const tx = bx + x;
+            const ty = by + y;
+            if (tx < d.width && ty < d.height) scenes.setBlock(d, n, tx, ty, s.blocks[y * s.w + x]);
+          }
+        }
+      }, true);
+      return;
+    }
     store.edit(store.currentMap, "Paint", (d) => {
       for (let y = 0; y < s.h; y++) {
         for (let x = 0; x < s.w; x++) {

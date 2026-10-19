@@ -63,6 +63,32 @@ const commands: EventCommand[] = [
   { id: "set_flag", verb: "setevent", label: "Set flag", category: "Flags", help: "Turns an event flag on. Flags remember that something happened (saved with the game).", params: [{ key: "event", label: "Flag", type: "flagNumber" }], describe: (a) => `Set flag ${s(a.event)}` },
   { id: "clear_flag", verb: "clearevent", label: "Clear flag", category: "Flags", help: "Turns an event flag off.", params: [{ key: "event", label: "Flag", type: "flagNumber" }], describe: (a) => `Clear flag ${s(a.event)}` },
 
+  // ---- Scenes: a map's story stage (step triggers run only in theirs; entering
+  // runs the scene's event); a map's own scene changes its blocks on the next load
+  {
+    id: "set_scene", verb: "setscene", label: "Set this map's scene", category: "Scenes",
+    help: "Moves this map on to another scene: its step triggers and what happens on entering change. Blocks the scene changes show the next time the map loads.",
+    params: [{ key: "scene", label: "Scene", type: "number", default: 1, min: 0, max: 255 }], describe: (a) => `Set this map's scene to ${s(a.scene)}`,
+  },
+  {
+    id: "set_map_scene", verb: "setmapscene", label: "Set another map's scene", category: "Scenes",
+    help: "Moves another map on to a scene (the game does this to start a story beat somewhere else).",
+    params: [{ key: "map", label: "Map", type: "map" }, { key: "scene", label: "Scene", type: "number", default: 1, min: 0, max: 255 }],
+    // the game names a map by its group and number
+    pack: (a, ctx) => {
+      const m = ctx.maps[String(a.map)] as { group?: number; map?: number } | undefined;
+      return { group: m?.group ?? 0, map: m?.map ?? 0, scene: Number(a.scene ?? 0) };
+    },
+    unpack: (r, ctx) => ({ map: Object.keys(ctx.maps).find((id) => (ctx.maps[id] as { group?: number; map?: number }).group === r.group && (ctx.maps[id] as { group?: number; map?: number }).map === r.map) ?? "", scene: r.scene }),
+    describe: (a) => `Set ${String(a.map)}'s scene to ${s(a.scene)}`,
+  },
+  {
+    id: "check_scene", verb: "checkscene", label: "This map's scene is", category: "Conditions", help: "True while this map is in the scene.",
+    params: [{ key: "scene", label: "Scene", type: "number", default: 0, min: 0, max: 255 }], condition: "this map's scene is {scene}", describe: (a) => `this map's scene is ${s(a.scene)}`,
+    // checkscene leaves the scene as the last result; its If row compares it
+    rows: () => [{ op: "checkscene" }], branch: { op: "ifequal", not: "ifnotequal" },
+  },
+
   // ---- Conditions (used by If)
   // the number a command before it left: a menu choice, a check's answer …
   {
@@ -197,7 +223,7 @@ const commands: EventCommand[] = [
 export const GEN2_EVENTS: EventSpec = {
   registry: "",
   inline: true,
-  categories: ["Message", "Flags", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Screen & sound"],
+  categories: ["Message", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Screen & sound"],
   commands,
   choiceVerb: "",
   stopVerb: "end",
@@ -427,6 +453,10 @@ function parseList(rows: Row[], tail: Row[], ctx: GameContext): Block[] {
     if (r.op === "writetext" && next?.op === "yesorno") {
       cond = ["yesorno", r.text];
       j = i + 2;
+    } else if (r.op === "checkscene" && (next?.op === "ifequal" || next?.op === "ifnotequal") && typeof next.value === "number") {
+      // the scene compared is the If row's value
+      cond = ["checkscene", next.value];
+      j = i + 1;
     } else if (CHECKS.has(r.op)) {
       cond = blockRow(r, ctx);
       j = i + 1;

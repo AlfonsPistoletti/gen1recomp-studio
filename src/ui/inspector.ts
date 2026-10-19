@@ -23,6 +23,7 @@ import { songLabel } from "./soundEditor.ts";
 import { warpProblem } from "../core/checks.ts";
 import { liveTileset, tilesetIds } from "../core/tilesets.ts";
 import { mapRulesSection } from "./mapRules.ts";
+import { mapScenesSection } from "./mapScenes.ts";
 import { FEATURES } from "../features.ts";
 import { gameRoof, gbcAvailable, ROOFS, roofColors, tilesetHasRoof, townRoofs, type RoofRecord } from "../core/gbc.ts";
 import type { Rgb } from "../render/color.ts";
@@ -76,7 +77,7 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
   const afterBrush = afterStroke(schedule);
   store.on((reason, _id, registry) => {
     if (store.midStroke(reason)) afterBrush();
-    else if (["project", "map", "edit", "selection", "tool"].includes(reason)) schedule();
+    else if (["project", "map", "edit", "selection", "tool", "scene"].includes(reason)) schedule();
     const towns = store.adapter?.towns;
     if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === "studio_roofs" || registry === "palettes" || registry === "encounters" || registry === "field" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
   });
@@ -98,7 +99,7 @@ function claimedKeys(specs: FieldSpec[], out = new Set<string>(["x", "y"])): Set
   for (const s of specs) {
     if (s.kind === "pair") claimedKeys(s.fields, out);
     else if (s.kind === "warpTarget") out.add(s.mapKey).add(s.warpKey);
-    else if (s.kind !== "extras" && s.kind !== "weekdays") out.add(s.key.split(".")[0]);
+    else if (s.kind !== "extras" && s.kind !== "weekdays" && s.kind !== "info") out.add(s.key.split(".")[0]);
   }
   return out;
 }
@@ -148,6 +149,11 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
     }
     case "warpTarget":
       return warpTarget(spec, record, edit, view);
+    case "info": {
+      const sel = store.selection;
+      const text = sel && store.map ? spec.text(store.map, sel.index, store.ctx) : null;
+      return text ? field(spec.label, h("p", { class: "hint" }, text), spec.hint) : null;
+    }
     case "weekdays": {
       const sel = store.selection;
       const map = store.map;
@@ -395,6 +401,7 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     has("map_songs") ? musicField(map) : null,
     has("studio_roofs") ? roofField(map) : null,
     ...(has("field") ? mapRulesSection(map) : []),
+    ...mapScenesSection(map),
     h("div", { class: "field" }, h("span", { class: "field-label" }, "Size (blocks)"), h("div", { class: "row" }, w, h("span", { class: "x" }, "×"), hgt, anchor, resize)),
     // gen1recomp TileRenderer.borderBlockFor: OVERWORLD maps fill the void
     // with the player's VOID FILL option (trees, water or black), not this block

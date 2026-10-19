@@ -139,6 +139,8 @@ export function eventTitle(id: string): string {
     const e = spec()?.inline ? inlineTarget(mapId, "step", key)?.e : events()[id];
     return `Step: ${e ? `${e.x}, ${e.y}` : key}`;
   }
+  // Gen 2: a scene's entering script
+  if (/^scene\d+$/.test(key)) return `On entering (scene ${key.slice(5)})`;
   return "On entering the map";
 }
 
@@ -152,7 +154,7 @@ export function createEvent(mapId: string, kind: EventKind, key: string, init: P
     // a person faces the player and says a new line (a new text key)
     store.group("New event", () => {
       const text = newEventText();
-      const blocks: Block[] = [...(kind === "step" || key.startsWith("sign") ? [] : [{ t: "cmd", row: ["faceplayer"] } as Block]), { t: "cmd", row: ["writetext", text] }];
+      const blocks: Block[] = [...(kind === "step" || kind === "enter" || key.startsWith("sign") ? [] : [{ t: "cmd", row: ["faceplayer"] } as Block]), { t: "cmd", row: ["writetext", text] }];
       writeInline(id, "New event", { rows: init.rows ?? compileBlocks(s, blocks) });
     });
     return id;
@@ -558,6 +560,15 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
         h("button", { class: "btn small ghost", onclick: () => (nav.openMap(info.mapId), setTimeout(() => store.select(null))) }, "Open map"),
       ),
       ...(s.inline ? [h("p", { class: "hint" }, "Runs every time the player steps on it: check and set a flag to run it once.")] : [h("label", { class: "inline-check" }, once, "Only once (remembered in the save)")]),
+    );
+  } else if (/^scene\d+$/.test(info.key)) {
+    // Gen 2: entering the map while it is in this scene (the map's story stage)
+    const n = Number(info.key.slice(5));
+    trigger.append(
+      h("div", { class: "row" },
+        h("span", {}, `The player enters ${info.mapId} while it is in scene ${n}.`),
+        h("button", { class: "btn small ghost", onclick: () => (nav.openMap(info.mapId), store.setScene(n)) }, "Show on map")),
+      h("p", { class: "hint" }, "Runs every time the player enters in this scene: set another scene (Set this map's scene) to run it once."),
     );
   } else {
     const once = h("input", { type: "checkbox", checked: ev.once === true });

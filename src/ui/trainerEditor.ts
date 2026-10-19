@@ -166,7 +166,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
       const names = new Map<string, number>();
       for (const r of Object.values(all)) names.set(String(r.name), (names.get(String(r.name)) ?? 0) + 1);
       return Object.keys(all)
-        .sort((a, b) => ((all[a].index as number) ?? 999) - ((all[b].index as number) ?? 999) || a.localeCompare(b))
+        .sort(byIndex(all))
         .map((id) => {
           const r = all[id];
           const pic = s.pic(id, store.ctx);
@@ -203,6 +203,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
       store.group(`Revert ${id}`, () => {
         store.revertRecord(s.registry, id);
         if (s.aiClasses) store.revertRecord(s.aiClasses.registry, aiId(id));
+        if (s.colorPairs && pairEdited(s.colorPairs, id)) setPair(s.colorPairs, id, basePair(s.colorPairs, id), `Revert ${id}`);
       });
     },
   }, "Revert to base");
@@ -244,7 +245,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
       nameMax: s.nameMax,
       taken: (id) => all[id] !== undefined,
       sources: Object.keys(all).sort().map((id) => ({ id, label: `${String(all[id].name ?? id)} (${id})` })),
-      source: current ?? Object.keys(all).sort()[0],
+      source: current ?? firstTrainer() ?? "",
     });
     if (!res) return;
     const src = all[res.source];
@@ -295,8 +296,10 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     store.group(`Delete ${id}`, () => {
       store.setRecord(s.registry, id, `Delete ${id}`, undefined);
       if (s.aiClasses && store.baseTable(s.aiClasses.registry)[id] === undefined) store.setRecord(s.aiClasses.registry, id, "Delete trainer AI", undefined);
+      // Gen 2: the colors the new class came with
+      if (s.colorPairs && pairOf(s.colorPairs, id) && !basePair(s.colorPairs, id)) setPair(s.colorPairs, id, undefined, `Delete ${id}`);
     });
-    current = Object.keys(trainers()).sort()[0] ?? null;
+    current = firstTrainer();
     list.render();
     render(true);
   };
@@ -321,7 +324,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
     }));
     const isNew = store.baseTable(s.registry)[id] === undefined;
     revert.textContent = isNew ? "Delete trainer" : "Revert to base";
-    revert.hidden = !isNew && !(store.isRecordEdited(s.registry, id) || (s.aiClasses && store.isRecordEdited(s.aiClasses.registry, aiId(id))));
+    revert.hidden = !isNew && !(store.isRecordEdited(s.registry, id) || (s.aiClasses && store.isRecordEdited(s.aiClasses.registry, aiId(id))) || (s.colorPairs && pairEdited(s.colorPairs, id)));
     if (force) {
       clear(main);
       clear(side);
@@ -344,7 +347,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
   store.on((reason, id, registry) => {
     const s = spec();
     if (reason === "project") {
-      if (!current || !trainers()[current]) current = Object.keys(trainers()).sort()[0] ?? null;
+      if (!current || !trainers()[current]) current = firstTrainer();
       render(true);
       // the game's scripted battles (checkout only), then the list again
       const { host, version } = store.project;
@@ -354,7 +357,7 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
         list.render();
         render(true);
       });
-    } else if (reason === "content" && s && (registry === s.registry || registry === s.aiClasses?.registry || registry === "pokemon")) {
+    } else if (reason === "content" && s && (registry === s.registry || registry === s.aiClasses?.registry || registry === s.colorPairs?.registry || registry === "pokemon")) {
       schedule();
     } else if (reason === "edit") {
       if (store.midStroke(reason)) afterBrush();
@@ -363,6 +366,13 @@ export function mountTrainerWorkspace(left: HTMLElement, center: HTMLElement, ri
       nav.openTrainer(registry === s.registry ? id : Object.keys(trainers()).find((t) => aiId(t) === id) ?? id);
     }
   });
+}
+
+// the list's order (class number, then id) and its first class
+const byIndex = (all: Record<string, Rec>) => (a: string, b: string) => ((all[a].index as number) ?? 999) - ((all[b].index as number) ?? 999) || a.localeCompare(b);
+function firstTrainer(): string | null {
+  const all = trainers();
+  return Object.keys(all).sort(byIndex(all))[0] ?? null;
 }
 
 // ------------------------------------------------------------------ editing
@@ -652,7 +662,37 @@ function portrait(s: TrainerSpec, id: string, r: Rec, pic: string | undefined): 
     h("button", { class: "btn small", onclick: importPic }, "Import…"),
     borrow,
     s.colors === false ? null : h("label", { class: "row nowrap hint" }, color, "Full color"),
+    s.colorPairs ? pairField(s.colorPairs, id) : null,
     s.colors === false ? null : field("Palette", paletteField(r.palette, "MEWMON", (v) => edit(id, "Portrait palette", (d) => (v ? (d.palette = v) : delete d.palette))), "The portrait's colors in battle."),
+  );
+}
+
+// Gen 2: a class's two portrait colors (the light and dark middle shades)
+type Pair = [number, number, number][];
+const pairOf = (t: { registry: string; id: string }, id: string) => ((store.table(t.registry)[t.id] ?? {}) as Record<string, Pair>)[id];
+const basePair = (t: { registry: string; id: string }, id: string) => ((store.baseTable(t.registry)[t.id] ?? {}) as Record<string, Pair>)[id];
+// a game class whose colors differ from the game's (a new class's came with it)
+const pairEdited = (t: { registry: string; id: string }, id: string) => basePair(t, id) !== undefined && JSON.stringify(pairOf(t, id)) !== JSON.stringify(basePair(t, id));
+function setPair(t: { registry: string; id: string }, id: string, pair: Pair | undefined, label: string): void {
+  store.editRecord<Record<string, Pair>>(t.registry, t.id, label, (d) => {
+    if (pair) d[id] = pair;
+    else delete d[id];
+  });
+  store.seal();
+}
+const hexOf = (c: [number, number, number]) => `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+const rgbFrom = (v: string): [number, number, number] => [1, 3, 5].map((k) => parseInt(v.slice(k, k + 2), 16)) as [number, number, number];
+function pairField(t: { registry: string; id: string }, id: string): HTMLElement {
+  const pair = pairOf(t, id) ?? basePair(t, id);
+  if (!pair || pair.length !== 2) return h("p", { class: "hint" }, "This class has no portrait colors.");
+  const inputs = pair.map((c, i) => {
+    const input = h("input", { type: "color", value: hexOf(c) });
+    input.addEventListener("change", () => setPair(t, id, pair.map((x, j) => (j === i ? rgbFrom(input.value) : x)) as Pair, `${id}: portrait color`));
+    return h("label", { class: "palette-swatch" }, input, h("span", { class: "hint" }, i === 0 ? "Light" : "Dark"));
+  });
+  return h("div", {},
+    field("Colors", h("div", { class: "palette-swatches" }, ...inputs), "The portrait's two middle colors in battle; white and black stay."),
+    pairEdited(t, id) ? h("button", { class: "btn small danger", onclick: () => setPair(t, id, basePair(t, id), `${id}: the game's colors`) }, "Back to the game's colors") : null,
   );
 }
 

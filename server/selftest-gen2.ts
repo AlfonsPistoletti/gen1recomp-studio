@@ -528,6 +528,58 @@ for (const [registry, records] of Object.entries(edited)) {
   check("new move and item file runs", ran.errors.length === 0, ran.errors.join("; "));
 }
 
+// map colors: the bg palettes are a record; an edited color reaches the map
+// view's tile colors, and the save writes the list
+{
+  const bg = clone(content.palettes.bg) as unknown as number[][][];
+  check("bg palettes load", Array.isArray(bg) && bg.length > 8 && bg[0].length === 4, String(bg?.length));
+  const bp = adapter.bgPalettes!;
+  const ids = bp.envs({ data: project.data, maps: base, records: {} }).TOWN.DAY;
+  bg[ids[0] - 1][0] = [255, 0, 0];
+  const records = { ...content, palettes: { ...content.palettes, bg } } as Record<string, Record<string, unknown>>;
+  const ts = project.data.tilesets.TILESET_JOHTO;
+  const tile = ((ts.tilePalettes as number[] | undefined) ?? []).findIndex((x) => x === 1);
+  const colors = adapter.tileColors({ data: project.data, maps: base, records, time: "DAY" }, ts, "TOWN|1|DAY")(tile);
+  check("an edited bg color reaches the map colors", JSON.stringify(colors.at(-1)) === "[255,0,0]", JSON.stringify(colors));
+  // TOWN's own copy of a shared palette: TOWN changes, CAVE keeps the game's
+  const envs = clone(content.palettes.environments) as unknown as Record<string, Record<string, number[]>>;
+  const own = [...(clone(content.palettes.bg) as unknown as number[][][]), [[0, 0, 255], [0, 0, 255], [0, 0, 255], [0, 0, 255]]];
+  envs.TOWN.DAY = envs.TOWN.DAY.map((x, j) => (j === 0 ? own.length : x));
+  const r2 = { ...content, palettes: { ...content.palettes, bg: own, environments: envs } } as unknown as Record<string, Record<string, unknown>>;
+  const town = adapter.tileColors({ data: project.data, maps: base, records: r2, time: "DAY" }, ts, "TOWN|1|DAY")(tile);
+  const cave = adapter.tileColors({ data: project.data, maps: base, records: r2, time: "DAY" }, ts, "CAVE|1|DAY")(tile);
+  check("an environment's own palette copy changes only it", JSON.stringify(town[0]) === "[0,0,255]" && JSON.stringify(cave[0]) !== "[0,0,255]", JSON.stringify([town[0], cave[0]]));
+  const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, palettes: { bg: bg as unknown as Rec } });
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("bg palettes saved", /palettes:(patch|override)\("bg"/.test(src), src.split("\n").filter((l) => l.includes("palettes:")).join(" | "));
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, src]]), "studio_selftest", f, null);
+  check("bg palettes file runs", ran.errors.length === 0, ran.errors.join("; "));
+}
+
+// Town Map: places are landmarks (Johto / Kanto), the regions' grids are 20x18,
+// a moved place saves as a patch and the grid helper loads
+{
+  const { townMapRegistration2 } = await import("../src/lua/fieldRuntime2.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
+  const tm = adapter.townMap2!;
+  check("Town Map regions", tm.regionOf(ctx, "LANDMARK_NEW_BARK_TOWN") === "johto" && tm.regionOf(ctx, "LANDMARK_PALLET_TOWN") === "kanto" && tm.regionOf(ctx, "LANDMARK_FAST_SHIP") === "johto");
+  const grids = content.studio_townmap as Record<string, number[]>;
+  check("Town Map grids are 20x18", grids.johto?.length === 360 && grids.kanto?.length === 360, `${grids.johto?.length} ${grids.kanto?.length}`);
+  const colors = tm.colors(ctx);
+  check("Town Map colors: a palette per tile", !!colors && colors.palMap.length >= 0x60 && colors.palettes.every((p) => p.length === 4), `${colors?.palMap.length} ${colors?.palettes.length}`);
+  const nb = { ...(clone(content.landmarks.LANDMARK_NEW_BARK_TOWN) as Rec), x: 120 };
+  const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, landmarks: { LANDMARK_NEW_BARK_TOWN: nb } });
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("a moved place is a patch", src.includes('landmarks:patch("LANDMARK_NEW_BARK_TOWN", { x = 120 })'), src.split("\n").filter((l) => l.includes("landmarks")).join(" | "));
+  const code = townMapRegistration2("studio_selftest", "studio_townmap.lua");
+  const g = { johto: grids.johto.map((t, i) => (i === 0 ? 1 : t)) };
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", calls, fieldOrders(adapter), code)], ["mods/studio_selftest/studio_townmap.lua", dataFile("studio_selftest", "Town Map tiles", g, [])]]), "studio_selftest", f, null);
+  check("Town Map file runs", ran.errors.length === 0 && !code.includes("`"), ran.errors.join("; "));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);
 

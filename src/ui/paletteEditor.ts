@@ -13,6 +13,7 @@ import type { Rgb } from "../render/color.ts";
 import { clear, h, toast } from "./dom.ts";
 import { mountRecordList } from "./recordList.ts";
 import { nav } from "./nav.ts";
+import { FEATURES } from "../features.ts";
 
 const REG = "palettes";
 // what each game palette is for
@@ -90,10 +91,19 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
     head: [newBtn],
     placeholder: "Search palettes…",
     searchId: "palettes-search",
-    items: () =>
-      Object.keys(table())
+    items: () => {
+      // Gen 2: one entry per environment and time of day
+      const bp = FEATURES.gen2 ? store.adapter?.bgPalettes : undefined;
+      if (bp) {
+        newBtn.hidden = true;
+        return Object.keys(bp.envs(store.ctx)).sort().flatMap((env) =>
+          bp.times.filter((t) => bp.envs(store.ctx)[env]?.[t.key]).map((t) => ({ id: `${env}|${t.key}`, label: `${env} · ${t.label}`, meta: "map", edited: slotEdited(env, t.key), isNew: false })));
+      }
+      newBtn.hidden = false;
+      return Object.keys(table())
         .sort((a, b) => ["yours", "map", "Pokémon", "screen"].indexOf(kindOf(a)) - ["yours", "map", "Pokémon", "screen"].indexOf(kindOf(b)) || a.localeCompare(b))
-        .map((name) => ({ id: name, label: name, meta: kindOf(name), edited: isBase(name) && store.isRecordEdited(REG, name), isNew: !isBase(name) })),
+        .map((name) => ({ id: name, label: name, meta: kindOf(name), edited: isBase(name) && store.isRecordEdited(REG, name), isNew: !isBase(name) }));
+    },
     current: () => current,
     pick: (name) => open(name),
     refreshOn: (reason, _id, registry) => reason === "content" && registry === REG,
@@ -106,7 +116,7 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
   right.append(h("div", { class: "panel-head" }, h("span", {}, "Used by")), side);
 
   const open = (name: string) => {
-    if (!table()[name]) return;
+    if (!table()[name] && !store.adapter?.bgPalettes) return;
     current = name;
     list.render();
     void render();
@@ -258,6 +268,7 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
   const render = async () => {
     clear(main);
     clear(side);
+    if (FEATURES.gen2 && store.adapter?.bgPalettes) return renderSlots(store.adapter.bgPalettes, current, main, side, title);
     const name = current;
     if (!name || !table()[name]) {
       title.textContent = "Palettes";
@@ -325,7 +336,7 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
 
   let queued = false;
   store.on((reason, id, registry) => {
-    if (reason === "project") current = current && table()[current] ? current : "ROUTE";
+    if (reason === "project") current = store.adapter?.bgPalettes ? (current?.includes("|") ? current : "TOWN|DAY") : current && table()[current] ? current : "ROUTE";
     if (!(reason === "project" || (reason === "content" && (registry === REG || registry === "maps")) || reason === "edit") || queued) {
       if (reason === "reveal" && registry === REG && id) nav.openPalette(id);
       return;
@@ -337,4 +348,116 @@ export function mountPaletteWorkspace(left: HTMLElement, center: HTMLElement, ri
     });
   });
   nav.onPalettesShown = () => void render();
+}
+
+// ------------------------------------------------------------------ Gen 2
+
+type BgSpec = NonNullable<NonNullable<typeof store.adapter>["bgPalettes"]>;
+
+// a slot's palettes differ from the game's
+function slotEdited(env: string, time: string): boolean {
+  const bp = store.adapter?.bgPalettes;
+  if (!bp) return false;
+  const ids = bp.envs(store.ctx)[env]?.[time] ?? [];
+  const cur = (store.table(bp.registry)[bp.id] ?? []) as Rgb[][];
+  const base = (store.baseTable(bp.registry)[bp.id] ?? []) as Rgb[][];
+  return ids.some((n) => JSON.stringify(cur[n - 1]) !== JSON.stringify(base[n - 1]));
+}
+
+// one environment at one time of day: its 8 bg palettes (a tile's palette is
+// picked by its tileset), each 4 colors lightest first
+function renderSlots(bp: BgSpec, key: string | null, main: HTMLElement, side: HTMLElement, title: HTMLElement): void {
+  const [env, time] = (key ?? "TOWN|DAY").split("|");
+  const envs = bp.envs(store.ctx);
+  const ids = envs[env]?.[time] ?? [];
+  const timeLabel = bp.times.find((t) => t.key === time)?.label ?? time;
+  title.textContent = `${env} · ${timeLabel}`;
+  if (!ids.length) {
+    main.append(h("p", { class: "hint empty" }, "Pick an environment on the left."));
+    return;
+  }
+  const cur = (store.table(bp.registry)[bp.id] ?? []) as Rgb[][];
+  const base = (store.baseTable(bp.registry)[bp.id] ?? []) as Rgb[][];
+  // the other environment / time slots that use the same palette
+  const sharedBy = (n: number) => Object.entries(envs).flatMap(([e, row]) => Object.entries(row).filter(([t, list]) => (e !== env || t !== time) && list.includes(n)).map(([t]) => `${e} · ${bp.times.find((x) => x.key === t)?.label ?? t}`));
+  const set = (n: number, i: number, c: Rgb) => {
+    store.editRecord<Rgb[][]>(bp.registry, bp.id, `${env} ${timeLabel}: color`, (d) => {
+      d[n - 1] = d[n - 1].map((x, j) => (j === i ? c : x)) as Rgb[];
+    });
+    store.seal();
+  };
+  const baseEnvs = (store.baseTable(bp.registry)[bp.envsId] ?? {}) as Record<string, Record<string, number[]>>;
+  const editEnvs = (label: string, mutate: (d: Record<string, Record<string, number[]>>) => void) =>
+    store.editRecord<Record<string, Record<string, number[]>>>(bp.registry, bp.envsId, label, mutate, { create: () => clone(envs) });
+  // palettes past the game's count are copies an environment owns; ones no
+  // environment uses any more are dropped from the end of the list
+  const prune = () => {
+    const used = new Set(Object.values(bp.envs(store.ctx)).flatMap((row) => Object.values(row).flat()));
+    store.editRecord<Rgb[][]>(bp.registry, bp.id, `${env} ${timeLabel}: palettes`, (d) => {
+      while (d.length > base.length && !used.has(d.length)) d.pop();
+    });
+  };
+  // this environment and time only: a copy of the palette, at a new number
+  const ownCopy = (slot: number, n: number) => {
+    // colors already changed on the shared palette: keep them here only?
+    const edited = n <= base.length && JSON.stringify(cur[n - 1]) !== JSON.stringify(base[n - 1]);
+    const restore = edited && confirm(`Keep your colors only for ${env} · ${timeLabel}?
+
+OK: the copy gets your colors and the shared palette gets the game's colors back (for ${sharedBy(n).join(", ")}).
+Cancel: both keep your colors.`);
+    store.group(`${env} ${timeLabel}: own palette ${slot + 1}`, () => {
+    const next = cur.length + 1;
+    store.editRecord<Rgb[][]>(bp.registry, bp.id, `${env} ${timeLabel}: own palette`, (d) => {
+      d.push(clone(cur[n - 1]));
+      if (restore) d[n - 1] = clone(base[n - 1]);
+    });
+    editEnvs(`${env} ${timeLabel}: own palette`, (d) => {
+      d[env] = { ...d[env], [time]: d[env][time].map((x, j) => (j === slot ? next : x)) };
+    });
+    store.seal();
+    });
+  };
+  // back to the palette the game uses here (the copy goes when nothing uses it)
+  const shareAgain = (slot: number) => store.group(`${env} ${timeLabel}: shared palette ${slot + 1}`, () => {
+    const gameId = baseEnvs[env]?.[time]?.[slot];
+    if (gameId === undefined) return;
+    editEnvs(`${env} ${timeLabel}: shared palette`, (d) => {
+      d[env] = { ...d[env], [time]: d[env][time].map((x, j) => (j === slot ? gameId : x)) };
+    });
+    prune();
+    store.seal();
+  });
+  const rows = ids.map((n, slot) => {
+    const pal = cur[n - 1] ?? [];
+    const swatches = pal.map((c, i) => {
+      const input = h("input", { type: "color", value: hex(c) });
+      input.addEventListener("change", () => set(n, i, rgbOf(input.value)));
+      return h("label", { class: "palette-swatch" }, input, h("span", { class: "hint" }, SHADE_LABELS[i]));
+    });
+    const shared = sharedBy(n);
+    const own = n > base.length;
+    const changed = !own && JSON.stringify(pal) !== JSON.stringify(base[n - 1]);
+    return h("div", { class: "card" },
+      h("div", { class: "card-head" }, h("h4", {}, `Palette ${slot + 1}`),
+        changed ? h("button", { class: "btn small danger", onclick: () => (store.editRecord<Rgb[][]>(bp.registry, bp.id, `${env} ${timeLabel}: the game's colors`, (d) => (d[n - 1] = clone(base[n - 1]))), store.seal()) }, "Back to the game's colors") : null),
+      h("div", { class: "palette-swatches" }, ...swatches),
+      own
+        ? h("div", { class: "row" }, h("span", { class: "hint" }, `Only ${env} · ${timeLabel} uses this palette (its own copy).`),
+            h("button", { class: "btn small danger", title: "Removes this copy: the environment uses the game's shared palette again", onclick: () => shareAgain(slot) }, "Remove this copy (use the shared palette again)"))
+        : shared.length
+          ? h("div", { class: "notice" },
+              h("p", {}, `Shared: changing it also changes ${shared.join(", ")}.`),
+              h("button", { class: "btn small", title: "Gives this environment and time a copy of the palette, so changes stay here", onclick: () => ownCopy(slot, n) }, `Only for ${env} · ${timeLabel}`))
+          : null,
+    );
+  });
+  main.append(
+    h("p", { class: "hint" }, "A map's environment (its properties) picks these 8 palettes, and each tile of its tileset uses one of them (Graphics > Tilesets). The game shares most of them between environments: a shared palette says what else it changes, and can be given to this environment alone. Maps show the new colors right away (pick the time of day in the map toolbar)."),
+    ...rows,
+  );
+  const maps = Object.keys(store.maps).filter((m) => String(store.maps[m].environment ?? "TOWN") === env).sort();
+  side.append(h("div", { class: "card" },
+    h("h4", {}, `${maps.length} map${maps.length === 1 ? "" : "s"} in ${env}`),
+    h("div", { class: "row wrap" }, ...maps.slice(0, 60).map((m) => h("button", { class: "btn small ghost", onclick: () => nav.openMap(m) }, m)), maps.length > 60 ? h("span", { class: "hint" }, `+${maps.length - 60} more`) : null),
+  ));
 }

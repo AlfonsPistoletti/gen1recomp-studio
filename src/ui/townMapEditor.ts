@@ -11,7 +11,7 @@ import { assetUrl, CACHE, isCachePath, type SheetRecipe } from "../core/assets.t
 import { clone, deepEqual } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import { compose } from "../core/tilesets.ts";
-import { loadImage, tintPixels, TILE } from "../render/graphics.ts";
+import { loadImage, placeMarker, tintPixels, TILE } from "../render/graphics.ts";
 import { clear, field, h, numberInput, selectInput, toast } from "./dom.ts";
 import { nav } from "./nav.ts";
 import { namedColors } from "./picColors.ts";
@@ -70,7 +70,8 @@ function setOwnTiles(draft: TownMap, tiles: string[]): void {
 export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, right: HTMLElement): void {
   let current: string | null = null;
   let tile = 4;
-  let placing = false;
+  // like Gen 2's editor: clicks move the selected place, or paint tiles
+  let mode: "move" | "paint" = "move";
   let showPlaces = true;
 
   const isModMap = (id: string) => store.baseTable("maps")[id] === undefined;
@@ -95,7 +96,7 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
     current: () => current,
     pick: (id) => {
       current = id;
-      placing = false;
+      mode = "move";
       list.render();
       void render();
     },
@@ -108,25 +109,33 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
   };
 
   // ---------------------------------------------------------------- center
-  const canvas = h("canvas", { class: "townmap-canvas", width: COLS * TILE, height: ROWS * TILE });
+  // drawn at the zoomed size, so the place markers stay thin over the map
+  const canvas = h("canvas", { class: "townmap-canvas", width: COLS * TILE * ZOOM, height: ROWS * TILE * ZOOM });
   canvas.style.width = `${COLS * TILE * ZOOM}px`;
   const status = h("p", { class: "hint" });
   const palette = h("div", { class: "townmap-tiles" });
   const placesToggle = h("input", { type: "checkbox", checked: true, onchange: () => { showPlaces = placesToggle.checked; void render(); } });
+  const modeSel = h("select", {}, h("option", { value: "move" }, "Move the selected place"), h("option", { value: "paint" }, "Paint tiles"));
+  modeSel.addEventListener("change", () => {
+    mode = modeSel.value as "move" | "paint";
+    void render();
+  });
   const head = h("div", { class: "panel-head" },
     h("span", { class: "head-title" }, "Town Map"),
-    h("button", { class: "btn small", title: "Add tiles cut from a picture (8x8 each, in the 4 shades)", onclick: () => void importTiles() }, "+ Import tiles"),
-    h("button", { class: "btn small danger", title: "The game's map, tiles and places again", onclick: () => {
-      if (!live() || !store.isRecordEdited(REG, ID)) return;
-      if (confirm("Back to the game's Town Map? Your painting, own tiles and places go.")) store.revertRecord(REG, ID, "Back to the game's Town Map");
-    } }, "Back to the game's Town Map"),
+    h("div", { class: "row nowrap" },
+      h("label", { class: "inline-check" }, placesToggle, "Show places"),
+      modeSel,
+      h("button", { class: "btn small", title: "Add tiles cut from a picture (8x8 each, in the 4 shades)", onclick: () => void importTiles() }, "+ Import tiles"),
+      h("button", { class: "btn small danger", title: "The game's map, tiles and places again", onclick: () => {
+        if (!live() || !store.isRecordEdited(REG, ID)) return;
+        if (confirm("Back to the game's Town Map? Your painting, own tiles and places go.")) store.revertRecord(REG, ID, "Back to the game's Town Map");
+      } }, "Back to the game's map")),
   );
   center.append(head, h("div", { class: "ws-scroll" },
-    palette,
-    h("label", { class: "inline-check" }, placesToggle, "Show places"),
-    canvas,
+    h("div", { class: "townmap-wrap" }, canvas),
     status,
-    h("p", { class: "hint" }, "Click or drag to paint the selected tile. Right-click picks the tile under the cursor. The top row stays: the game writes the place name on it. The game shows only the cursor and the player on the map, not the squares."),
+    palette,
+    h("p", { class: "hint" }, "The top row stays: the game writes the place name on it. The game shows only the cursor and the player on the map, not the rings."),
   ));
   const side = h("div", { class: "ws-scroll" });
   right.append(h("div", { class: "panel-head" }, h("span", {}, "Place")), side);
@@ -173,25 +182,25 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (my !== token || !src) return;
     const ctx = canvas.getContext("2d")!;
     ctx.imageSmoothingEnabled = false;
-    tm.background.map.forEach((t, i) => drawTile(ctx, src, t, (i % COLS) * TILE, Math.floor(i / COLS) * TILE));
+    const Z = TILE * ZOOM;
+    tm.background.map.forEach((t, i) => ctx.drawImage(src, (t % PER) * TILE, Math.floor(t / PER) * TILE, TILE, TILE, (i % COLS) * Z, Math.floor(i / COLS) * Z, Z, Z));
     // the banner row can't be painted: shaded
     ctx.fillStyle = "rgba(0,0,0,0.35)";
-    ctx.fillRect(0, 0, COLS * TILE, BANNER_ROWS * TILE);
+    ctx.fillRect(0, 0, COLS * Z, BANNER_ROWS * Z);
     if (showPlaces) {
+      // places sit on screen tile (x + 2, y + 1): a marker at its center
+      const mark = (loc: Loc, selected: boolean) => placeMarker(ctx, (loc.x + 2.5) * Z, (loc.y + 1.5) * Z, selected);
       const sel = current ? tm.locations?.[current] : undefined;
-      for (const loc of Object.values(tm.locations ?? {})) {
-        ctx.fillStyle = loc.name?.includes("ROUTE") ? "rgba(120,120,120,0.8)" : "rgba(40,40,40,0.8)";
-        ctx.fillRect((loc.x + 2) * TILE + 1, (loc.y + 1) * TILE + 1, 6, 6);
-      }
-      if (sel) {
-        ctx.strokeStyle = "#d32f2f";
-        ctx.lineWidth = 1;
-        ctx.strokeRect((sel.x + 2) * TILE + 0.5, (sel.y + 1) * TILE + 0.5, 7, 7);
-      }
+      for (const loc of Object.values(tm.locations ?? {})) if (loc !== sel) mark(loc, false);
+      if (sel) mark(sel, true);
     }
+    modeSel.value = mode;
+    status.textContent = mode === "move"
+      ? current ? "Click the map to put the selected place there." : "Pick a place on the left (or click its ring), then click where it goes."
+      : `Click or drag to paint tile ${tile}. Right-click picks the tile under the cursor.`;
     // the tiles to paint with
     clear(palette);
-    for (let t = 0; t < tileCount(tm); t++) {
+    if (mode === "paint") for (let t = 0; t < tileCount(tm); t++) {
       const c = h("canvas", { class: `townmap-tile${t === tile ? " active" : ""}`, width: TILE, height: TILE, title: t < gameTileCount(base()!) ? `Tile ${t}` : `Tile ${t} (yours)`, onclick: () => { tile = t; void render(); } });
       drawTile(c.getContext("2d")!, src, t, 0, 0);
       palette.append(c);
@@ -225,8 +234,17 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("pointerdown", (e) => {
     const cell = cellAt(e);
-    if (placing && current && cell && e.button === 0) {
-      placing = false;
+    if (mode === "move") {
+      if (!cell || e.button !== 0) return;
+      // a ring under the click selects its place
+      const hit = showPlaces ? Object.entries(live()?.locations ?? {}).find(([, l]) => l.x + 2 === cell.cx && l.y + 1 === cell.cy)?.[0] : undefined;
+      if (hit && hit !== current) {
+        current = hit;
+        list.render();
+        void render();
+        return;
+      }
+      if (!current) return;
       if (cell.cx < 2 || cell.cy < 1) return toast("The places start 2 tiles in from the left and 1 down from the top", "error");
       placeAt(current, cell.cx - 2, cell.cy - 1);
       return;
@@ -241,7 +259,7 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
       const here = Object.entries(tm.locations ?? {}).filter(([, l]) => l.x + 2 === cell.cx && l.y + 1 === cell.cy);
       status.textContent = `Tile ${tm.background.map[cell.cy * COLS + cell.cx]}${here.length ? ` · ${[...new Set(here.map(([, l]) => l.name ?? ""))].join(", ")} (${here.length} map${here.length > 1 ? "s" : ""})` : ""}`;
     }
-    if (e.buttons && !placing) paint(e);
+    if (e.buttons && mode === "paint") paint(e);
   });
   canvas.addEventListener("pointerup", () => store.seal());
 
@@ -266,7 +284,6 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
       const loc = tm.locations?.[id];
       const baseLoc = base()?.locations?.[id];
       const others = Object.keys(tm.locations ?? {}).filter((m) => m !== id).sort();
-      const placeBtn = h("button", { class: `btn small${placing ? " active" : ""}`, onclick: () => { placing = !placing; renderSide(tm); } }, placing ? "Click a square on the map…" : "Place on the map");
       side.append(h("h3", {}, id));
       if (loc) {
         const name = h("input", { type: "text", value: loc.name ?? "", onchange: () => edit(`${id}: Town Map name`, (d) => { d.locations![id].name = name.value.trim().toUpperCase(); }) });
@@ -294,7 +311,7 @@ export function mountTownMapWorkspace(left: HTMLElement, center: HTMLElement, ri
         }, "First"), "Up and down on the Town Map go through the places in this order."));
       }
       side.append(
-        h("div", { class: "row wrap" }, placeBtn),
+        ...(loc ? [] : [h("p", { class: "hint" }, "Click the map to put it there (Move the selected place).")]),
         field("Same spot as…", selectInput("", others, (other) => {
           const o = live()?.locations?.[other];
           if (o) edit(`${id}: same spot as ${other}`, (d) => { (d.locations ??= {})[id] = clone(o); });

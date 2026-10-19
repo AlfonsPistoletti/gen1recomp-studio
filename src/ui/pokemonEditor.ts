@@ -37,9 +37,11 @@ export function spriteUrl(path: string | undefined): string {
 let view: string | null = null;
 
 // the colors a species' battle pics are shown in (lightest first; null: as drawn)
+// the header's Shiny switch, kept while clicking through species
+let shiny = false;
 function monColors(id: string, r: Rec): Rgb[] | null {
   const own = store.adapter.pokemon?.monColors;
-  if (own) return r.trueColor === true ? null : own(store.ctx, id);
+  if (own) return r.trueColor === true ? null : own(store.ctx, id, shiny && !!store.adapter.pokemon?.colorPairs);
   return picColors(view ?? defaultView(), (redpp) => monPaletteName(id, r, redpp), r.trueColor === true);
 }
 
@@ -149,7 +151,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
           meta: meta(id),
           search: ((r.types as string[]) ?? []).join(" "),
           icon: spec ? spriteUrl(spec.frontSprite(r)) : undefined,
-          edited: store.isRecordEdited(REG, id),
+          edited: store.isRecordEdited(REG, id) || (!!spec?.colorPairs && monPairEdited(spec.colorPairs, id)),
           isNew: store.baseTable(REG)[id] === undefined,
         };
       });
@@ -171,6 +173,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
       const label = `Revert ${id}`;
       store.group(label, () => {
         for (const reg of [REG, ...related()]) store.revertRecord(reg, id, label);
+        const cp = store.adapter.pokemon?.colorPairs;
+        if (cp && monPairEdited(cp, id)) setMonPair(cp, id, baseMonPair(cp, id), label);
         // the icon sheet the studio made for this species, once unused
         const icons = store.adapter.pokemon?.icon.registry;
         const own = `ICON_STUDIO_${id}`;
@@ -179,7 +183,13 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     },
   }, "Revert to base");
   const colors = h("span", {});
-  center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, colors, revert)), main);
+  const shinyBox = h("input", { type: "checkbox" });
+  shinyBox.addEventListener("change", () => {
+    shiny = shinyBox.checked;
+    renderNow();
+  });
+  const shinyLabel = h("label", { class: "inline-check", title: "Show the battle pictures in their shiny colors" }, shinyBox, "Shiny");
+  center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, shinyLabel, colors, revert)), main);
   const sideTitle = h("span", {}, "Pokédex & cry");
   right.append(h("div", { class: "panel-head" }, sideTitle), side);
 
@@ -213,6 +223,8 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     rerender(side, () => sideForm(id, rec, spec));
     sideTitle.textContent = lacks(spec, "cry") ? "Pokédex" : "Pokédex & cry";
     title.textContent = `#${String(rec.dex ?? "?").padStart(3, "0")} ${String(rec.name ?? current)}`;
+    shinyLabel.hidden = !spec.colorPairs;
+    shinyBox.checked = shiny;
     colors.replaceChildren(spec.monColors ? "" : colorSelect(view ?? defaultView(), monPaletteName(id, rec, false), rec.trueColor === true, (v) => {
       view = v;
       renderNow();
@@ -220,7 +232,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     newBtn.hidden = lacks(spec, "newSpecies");
     const isNew = store.baseTable(REG)[current] === undefined;
     revert.textContent = isNew ? "Delete Pokémon" : "Revert to base";
-    revert.hidden = !isNew && ![REG, ...related()].some((reg) => store.isRecordEdited(reg, current!));
+    revert.hidden = !isNew && ![REG, ...related()].some((reg) => store.isRecordEdited(reg, current!)) && !(spec.colorPairs && monPairEdited(spec.colorPairs, current));
   };
   const schedule = () => {
     if (!scheduled) {
@@ -328,7 +340,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (reason === "project") {
       if (!current || !species()[current]) current = dexOrder()[0] ?? null;
       schedule();
-    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries" || registry === "items" || (!!store.project && registry === store.adapter.pokemon?.icon.registry))) {
+    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries" || registry === "items" || (!!store.project && (registry === store.adapter.pokemon?.icon.registry || registry === store.adapter.pokemon?.colorPairs?.registry)))) {
       // items: a new or changed TM/HM changes the TM/HM list
       if ((registry === REG || registry === "cries") && id !== current) return;
       schedule();
@@ -656,6 +668,7 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
         icon.image ? "Own image, 2 frames" : "Game icon shape",
       ),
     ),
+    spec.colorPairs ? monPairField(spec.colorPairs, id) : null,
     spec.monColors ? null : field(
       "Battle palette",
       paletteField(r.palette, monPaletteName(id, undefined, false), (v) => edit(id, "Battle palette", (d) => (v ? (d.palette = v) : delete d.palette))),
@@ -663,6 +676,42 @@ function artCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
     ),
     h("label", { class: "ai-layer" }, colorBox, h("span", {}, h("strong", {}, "Full color"), h("span", { class: "hint" }, "Shows this Pokémon's battle sprites exactly as drawn instead of colouring 4 gray shades with the game's palette."))),
     mod ? h("p", { class: "hint" }, `Imported images are saved into mods/${mod}/assets/studio/ when you save.`) : h("p", { class: "hint warn" }, "Choose or create a mod to import art."),
+  );
+}
+
+// Gen 2: a species' battle colors, normal and shiny, two middle colors each
+// (light, dark; white and black stay)
+type Pair = [number, number, number][];
+type MonPair = { normal?: Pair; shiny?: Pair };
+const monPairOf = (t: { registry: string; id: string }, id: string) => ((store.table(t.registry)[t.id] ?? {}) as Record<string, MonPair>)[id];
+const baseMonPair = (t: { registry: string; id: string }, id: string) => ((store.baseTable(t.registry)[t.id] ?? {}) as Record<string, MonPair>)[id];
+const monPairEdited = (t: { registry: string; id: string }, id: string) => baseMonPair(t, id) !== undefined && JSON.stringify(monPairOf(t, id)) !== JSON.stringify(baseMonPair(t, id));
+function setMonPair(t: { registry: string; id: string }, id: string, value: MonPair | undefined, label: string): void {
+  store.editRecord<Record<string, MonPair>>(t.registry, t.id, label, (d) => {
+    if (value) d[id] = value;
+    else delete d[id];
+  });
+  store.seal();
+}
+const hexOf = (c: [number, number, number]) => `#${c.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+const rgbFrom = (v: string): [number, number, number] => [1, 3, 5].map((k) => parseInt(v.slice(k, k + 2), 16)) as [number, number, number];
+function monPairField(t: { registry: string; id: string }, id: string): HTMLElement {
+  const cur = monPairOf(t, id) ?? baseMonPair(t, id);
+  if (!cur) return h("p", { class: "hint" }, "This Pokémon has no colors of its own in the game's data.");
+  const row = (kind: "normal" | "shiny", label: string) => {
+    const pair = cur[kind];
+    if (!pair || pair.length !== 2) return null;
+    return field(label, h("div", { class: "palette-swatches" }, ...pair.map((c, i) => {
+      const input = h("input", { type: "color", value: hexOf(c) });
+      input.addEventListener("change", () => setMonPair(t, id, { ...cur, [kind]: pair.map((x, j) => (j === i ? rgbFrom(input.value) : x)) }, `${id}: ${kind} colors`));
+      return h("label", { class: "palette-swatch" }, input, h("span", { class: "hint" }, i === 0 ? "Light" : "Dark"));
+    })));
+  };
+  return h("div", {},
+    row("normal", "Colors"),
+    row("shiny", "Shiny colors"),
+    h("p", { class: "hint" }, "The battle pictures' two middle colors; white and black stay."),
+    monPairEdited(t, id) ? h("button", { class: "btn small danger", onclick: () => setMonPair(t, id, baseMonPair(t, id), `${id}: the game's colors`) }, "Back to the game's colors") : null,
   );
 }
 

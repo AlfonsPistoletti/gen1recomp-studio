@@ -43,6 +43,8 @@ import { mountSpriteWorkspace } from "./ui/spriteEditor.ts";
 import { mountImageWorkspace } from "./ui/imageEditor.ts";
 import { mountPaletteWorkspace } from "./ui/paletteEditor.ts";
 import { mountTownMapWorkspace, townMapSheets } from "./ui/townMapEditor.ts";
+import { mountTownMap2 } from "./ui/townMapEditor2.ts";
+import { FEATURES } from "./features.ts";
 import { MAX_BLOCKS } from "./core/tileBrush.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
 import { bugReportDialog } from "./ui/bugReport.ts";
@@ -556,7 +558,30 @@ mountTilesetWorkspace($("#tilesets-left"), $("#tilesets-center"), $("#tilesets-r
 mountSpriteWorkspace($("#sprites-left"), $("#sprites-center"), $("#sprites-right"));
 mountImageWorkspace($("#images-left"), $("#images-center"), $("#images-right"));
 mountPaletteWorkspace($("#palettes-left"), $("#palettes-center"), $("#palettes-right"));
-mountTownMapWorkspace($("#townmap-left"), $("#townmap-center"), $("#townmap-right"));
+// Gen 1's and Gen 2's Town Map editors share the panels (each in a display:
+// contents wrapper); the open game's is shown, and gets the nav calls
+{
+  const wraps = (["left", "center", "right"] as const).map((side) => {
+    const one = h("div", { style: "display: contents" });
+    const two = h("div", { style: "display: none" });
+    $(`#townmap-${side}`).append(one, two);
+    return [one, two];
+  });
+  mountTownMapWorkspace(wraps[0][0], wraps[1][0], wraps[2][0]);
+  const gen1 = { shown: nav.onTownMapShown, open: nav.openTownMap };
+  // behind the feature flag: release builds carry no Gen 2 code
+  const gen2 = FEATURES.gen2 ? mountTownMap2(wraps[0][1], wraps[1][1], wraps[2][1]) : null;
+  const pick = () => {
+    const two = !!gen2 && !!store.adapter?.townMap2;
+    for (const [one, other] of wraps) {
+      one.style.display = two ? "none" : "contents";
+      other.style.display = two ? "contents" : "none";
+    }
+    nav.onTownMapShown = two ? gen2!.shown : gen1.shown;
+    nav.openTownMap = two ? (() => { nav.setWorkspace("graphics"); nav.showGraphics("townmap"); gen2!.open(); }) : gen1.open;
+  };
+  store.on((reason) => reason === "project" && pick());
+}
 // the Graphics workspace's view switch, on top of both left panels
 const GRAPHICS_VIEW_KEY = "studio.graphicsView";
 const savedView = recall(GRAPHICS_VIEW_KEY);

@@ -38,6 +38,32 @@ export function loadImage(url: string): Promise<HTMLImageElement | null> {
 }
 
 // Gray pixels in a palette's 4 colors (lightest first); clear stays clear.
+// A place on a Town Map editor: a thin ring in a color no game palette uses
+// (white edge), the selected one larger with crosshair ticks. On a canvas
+// drawn at screen size, so it stays thin over the map art.
+export function placeMarker(ctx: CanvasRenderingContext2D, x: number, y: number, selected: boolean): void {
+  const ring = (r: number) => {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "#ffffff";
+    ctx.stroke();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ff2bd6";
+    ctx.stroke();
+  };
+  if (!selected) return ring(4);
+  ring(9);
+  ctx.strokeStyle = "#ff2bd6";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+    ctx.moveTo(x + dx * 11, y + dy * 11);
+    ctx.lineTo(x + dx * 16, y + dy * 16);
+  }
+  ctx.stroke();
+}
+
 export function tintPixels(px: Uint8ClampedArray, pal: Rgb[]): void {
   for (let i = 0; i < px.length; i += 4) {
     if (px[i + 3] === 0) continue;

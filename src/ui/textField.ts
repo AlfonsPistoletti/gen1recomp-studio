@@ -9,19 +9,26 @@ import { h } from "./dom.ts";
 
 // `revert` (default on): a "Back to the game's text" button while a game text is changed
 // `registry`: the text registry the key lives in (default "text"; Gen 2 also has "rom_text")
-export function textEditor(key: string, opts: { rows?: number; label?: string; compact?: boolean; commands?: boolean; revert?: boolean; registry?: string } = {}): HTMLElement {
+// `hideEnding`: the text's {DONE}/{PROMPT} stays in the record but isn't shown (events: the
+// writer never types it, like a Gen 1 event's own line)
+export function textEditor(key: string, opts: { rows?: number; label?: string; compact?: boolean; commands?: boolean; revert?: boolean; registry?: string; hideEnding?: boolean } = {}): HTMLElement {
   const reg = opts.registry ?? "text";
   const current = store.table(reg)[key];
   const original = typeof current === "string" ? current : "";
   const mode = lineMode(original);
-  const shown = toEditable(original);
+  const ENDING = /\s*\{(DONE|PROMPT)\}\s*$/;
+  const ending = opts.hideEnding ? (ENDING.exec(original)?.[0].trim() ?? "") : "";
+  const editable = (t: string) => (opts.hideEnding ? toEditable(t).replace(ENDING, "") : toEditable(t));
+  // what the box holds plus the hidden ending
+  const full = () => (ending ? withEnding(area.value, ending) : area.value);
+  const shown = editable(original);
   const area = h("textarea", { rows: opts.rows ?? 6, spellcheck: false, class: "mono gb-text" });
   area.value = shown;
   const boxes = h("div", { class: "gb-preview" });
   const warn = h("p", { class: "hint warn" });
 
   const renderPreview = () => {
-    const { pages, tooWide, ending } = preview(area.value);
+    const { pages, tooWide, ending } = preview(full());
     const raw = area.value.replace(/\r\n?/g, "\n").split(/\n{2,}/).map((p) => p.split("\n"));
     boxes.replaceChildren(
       ...pages.map((lines, pi) =>
@@ -48,7 +55,7 @@ export function textEditor(key: string, opts: { rows?: number; label?: string; c
       if (typeof base !== "string") return;
       store.revertRecord(reg, key, `${key}: the game's text`);
       store.seal();
-      area.value = toEditable(base);
+      area.value = editable(base);
       renderPreview();
       showBack();
     },
@@ -59,7 +66,7 @@ export function textEditor(key: string, opts: { rows?: number; label?: string; c
   const save = () => {
     renderPreview();
     // untouched strings keep their exact separators
-    const next = area.value === shown ? original : fromEditable(area.value, mode);
+    const next = area.value === shown ? original : fromEditable(full(), mode);
     store.setRecord(reg, key, `Edit text ${key}`, next, true);
     showBack();
   };

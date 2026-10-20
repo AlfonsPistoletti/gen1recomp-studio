@@ -218,6 +218,13 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
     { t: "choice", labels: ["A", "B", "C"], branches: [[{ t: "cmd", row: ["show_text", "a"] }], [], [{ t: "stop" }]] },
   ], verbs);
   check("event blocks round-trip", deepEqual(compile(parse(rows, verbs), verbs), rows));
+  // screens: a command with fixed arguments wins (findCommand), the rest open a listed screen
+  const pick = (row: unknown[]) => {
+    const all = spec.commands.filter((c) => c.verb === row[0]);
+    return all.find((c) => c.fixed?.length && c.fixed.every((f, i) => row[1 + i] === f)) ?? all.find((c) => !c.fixed?.length);
+  };
+  check("screen rows read as commands", pick(["push_screen", "DexEntryMenu", "CHANSEY"])?.id === "show_dex_entry" && pick(["push_screen", "studio:PokemonPic", "ARTICUNO"])?.id === "show_pic"
+    && pick(["push_screen", "TownMap"])?.id === "open_screen" && pick(["mark_seen", "CHANSEY"])?.id === "mark_seen");
   const walk = compile([{ t: "follow", npc: 1, path: ["down", "down", "right"], from: "up" }, { t: "follow", npc: 2, path: [], from: "left" }], verbs);
   const walkBack = parse(walk, verbs);
   check("follow block round-trips (also with no steps yet)", deepEqual(walkBack, [{ t: "follow", npc: 1, path: ["down", "down", "right"], from: "up" }, { t: "follow", npc: 2, path: [], from: "left" }]), JSON.stringify(walkBack));
@@ -413,6 +420,20 @@ if (mods.some((m) => m.id === "bills_garden") && (await nodeHost.readText("game"
   const none: string[] = [];
   parseExtensions("{ not json", "lib", (m) => none.push(m));
   check("extensions: bad JSON is one warning", none.length === 1);
+}
+
+const { CODE_HIDDEN_OPTIONAL } = await import("../src/games/gen1/codeHidden.ts");
+// the game's code hidden events: their maps, cells and texts exist in this version
+{
+  const bad: string[] = [];
+  for (const c of adapter.towns?.codeHidden ?? []) {
+    if (c.versions && !c.versions.includes(version)) continue;
+    const m = base[c.map];
+    if (!m) { bad.push(`${c.map}: no map`); continue; }
+    for (const [x, y] of c.cells) if (x >= m.width * 2 || y >= m.height * 2) bad.push(`${c.map} ${x},${y}: off the map`);
+    for (const t of c.texts) if (typeof content.text[t] !== "string" && !CODE_HIDDEN_OPTIONAL.includes(t)) bad.push(`${c.map}: no text ${t}`);
+  }
+  check("code hidden events match the dataset", !bad.length, bad.join("; "));
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");

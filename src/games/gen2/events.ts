@@ -53,6 +53,21 @@ const short = (v: unknown, n = 40) => {
 };
 const nice = (v: unknown) => s(v).replace(/_/g, " ").toLowerCase().replace(/(^| )\w/g, (c) => c.toUpperCase());
 
+// the game's specials that open a screen and come back to the script
+// (gen1recomp src/script/gen2/Specials.lua handlers), by name
+const SCREENS = [
+  { id: "PokemonCenterPC", label: "Pokémon Center PC" },
+  { id: "PlayersHousePC", label: "Player's PC" },
+  { id: "OverworldTownMap", label: "Town Map" },
+  { id: "SlotMachine", label: "slot machine" },
+  { id: "CardFlip", label: "Card Flip game" },
+  { id: "NameRater", label: "Name Rater" },
+  { id: "MoveDeletion", label: "Move Deleter" },
+  { id: "BankOfMom", label: "Mom's savings" },
+  { id: "Diploma", label: "Diploma" },
+];
+const screenName = (id: unknown) => SCREENS.find((x) => x.id === id)?.label ?? s(id);
+
 const commands: EventCommand[] = [
   // ---- Message
   { id: "say_end", verb: "jumptextfaceplayer", label: "Face the player, say and end", category: "Message", help: "The person turns to the player, says the text and the event ends (the game's people mostly do just this).", params: [{ key: "text", label: "Text", type: "text" }], describe: (a) => `Face the player, say "${short(a.text)}" and end` },
@@ -206,6 +221,23 @@ const commands: EventCommand[] = [
     pack: (a) => ({ object: Number(a.object ?? 2), args: [Number(a.object ?? 2)] }), unpack: (r) => ({ object: r.object ?? (r.args as number[] | undefined)?.[0] }),
   },
 
+  // ---- Screens
+  {
+    id: "show_pic", verb: "#pokepic", label: "Show a Pokémon's picture", category: "Screens", help: "Shows a Pokémon's front picture until the player presses A.",
+    params: [{ key: "species", label: "Pokémon", type: "species", default: "CHIKORITA" }], describe: (a) => `Show ${nice(a.species)}'s picture`,
+    rows: (a, ctx) => [{ op: "pokepic", species: numberOf(ctx, "pokemon", a.species) }, { op: "waitbutton" }, { op: "closepokepic" }],
+    match: (rows, at, ctx) => (ops(rows, at, ["pokepic", "waitbutton", "closepokepic"]) ? { args: { species: idOf(ctx, "pokemon", rows[at].species) }, length: 3 } : null),
+  },
+  {
+    id: "open_screen", verb: "#screen", label: "Open a screen", category: "Screens", help: "Opens one of the game's screens (a special); the event goes on once the player closes it.",
+    params: [{ key: "screen", label: "Screen", type: "screen", default: "PokemonCenterPC" }], describe: (a) => `Open the ${screenName(a.screen)}`,
+    rows: (a, ctx) => [{ op: "special", id: placeIn(orders(ctx).specialOrder, a.screen) }],
+    match: (rows, at, ctx) => {
+      const name = rows[at]?.op === "special" ? orders(ctx).specialOrder?.[Number(rows[at].id)] : undefined;
+      return name && SCREENS.some((x) => x.id === name) ? { args: { screen: name }, length: 1 } : null;
+    },
+  },
+
   // ---- Screen & sound
   { id: "wait", verb: "pause", label: "Wait", category: "Screen & sound", help: "Pauses (60 frames = 1 second).", params: [{ key: "frames", label: "Frames", type: "number", default: 30, min: 1, max: 255 }], describe: (a) => `Wait ${s(a.frames)} frames` },
   {
@@ -223,8 +255,9 @@ const commands: EventCommand[] = [
 export const GEN2_EVENTS: EventSpec = {
   registry: "",
   inline: true,
-  categories: ["Message", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Screen & sound"],
+  categories: ["Message", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Screen & sound", "Screens"],
   commands,
+  screens: SCREENS,
   choiceVerb: "",
   stopVerb: "end",
   compile: (blocks, ctx) => compile(blocks, ctx),

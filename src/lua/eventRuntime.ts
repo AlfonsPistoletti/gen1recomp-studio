@@ -64,6 +64,14 @@ export const EVENT_RUNTIME = String.raw`
         ctx.save.coins = math.min(9999, (ctx.save.coins or 0) + (n or 0))
       end,
     })
+    -- "Show a Pokémon's picture": push_screen opens this screen by id and the
+    -- event waits until it closes (mod.ui.PicBox: the engine's picture box)
+    mod.content.screens:register("studio:PokemonPic", {
+      new = function(game, species)
+        local def = game.data.pokemon[species]
+        return mod.ui.PicBox.new(game, def and def.spriteFront or "")
+      end,
+    })
     mod.content.commands:register("studio:check_coins", {
       fn = function(ctx, n)
         ctx.lastCheck = (ctx.save.coins or 0) >= (n or 0)

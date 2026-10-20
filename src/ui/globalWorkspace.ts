@@ -437,11 +437,22 @@ function giftCards(): HTMLElement[] {
   const name = (s: string) => String(mons[s]?.name ?? s);
   return giftList_.map((g) => {
     const key = `${g.map}:${g.species}`;
-    const rec = store.table(GIFTS)[key] as Starter | undefined;
-    const cur: Starter = { species: rec?.species ?? g.species, level: rec?.level ?? g.level };
-    const put = (label: string, next: Starter) => {
-      store.setRecord(GIFTS, key, label, next.species === g.species && next.level === g.level ? undefined : next);
+    const rec = store.table(GIFTS)[key] as Gift | undefined;
+    const named = g.named ?? { nickname: "", otName: "" };
+    const cur: Gift = { species: rec?.species ?? g.species, level: rec?.level ?? g.level, nickname: rec?.nickname ?? named?.nickname, otName: rec?.otName ?? named?.otName, otId: rec?.otId };
+    // only what differs from the game's is kept
+    const put = (label: string, next: Gift) => {
+      const out: Gift = { species: next.species, level: next.level };
+      if (next.nickname !== named.nickname) out.nickname = next.nickname;
+      if (next.otName !== named.otName) out.otName = next.otName;
+      if (next.otName && next.otId !== undefined && next.otId !== named.otId) out.otId = next.otId;
+      store.setRecord(GIFTS, key, label, Object.keys(out).length === 2 && out.species === g.species && out.level === g.level ? undefined : out);
       store.seal();
+    };
+    const nameInput = (k: "nickname" | "otName", label: string, max: number) => {
+      const input = h("input", { type: "text", value: cur[k] ?? "", maxLength: max, spellcheck: false, placeholder: k === "nickname" ? "The player names it" : "The player" });
+      input.addEventListener("change", () => put(`Gift ${g.species}: ${label.toLowerCase()}`, { ...cur, [k]: input.value.trim().toUpperCase().slice(0, max) }));
+      return field(label, input);
     };
     // the NPC (or ball) that gives it
     const layer = store.adapter.layers.find((l) => l.kind === "npc");
@@ -461,6 +472,14 @@ function giftCards(): HTMLElement[] {
         })),
         field("Level", numberInput(cur.level, (n) => put(`Gift ${g.species}: level`, { ...cur, level: Math.max(1, Math.min(100, Math.trunc(n))) }), 1, 100)),
       ),
+      h("div", { class: "row two" },
+        nameInput("nickname", "Nickname", 10),
+        nameInput("otName", "Original trainer", 7),
+        cur.otName
+          ? field("Trainer ID", numberInput(cur.otId ?? named.otId, (n) => put(`Gift ${g.species}: trainer ID`, { ...cur, otId: Math.max(0, Math.min(65535, Math.trunc(n))) }), 0, 65535), named.otId === undefined ? "Empty: the player's. Another ID: it may disobey without enough badges, and it gains more experience." : "Not the player's: it may disobey without enough badges, and it gains more experience.")
+          : null,
+      ),
+      cur.nickname || cur.otName ? h("p", { class: "hint" }, "With a nickname or an original trainer, the game doesn't ask the player for a nickname. Empty: the player names it, and is its trainer.") : null,
       h("div", { class: "row wrap" },
         g.at ? h("button", { class: "btn small", onclick: () => nav.selectEntity(g.map, g.at!.layer, g.at!.index) }, "Show on map")
           : npc >= 0 && layer ? h("button", { class: "btn small", onclick: () => nav.selectEntity(g.map, layer.key, npc) }, "Show on map") : null,
@@ -472,7 +491,7 @@ function giftCards(): HTMLElement[] {
             h("strong", {}, "Check the texts"),
             h("p", {}, `What people say before the gift may still name ${name(g.species)}. The line saying what the player received names the new Pokémon by itself.`))
         : null,
-      rec ? h("button", { class: "btn small danger", onclick: () => put(`Gift ${g.species}: the game's`, { species: g.species, level: g.level }) }, "Back to the game's") : null,
+      rec ? h("button", { class: "btn small danger", onclick: () => put(`Gift ${g.species}: the game's`, { species: g.species, level: g.level, nickname: named.nickname, otName: named.otName }) }, "Back to the game's") : null,
     );
   });
 }
@@ -484,6 +503,8 @@ interface Starter {
   species: string;
   level: number;
 }
+// Gen 2 gifts may also change the nickname and original trainer
+type Gift = Starter & { nickname?: string; otName?: string; otId?: number };
 
 // Oak's question in the game's words ("So! You want the\nfire POKéMON,\vCHARMANDER?")
 function starterQuestion(species: string): string {

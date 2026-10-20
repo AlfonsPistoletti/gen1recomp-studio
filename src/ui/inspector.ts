@@ -180,6 +180,9 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
       if (isItemBall(record)) claimed.add("item");
       // a known mod kind's values are edited in its own card
       if (extKind((record.custom as Rec | undefined)?.kind)) claimed.add("custom");
+      for (const k of spec.hide ?? []) claimed.add(k);
+      // nothing else to show: no empty box
+      if (spec.hide && Object.keys(record).every((k) => claimed.has(k))) return null;
       return extrasField(spec, record, edit, claimed);
     }
   }

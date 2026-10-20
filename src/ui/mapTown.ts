@@ -11,14 +11,14 @@ import { clone } from "../core/merge.ts";
 import { store } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { HiddenKind, TownSpec } from "../games/types.ts";
-import type { MapView } from "../render/mapView.ts";
+import { codeHiddenOf, type MapView } from "../render/mapView.ts";
 import { comboInput, field, h, numberInput, selectInput, toast } from "./dom.ts";
 import { idBase, newTextId, pointerEntry, type PointerEntry } from "./mapText.ts";
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
 import { ROLE_LABEL, type RoleSet } from "./roles.ts";
 import { counterId, counters, freshCounter, prizeCounterEditor } from "./prizeEditor.ts";
-import { createEvent, eventId, gameTalkEvent, splitEventId, studioEvent, studioEventsOf } from "./eventEditor.ts";
+import { createEvent, eventId, eventOutline, gameTalkEvent, splitEventId, studioEvent, studioEventsOf } from "./eventEditor.ts";
 import { isItemBall } from "./inspector.ts";
 import { buildTrainer, currentSetup, facingOf, isStale, removeTrainer, trainerEventOf, type TrainerSetup } from "./trainerEvents.ts";
 
@@ -127,6 +127,7 @@ export const gen1Roles: RoleSet = (c) => {
         h("span", { class: "hint" }, `Runs ${ev?.rows.length ?? 0} command row(s) instead of just saying its text.`),
         h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(eventId(map.id, "talk", textId)) }, "Edit event →"),
       ),
+      eventOutline(eventId(map.id, "talk", textId)),
     );
   }
   if (role === "" && textId && gameTalkEvent(map.id, textId) !== undefined) {
@@ -137,6 +138,7 @@ export const gen1Roles: RoleSet = (c) => {
         h("span", { class: "hint" }, `The game runs its own event here${gameTalkEvent(map.id, textId) ? "" : " (code)"}.`),
         h("button", { class: "btn small ghost", onclick: () => nav.openEvent(`game:${map.id}:talk:${textId}`) }, "View →"),
       ),
+      eventOutline(`game:${map.id}:talk:${textId}`),
     );
   }
   if (role === "mart") wrap.append(stockEditor(s, label, textId));
@@ -340,6 +342,20 @@ function hiddenSection(s: TownSpec, map: MapDef, view: MapView): HTMLElement[] {
       out.push(row);
       if (below) out.push(below);
     });
+  }
+  // the game's own, run as code: fixed cells, texts can be reworded
+  for (const c of codeHiddenOf(map.id)) {
+    const texts = c.texts.filter((t) => typeof store.table("text")[t] === "string");
+    out.push(
+      h("div", { class: "hidden-row" },
+        h("span", { class: "hidden-kind", title: "The game runs it as code: it can't move, but its texts can be reworded." }, "Game's own"),
+        h("span", { class: "muted" }, `${c.cells.map(([x, y]) => `${x}, ${y}`).join(" · ")}${c.facing ? ` (facing ${c.facing})` : ""}`),
+        h("button", { class: "btn small ghost", title: "Show it", onclick: () => view.centerOnCell(c.cells[0][0], c.cells[0][1]) }, "◎"),
+        h("span", {}),
+      ),
+      h("p", { class: "hint" }, c.what),
+      ...(texts.length ? [h("div", { class: "row wrap" }, ...texts.map((t) => h("button", { class: `btn small ghost${store.isRecordEdited("text", t) ? " edited" : ""}`, title: "Open this text (Text)", onclick: () => nav.openText(t) }, t.replace(/^_/, "").replace(/Text$/, ""))))] : []),
+    );
   }
   if (!out.length) out.push(h("p", { class: "hint" }, "None on this map."));
 

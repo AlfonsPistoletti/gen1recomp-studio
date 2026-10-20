@@ -9,14 +9,16 @@
 //   trainer  object.trainer (mapTrainer.ts)
 //   item     object type 1 with itemball = { item, quantity }, eventFlag = taken
 //   hidden   sign kind 7 with hiddenItem = { event, item }
-//   game     the game's own script key (kept as it was)
+//   game     the game's own script key (kept as it was) when it does more
+// A person still on a game key gets the role of that key's rows (the fisher's
+// [jumptextfaceplayer text] is Normal), keeping the key: nothing is copied.
 // There is no PC role: the engine opens a Pokémon Center's PC by tileset.
 
 import { newEventText, syncEventTexts } from "../core/inlineEvents.ts";
 import { store } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import { comboInput, field, h, numberInput, selectInput, toast } from "./dom.ts";
-import { createEvent, eventId } from "./eventEditor.ts";
+import { createEvent, eventId, eventOutline } from "./eventEditor.ts";
 import { makeTrainer, objectTrainerSection, removeTrainer } from "./mapTrainer.ts";
 import { nav } from "./nav.ts";
 import type { RoleCtx, RoleSet } from "./roles.ts";
@@ -35,13 +37,35 @@ const ALWAYS = 0xffff; // eventFlag of a person who is always there
 const SIGN_STD = ["PictureBookshelfScript", "MagazineBookshelfScript", "DifficultBookshelfScript", "TVScript", "WindowScript", "TownMapScript", "Radio1Script", "Radio2Script", "TrashCanScript", "IncenseBurnerScript", "MerchandiseShelfScript", "PokecenterSignScript", "MartSignScript", "HomepageScript"];
 const stdLabel = (std: string) => std.replace(/Script$/, "").replace(/([a-z])([A-Z0-9])/g, "$1 $2");
 
-const extra = () => store.ctx.data.extra as { stdScripts?: Record<string, string>; marts?: string[][] };
+const extra = () => store.ctx.data.extra as { stdScripts?: Record<string, string>; marts?: string[][]; scripts?: Record<string, unknown> };
 const items = () => store.table("items") as Record<string, { index?: number; name?: string }>;
 const itemNumber = (id: string) => items()[id]?.index ?? 0;
 const itemId = (n: unknown) => Object.entries(items()).find(([, r]) => r.index === n)?.[0] ?? "";
 const freeFlag = () => store.adapter.trainers?.objectTrainer?.freeFlag(store.ctx) ?? null;
 
 const rowsOf = (e: EntityRecord) => (Array.isArray(e.scriptKey) ? (e.scriptKey as Row[]) : null);
+// a game key's own rows (top level)
+const keyRows = (key: unknown) => {
+  const rows = typeof key === "string" ? extra().scripts?.[key] : undefined;
+  return Array.isArray(rows) ? (rows as Row[]) : null;
+};
+// what the entity runs: its inline rows, else its game script's
+const scriptOf = (e: EntityRecord) => rowsOf(e) ?? keyRows(e.scriptKey);
+
+// the role a script's rows play ("event": none of the simple ones)
+function rowsRole(rows: Row[]): string {
+  if (rows.length === 1 && (rows[0].op === "jumptextfaceplayer" || rows[0].op === "jumptext")) return "";
+  if (rows.length === 1 && rows[0].op === "jumpstd") return rows[0].std === "PokecenterNurseScript" ? "nurse" : "std";
+  if (rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op))) return "mart";
+  return "event";
+}
+
+// the role of a game script key ("game": it does more than a simple role)
+function keyRole(key: string): string {
+  const rows = keyRows(key);
+  const role = rows ? rowsRole(rows) : "event";
+  return role === "event" ? "game" : role;
+}
 
 function roleOf(c: RoleCtx): string {
   const e = c.entity;
@@ -49,13 +73,8 @@ function roleOf(c: RoleCtx): string {
   if (c.kind === "npc" && e.itemball) return "item";
   if (c.kind === "sign" && e.hiddenItem) return "hidden";
   const rows = rowsOf(e);
-  if (rows) {
-    if (rows.length === 1 && (rows[0].op === "jumptextfaceplayer" || rows[0].op === "jumptext")) return "";
-    if (rows.length === 1 && rows[0].op === "jumpstd") return rows[0].std === "PokecenterNurseScript" ? "nurse" : "std";
-    if (rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op))) return "mart";
-    return "event";
-  }
-  return typeof e.scriptKey === "string" ? "game" : "none";
+  if (rows) return rowsRole(rows);
+  return typeof e.scriptKey === "string" ? keyRole(e.scriptKey) : "none";
 }
 
 // the game's version of this entity (people by their index, signs by place)
@@ -80,7 +99,7 @@ const stdRow = (std: string): Row => ({ op: "jumpstd", std, script: extra().stdS
 
 // the first text a script shows, kept when switching between text roles
 function textIn(e: EntityRecord): string | null {
-  const r = rowsOf(e)?.find((x) => typeof x.text === "string");
+  const r = scriptOf(e)?.find((x) => typeof x.text === "string");
   return r ? String(r.text) : null;
 }
 
@@ -123,6 +142,9 @@ function setRole(c: RoleCtx, from: string, next: string): void {
         e.kind = BGEVENT_ITEM;
         e.hiddenItem = { event: freeFlag(), item: itemNumber("POTION") };
       }
+      // the role the game's own script plays: its key again, not a copy
+      const game = gameScript(c);
+      if (game && keyRole(game) === next && ["", "nurse", "std", "mart"].includes(next)) e.scriptKey = game;
       if (e.scriptKey === undefined) delete e.scriptKey;
     });
     else if (from === "item") c.editEntity("Role: trainer", (e) => {
@@ -136,6 +158,13 @@ function setRole(c: RoleCtx, from: string, next: string): void {
   store.seal();
 }
 
+// the key of a person's / sign's talk event (inlineEvents ids)
+const talkKey = (c: RoleCtx) => (c.kind === "npc" ? `obj${String(c.entity.index)}` : `sign${c.index}`);
+const outline = (id: string) => {
+  const el = eventOutline(id);
+  return el ? [el] : [];
+};
+
 function panels(c: RoleCtx, role: string): HTMLElement[] {
   const e = c.entity;
   const edit = (label: string, mutate: (x: EntityRecord) => void) => {
@@ -148,8 +177,8 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
       return key && typeof store.table("text")[key] === "string" ? [textEditor(key, { rows: 3, compact: true, label: c.kind === "sign" ? "It reads" : "It says" })] : [];
     }
     case "event": {
-      const id = eventId(c.map.id, "talk", c.kind === "npc" ? `obj${String(e.index)}` : `sign${c.index}`);
-      return [h("div", { class: "row" }, h("span", { class: "hint" }, "Runs its own commands."), h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(id) }, "Edit event →"))];
+      const id = eventId(c.map.id, "talk", talkKey(c));
+      return [h("div", { class: "row" }, h("span", { class: "hint" }, "Runs its own commands."), h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(id) }, "Edit event →")), ...outline(id)];
     }
     case "trainer": {
       const box = objectTrainerSection(e, (label, mutate) => c.editEntity(label, mutate as (x: EntityRecord) => void));
@@ -163,6 +192,7 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
           own
             ? h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(after) }, "Edit event →")
             : h("button", { class: "btn small", onclick: () => { const id = createEvent(c.map.id, "after", `obj${String(e.index)}`); if (id) nav.openEvent(id); } }, "Make an event")),
+        ...(own ? outline(after) : []),
       ];
     }
     case "item": {
@@ -184,18 +214,18 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
     case "nurse":
       return [h("p", { class: "hint" }, "Heals the party with the game's nurse script.")];
     case "std": {
-      const cur = String(rowsOf(e)?.[0]?.std ?? "");
+      const cur = String(scriptOf(e)?.[0]?.std ?? "");
       const sel = selectInput(cur, SIGN_STD.filter((s) => extra().stdScripts?.[s]), (v) => edit("Standard object", (x) => (x.scriptKey = [stdRow(v)])));
       for (const o of sel.options) o.textContent = stdLabel(o.value);
       return [field("What it is", sel, "The game's own script for it")];
     }
     case "mart": {
       const lists = extra().marts ?? [];
-      const row = rowsOf(e)?.find((r) => r.op === "pokemart");
+      const row = scriptOf(e)?.find((r) => r.op === "pokemart");
       const args = (row?.args as number[] | undefined) ?? [0, 0, 0];
       const id = Number(args[1] ?? 0) + Number(args[2] ?? 0) * 256;
       const sel = selectInput(String(id), lists.map((_l, i) => String(i)), (v) => edit("Shop", (x) => {
-        x.scriptKey = (rowsOf(x) ?? []).map((r) => (r.op === "pokemart" ? { ...r, args: [0, Number(v) % 256, Math.floor(Number(v) / 256)] } : r));
+        x.scriptKey = (scriptOf(x) ?? []).map((r) => (r.op === "pokemart" ? { ...r, args: [0, Number(v) % 256, Math.floor(Number(v) / 256)] } : r));
       }));
       for (const o of sel.options) o.textContent = `Shop ${o.value}: ${(lists[Number(o.value)] ?? []).slice(0, 3).map((i) => String(items()[i]?.name ?? i)).join(", ")}…`;
       return [
@@ -203,8 +233,15 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
         h("p", { class: "hint" }, (lists[id] ?? []).map((i) => String(items()[i]?.name ?? i)).join(", ")),
       ];
     }
-    case "game":
-      return [h("p", { class: "hint" }, `Runs the game's own script (${String(e.scriptKey)}).`)];
+    case "game": {
+      const id = `game:${eventId(c.map.id, "talk", talkKey(c))}`;
+      return [
+        h("div", { class: "row" },
+          h("span", { class: "hint" }, "Runs the game's own script."),
+          h("button", { class: "btn small ghost", title: "Open it in Events, where Edit a copy makes it the mod's", onclick: () => nav.openEvent(id) }, "View →")),
+        ...outline(id),
+      ];
+    }
     case "none":
       return [h("p", { class: "hint" }, "Nothing happens when the player talks to it.")];
   }
@@ -218,7 +255,8 @@ export const gen2Roles: RoleSet = (c) => {
   const options = [
     "", "event",
     ...(npc ? ["trainer", "item", "mart", "nurse"] : ["hidden", "std"]),
-    ...(gameScript(c) || current === "game" ? ["game"] : []),
+    // only when the game's script does more than one of the roles above
+    ...((gameScript(c) && keyRole(gameScript(c)!) === "game") || current === "game" ? ["game"] : []),
     ...(current === "none" ? ["none"] : []),
   ];
   return { current, options, set: (next) => setRole(c, current, next), panels: panels(c, current) };

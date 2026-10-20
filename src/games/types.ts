@@ -298,6 +298,17 @@ export interface TownSpec {
   // a game trainer's header (line of sight, text keys): fixed game data, shown
   // so its lines can be reworded; null when the game has none for it
   gameTrainer?(ctx: GameContext, map: MapDef, entity: Record<string, unknown>): GameTrainerHeader | null;
+  // hidden events the engine runs as code (fixed cells; only their texts change)
+  codeHidden?: CodeHidden[];
+}
+
+export interface CodeHidden {
+  map: string;
+  cells: [number, number][];
+  facing?: string; // the way the player must look (none: any side)
+  what: string; // what it does, in words
+  texts: string[]; // the text keys it shows
+  versions?: string[]; // only in these versions
 }
 
 export interface IconMotion {
@@ -652,7 +663,8 @@ export type FieldSpec =
   // a line of information about the entity (null: nothing to say), not edited
   | (FieldBase & { kind: "info"; text(map: MapDef, index: number, ctx: GameContext): string | null })
   // JSON for every key no other field (and not x/y) claims
-  | (FieldBase & { kind: "extras" })
+  // (hide: keys kept in the record but not shown, e.g. cart data the Role box edits)
+  | (FieldBase & { kind: "extras"; hide?: string[] })
   // two fields side by side
   | { kind: "pair"; fields: [FieldSpec, FieldSpec] };
 
@@ -694,6 +706,7 @@ export type EventParamType =
   | "cellX" // a map cell (x, then a "cellY" param right after)
   | "cellY"
   | "trade" // an in-game trade, by its number (field.trades)
+  | "screen" // one of EventSpec.screens
   | "ext"; // a mod command's parameter (studio extensions): `ext` says its field type
 
 export interface EventParam {
@@ -754,6 +767,8 @@ export interface EventSpec {
   gameRows?(ctx: GameContext, key: string): EventRow[] | null;
   // Gen 2: a game row the editor has no form for, in words (`help`: what it is for)
   describeRaw?(row: Record<string, unknown>, ctx: GameContext): { text: string; help: string };
+  // the game's screens an event may open ("Open a screen"): the id its row names, in words
+  screens?: { id: string; label: string }[];
 }
 
 export interface EntityLayer {

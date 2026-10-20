@@ -185,7 +185,7 @@ const content: ContentSpec[] = [
   // gift Pokémon: "<MAP>:<SPECIES>" -> { species, level } (same helper as the starters)
   {
     registry: "studio_gifts", editable: true, build: () => ({}), studioFile: "studio_gifts.lua",
-    generator: { what: "gift Pokémon", order: ["species", "level"], runtime: STARTER_RUNTIME2, registration: giftRegistration2, writes: [] },
+    generator: { what: "gift Pokémon", order: ["species", "level", "nickname", "otName", "otId"], runtime: STARTER_RUNTIME2, registration: giftRegistration2, writes: [] },
   },
   // starter balls: the game's ball species -> { species, level }
   {
@@ -926,7 +926,10 @@ const globals: GlobalsSpec = {
             map: mapId, text: null, species, level: Number(g.level ?? 5),
             texts: gen2.scriptTexts?.(ctx, o.scriptKey as string) ?? [],
             at: { layer: "objects", index },
-            note: coins ? "A Game Corner prize, bought with coins." : g.trainer ? "Comes with its own nickname and original trainer." : undefined,
+            note: coins ? "A Game Corner prize, bought with coins." : undefined,
+            // givepoke's trainer arm (the extractor reads name / otName)
+            // (the World gives every gift with a trainer RANDY_OT_ID 1001)
+            named: { nickname: g.trainer && typeof g.name === "string" ? g.name : "", otName: g.trainer && typeof g.otName === "string" ? g.otName : "", otId: 1001 },
           });
         }
       });
@@ -1293,7 +1296,8 @@ export const gen2: GameAdapter = {
         { kind: "int", key: "eventFlag", label: "Event flag", min: 0, max: 65535, hint: "Hidden while this event flag is set; 65535 = always there" },
         { kind: "info", label: "When it's there", text: (map, i) => visibilityNote(map, Number((asList(map.objects)[i] as { index?: number } | undefined)?.index ?? i), scriptRows, startFlags) },
         { kind: "select", key: "palette", label: "Colors", numeric: true, options: () => ["0", ...OW_PALETTES.map((_, i) => String(8 + i))], labels: (v) => (v === "0" ? "The sprite's own" : OW_PALETTES[Number(v) - 8]?.toLowerCase()) },
-        { kind: "extras", label: "Other fields", hint: "type, sight range, item, script number (cart data)" },
+        // the Role box edits the script, type, trainer and item ball; the rest is the cart's own bookkeeping
+        { kind: "extras", label: "Other fields", hide: ["index", "script", "scriptKey", "spriteId", "type", "sight", "trainer", "itemball"] },
       ],
       // `index`: the object's number (events find people by it)
       create: (map, x, y) => ({ index: nextObjectIndex(map), x, y, sprite: "SPRITE_YOUNGSTER", movement: 6, radius: { x: 0, y: 0 }, hours: [-1, -1], eventFlag: 0xffff, palette: 0 }),
@@ -1332,7 +1336,7 @@ export const gen2: GameAdapter = {
       // kind 7 (BGEVENT_ITEM): a hidden item, not something to read
       marker: (e) => (e.hiddenItem ? "item" : undefined),
       fields: [
-        { kind: "extras", label: "Other fields", hint: "kind (cart data)" },
+        { kind: "extras", label: "Other fields", hide: ["kind", "script", "scriptKey", "hiddenItem"] },
       ],
       create: (_map, x, y) => ({ x, y, kind: 0 }),
       variants: [{

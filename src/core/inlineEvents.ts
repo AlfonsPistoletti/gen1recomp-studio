@@ -80,8 +80,10 @@ export function inlineEvents(all = false): Record<string, InlineEvent> {
 }
 
 // Entities that still run one of the game's scripts (a key): id -> key, with
-// the same ids as inline events (a trainer's game script is its "after" talk)
-export function inlineGameEvents(): Record<string, string> {
+// the same ids as inline events (a trainer's game script is its "after" talk);
+// `all`: also the ones a role reads (a person's text, a nurse, a shop), which
+// aren't events (as in inlineEvents)
+export function inlineGameEvents(all = false): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [mapId, map] of Object.entries(store.maps)) {
     const npc = layerOf("npc");
@@ -100,6 +102,13 @@ export function inlineGameEvents(): Record<string, string> {
     for (const n of scenes ? scenes.withScripts(map) : []) {
       const key = scenes!.script(map, n);
       if (typeof key === "string") out[`${mapId}:enter:scene${n}`] = key;
+    }
+  }
+  const ev = store.adapter.events;
+  if (!all && ev?.preset && ev.gameRows) {
+    for (const [id, key] of Object.entries(out)) {
+      const rows = id.includes(":after:") ? null : ev.gameRows(store.ctx, key);
+      if (rows && ev.preset(rows)) delete out[id];
     }
   }
   return out;

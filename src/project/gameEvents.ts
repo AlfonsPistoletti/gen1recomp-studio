@@ -99,6 +99,10 @@ export interface GameGift {
   note?: string;
   // Gen 2: the map person who gives it (layer key, list place)
   at?: { layer: string; index: number };
+  // the nickname and original trainer the script gives it ("": none, the
+  // player names it / is its trainer), and the ID such a trainer gets
+  // (undefined: the player's); Gen 1's gifts have none
+  named?: { nickname: string; otName: string; otId?: number };
 }
 
 // Gifts whose species the game's code picks at run time (no literal row):

@@ -14,7 +14,7 @@ import { liveSprite, playerSprites, spriteUrl } from "../core/sprites.ts";
 import { gbcColorsFor, gbcKey, isGbcKey, spriteGbcColors } from "../core/gbc.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
-import { Armchair, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
+import { Armchair, Cog, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
 import { animationFrames, atlasRect, blockAtlas, clearColorCaches, BLOCK, CELL, loadImage, markerIcon, spriteFrame, TILE, type BlockAtlas } from "./graphics.ts";
 import { assetUrl } from "../core/assets.ts";
 
@@ -76,6 +76,9 @@ const HIDDEN_ICONS: Record<string, [string, IconNode, string]> = {
   statue: ["landmark", Landmark, "#5b5f6e"],
 };
 const LANDING_ICON = "#1f9e6b";
+// the game's code hidden events on a map, for the open version
+export const codeHiddenOf = (mapId: string) =>
+  (store.adapter.towns?.codeHidden ?? []).filter((c) => c.map === mapId && (!c.versions || c.versions.includes(store.project?.version ?? "")));
 const MAX_ZOOM = 8;
 
 export class MapView {
@@ -720,6 +723,8 @@ export class MapView {
           else this.markerIcon("zap", Zap, "#d4357a", ev);
         }
       }
+      // the game's code hidden events (fixed, see their row in the map's properties)
+      for (const c of codeHiddenOf(map.id)) for (const [x, y] of c.cells) this.markerIcon("cog", Cog, "#5b5f6e", { x, y });
       const land = f.flyWarps?.[map.id];
       if (land) this.markerIcon("plane-landing", PlaneLanding, LANDING_ICON, land);
     }

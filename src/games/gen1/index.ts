@@ -19,6 +19,7 @@ import { GIFT_RUNTIME, giftRegistration } from "../../lua/giftRuntime.ts";
 import { EVENT_RUNTIME, eventRegistration } from "../../lua/eventRuntime.ts";
 import { ROOF_RUNTIME, roofRegistration, TILESET_RUNTIME, tilesetRegistration } from "../../lua/tilesetRuntime.ts";
 import { vanillaPrizes } from "./prizes.ts";
+import { CODE_HIDDEN } from "./codeHidden.ts";
 import { GEN1_EVENTS } from "./events.ts";
 import { internalItem, isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
 import { paletteColors, paletteNames, resolveMapPalettes, type PaletteData } from "./palette.ts";
@@ -159,7 +160,7 @@ const content: ContentSpec[] = [
   // into map_scripts (talk rows, onStep/onEnter) by the generated helper
   {
     registry: "studio_events", editable: true, build: () => ({}), studioFile: "studio_events.lua",
-    generator: { what: "map events", order: ["x", "y", "once", "rows"], runtime: EVENT_RUNTIME, registration: eventRegistration, writes: ["map_scripts", "commands"] },
+    generator: { what: "map events", order: ["x", "y", "once", "rows"], runtime: EVENT_RUNTIME, registration: eventRegistration, writes: ["map_scripts", "commands", "screens"] },
   },
   // catch numbers per ball id; the vanilla records live in the engine
   // (src/battle/Catching.lua), so they are restated (written with override)
@@ -207,7 +208,7 @@ const content: ContentSpec[] = [
   // in its give_pokemon rows as they run (src/lua/giftRuntime.ts)
   {
     registry: "studio_gifts", editable: true, build: () => ({}), studioFile: "studio_gifts.lua",
-    generator: { what: "gift Pokémon", order: ["species", "level"], runtime: GIFT_RUNTIME, registration: giftRegistration, writes: [] },
+    generator: { what: "gift Pokémon", order: ["species", "level", "nickname", "otName", "otId"], runtime: GIFT_RUNTIME, registration: giftRegistration, writes: [] },
   },
   // Oak's intro speech as a list of steps (speech = { steps }), rebuilt
   // through the public intro.oak_speech.build hook (src/lua/introRuntime.ts)
@@ -519,6 +520,7 @@ const BENCH_GUY_TEXT: Record<string, string> = {
 };
 
 const towns: TownSpec = {
+  codeHidden: CODE_HIDDEN,
   pointerRegistry: "text_pointers",
   fieldRegistry: "field",
   prizeRegistry: "prize_counters",

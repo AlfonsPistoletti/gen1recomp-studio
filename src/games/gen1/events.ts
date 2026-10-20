@@ -16,6 +16,17 @@ export const arrows = (dirs: unknown) => (Array.isArray(dirs) && dirs.length ? d
 const who = (v: unknown) => (v === "player" ? "Player" : `NPC ${s(v)}`);
 const nice = (v: unknown) => s(v).replace(/_/g, " ").toLowerCase().replace(/(^| )\w/g, (c) => c.toUpperCase());
 
+// screens that open with no argument from an event and close themselves
+// (gen1recomp src/ui/<id>.lua; push_screen passes one value: none here)
+const SCREENS = [
+  { id: "TownMap", label: "Town Map" },
+  { id: "PokedexMenu", label: "Pokédex" },
+  { id: "TrainerCard", label: "Trainer card" },
+  { id: "PlayerPC", label: "Player's PC (items)" },
+  { id: "Diploma", label: "Diploma" },
+];
+const screenName = (id: unknown) => SCREENS.find((x) => x.id === id)?.label ?? s(id);
+
 const commands: EventCommand[] = [
   // ---- Message
   { id: "show_text", verb: "show_text", label: "Show text", category: "Message", help: "Shows a text box. Type the line, or use a text key (_SomeText) from the Text workspace.", params: [{ key: "text", label: "Text", type: "text", default: "Hello!" }], describe: (a) => `Text: "${short(a.text)}"` },
@@ -74,12 +85,19 @@ const commands: EventCommand[] = [
   { id: "camera_reset", verb: "pan_camera", fixed: ["reset"], label: "Camera back", category: "Screen & sound", help: "Snaps the view back onto the player.", params: [], describe: () => "Camera back on the player" },
   { id: "play_music", verb: "play_music", label: "Play music", category: "Screen & sound", help: "Switches the music.", params: [{ key: "song", label: "Song", type: "song" }], describe: (a) => `Music: ${s(a.song).replace(/^Music_/, "")}` },
   { id: "play_sound", verb: "play_sound", label: "Play sound", category: "Screen & sound", help: "Plays a sound effect.", params: [{ key: "sound", label: "Sound", type: "sound" }], describe: (a) => `Sound: ${s(a.sound)}` },
+  // ---- Screens (push_screen: the event waits until the screen closes)
+  { id: "show_dex_entry", verb: "push_screen", fixed: ["DexEntryMenu"], label: "Show Pokédex entry", category: "Screens", help: "Opens a Pokémon's Pokédex page (like Fuchsia City's signs). Mark it as seen first, or the page shows no data.", params: [{ key: "species", label: "Pokémon", type: "species", default: "PIKACHU" }], describe: (a) => `Show ${nice(a.species)}'s Pokédex entry` },
+  { id: "mark_seen", verb: "mark_seen", label: "Mark as seen in the Pokédex", category: "Screens", help: "Marks a Pokémon as seen in the player's Pokédex.", params: [{ key: "species", label: "Pokémon", type: "species", default: "PIKACHU" }], describe: (a) => `Mark ${nice(a.species)} as seen` },
+  // the studio's own screen (eventRuntime.ts): the Pokémon's front picture in a box
+  { id: "show_pic", verb: "push_screen", fixed: ["studio:PokemonPic"], label: "Show a Pokémon's picture", category: "Screens", help: "Shows a Pokémon's front picture in a box until the player presses A (like the binoculars in Route 15's gate).", params: [{ key: "species", label: "Pokémon", type: "species", default: "PIKACHU" }], describe: (a) => `Show ${nice(a.species)}'s picture` },
+  { id: "open_screen", verb: "push_screen", label: "Open a screen", category: "Screens", help: "Opens one of the game's screens; the event goes on once the player closes it.", params: [{ key: "screen", label: "Screen", type: "screen", default: "TownMap" }], describe: (a) => `Open the ${screenName(a.screen)}` },
 ];
 
 export const GEN1_EVENTS: EventSpec = {
   registry: "studio_events",
-  categories: ["Message", "Flags", "Conditions", "Items & money", "Pokémon", "Battle", "Movement", "Screen & sound"],
+  categories: ["Message", "Flags", "Conditions", "Items & money", "Pokémon", "Battle", "Movement", "Screen & sound", "Screens"],
   commands,
+  screens: SCREENS,
   choiceVerb: "studio:check_choice",
   stopVerb: "jump",
 };

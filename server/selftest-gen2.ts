@@ -258,12 +258,29 @@ for (const [registry, records] of Object.entries(edited)) {
   check("a game script reads in with its branches", !!teacher && teacher.some((r) => r.op === "iftrue" && Array.isArray(r.script)), JSON.stringify(teacher).slice(0, 200));
   const tb = gparse((teacher ?? []) as never, ctx) as { t: string }[];
   check("a game script shows as If blocks", tb.filter((b) => b.t === "if").length >= 1 && !JSON.stringify(tb).includes('"#raw",{"op":"iftrue"'), JSON.stringify(tb).slice(0, 300));
+  // screens: the picture's three rows and a screen special read back; every listed special exists
+  {
+    const cmd = (id: string) => GEN2_EVENTS.commands.find((c) => c.id === id)!;
+    const pic = cmd("show_pic").rows!({ species: "ARTICUNO" }, ctx);
+    const scr = cmd("open_screen").rows!({ screen: "OverworldTownMap" }, ctx);
+    const order = (project.data.extra as { specialOrder?: string[] }).specialOrder ?? [];
+    check("screen commands round-trip", cmd("show_pic").match!(pic, 0, ctx)?.args.species === "ARTICUNO" && cmd("open_screen").match!(scr, 0, ctx)?.args.screen === "OverworldTownMap"
+      && (GEN2_EVENTS.screens ?? []).every((x) => order.includes(x.id)), JSON.stringify([pic, scr]));
+  }
   // what a Role writes is no event (people's text, nurse, shop, bookshelf)
   const { presetOf } = await import("../src/games/gen2/events.ts");
   check("Role scripts are presets, events are not",
     presetOf([{ op: "jumptextfaceplayer", text: "X" }]) && presetOf([{ op: "jumpstd", std: "PokecenterNurseScript", script: "40:408a" }])
     && presetOf([{ op: "faceplayer" }, { op: "opentext" }, { op: "pokemart", args: [0, 3, 0] }, { op: "closetext" }, { op: "end" }])
     && !presetOf(rows as never));
+  // the game's own scripts read the same way: New Bark's fisher only says a text
+  {
+    const scripts = (project.data.extra as { scripts: Record<string, unknown> }).scripts;
+    const fisher = (base.NEW_BARK_TOWN.objects as { sprite?: string; scriptKey?: unknown }[]).find((o) => o.sprite === "SPRITE_FISHER");
+    const people = Object.values(base).flatMap((m) => (m.objects ?? []) as { scriptKey?: unknown }[]).filter((o) => typeof o.scriptKey === "string");
+    const simple = people.filter((o) => Array.isArray(scripts[o.scriptKey as string]) && presetOf(scripts[o.scriptKey as string] as never)).length;
+    check("the game's text people read as roles (fisher)", presetOf(scripts[fisher?.scriptKey as string] as never) && simple > 400, `${simple} of ${people.length} people`);
+  }
   const std = (project.data.extra as { stdScripts?: Record<string, string> }).stdScripts ?? {};
   check("the game's std scripts are known by name", typeof std.PokecenterNurseScript === "string" && typeof std.PictureBookshelfScript === "string", JSON.stringify(std).slice(0, 120));
   check("the game's shops are loaded", ((project.data.extra as { marts?: unknown[] }).marts ?? []).length > 20);
@@ -400,6 +417,8 @@ for (const [registry, records] of Object.entries(edited)) {
   const gifts = adapter.globals!.gifts!(ctx);
   console.log("     gifts: " + gifts.map((g) => `${g.species}@${g.map} L${g.level}`).join(", "));
   check("gift Pokémon found (Eevee from Bill)", gifts.some((g) => g.species === "EEVEE") && !gifts.some((g) => g.map === "ELMS_LAB"), String(gifts.length));
+  const kenya = gifts.find((g) => g.species === "SPEAROW");
+  check("gift nickname and trainer read (KENYA, RANDY)", kenya?.named?.nickname === "KENYA" && kenya.named.otName === "RANDY", JSON.stringify(kenya?.named));
   const code = [STARTER_RUNTIME2, starterRegistration2("studio_selftest", "studio_starters.lua"), STARTER_RUNTIME2, giftRegistration2("studio_selftest", "studio_gifts.lua")].join("\n");
   check("gift helper has no backticks", !code.includes("`"));
   const st = dataFile("studio_selftest", "starter Pokémon", { CYNDAQUIL: { species: "PIKACHU", level: 7 } }, ["species", "level"]);

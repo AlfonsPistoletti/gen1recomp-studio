@@ -9,7 +9,7 @@
 import { store } from "../core/store.ts";
 import { clone, deepEqual } from "../core/merge.ts";
 import { gameEvents } from "../project/gameEvents.ts";
-import { field, h, toast } from "./dom.ts";
+import { field, h, numberInput, toast } from "./dom.ts";
 import { nav } from "./nav.ts";
 
 export const TRADES_REGISTRY = "field";
@@ -209,6 +209,7 @@ function tradeCards2(cfg: NonNullable<ReturnType<typeof own>>): HTMLElement[] {
         text("nickname", "Nickname", cfg.nickMax),
         field("Held item", item),
         text("otName", "Original trainer", cfg.otMax),
+        field("Trainer ID", numberInput(Number(t.otId ?? 0), (v) => editTrades(`Trade #${n}: trainer ID`, (l) => (l[i].otId = Math.max(0, Math.min(65535, Math.trunc(v))))), 0, 65535), "The original trainer's ID number (0-65535)."),
         field("Dialogue", dialog, cfg.dialogNote),
       ),
       cfg.offerLine(store.ctx, t) ? h("p", { class: "hint trade-offer" }, `“${cfg.offerLine(store.ctx, t)}”`) : null,

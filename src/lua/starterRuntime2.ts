@@ -6,15 +6,22 @@
 // the public script.command hook swaps those numbers (and givepoke's level)
 // while a script runs on that map. The numbers come from the merged data,
 // taken on game.ready. A species without an `index` can't be given by a script
-// (the editor offers only species with one). Plain Lua, no requires, no backticks.
+// (the editor offers only species with one). A gift may also carry nickname /
+// otName ("" = none: the player names it / is its trainer), which set givepoke's
+// trainer arm, and otId, set on the mon that just joined the party (the World
+// gives a named gift RANDY's 1001; a full party gets nothing).
+// Plain Lua, no requires, no backticks.
 
 export const STARTER_RUNTIME2 = String.raw`
   -- studio gifts (Gen 2): a map's scripts give other Pokemon
   -- byMap[MAP][species the game gives] = { species, level }
   local function studioMonSwaps(byMap)
     if type(byMap) ~= "table" or next(byMap) == nil then return end
-    local data
-    mod.events:on("game.ready", function(ev) data = ev and ev.game and ev.game.data end)
+    local data, game
+    mod.events:on("game.ready", function(ev)
+      game = ev and ev.game
+      data = game and game.data
+    end)
     local OPS = { pokepic = true, cry = true, getmonname = true, givepoke = true }
     -- ctx.mapId is the map label only when the World hands the VM one; it
     -- otherwise falls back to "<group>:<number>", so the map's own numbers
@@ -53,7 +60,22 @@ export const STARTER_RUNTIME2 = String.raw`
         a[1] = to.index
         row.args = a
       end
-      return vanilla(ctx, name, a, row)
+      if name ~= "givepoke" then return vanilla(ctx, name, a, row) end
+      if pick.nickname ~= nil or pick.otName ~= nil then
+        local nick, ot = pick.nickname, pick.otName
+        if nick == nil then nick = cmd.trainer ~= 0 and cmd.name or nil end
+        if ot == nil then ot = cmd.trainer ~= 0 and cmd.otName or nil end
+        if nick == "" then nick = nil end
+        if ot == "" then ot = nil end
+        row.name, row.otName = nick, ot
+        row.trainer = (nick or ot) and 1 or 0
+      end
+      local save = game and game.save
+      local before = save and save.party and #save.party or 0
+      local jump = vanilla(ctx, name, a, row)
+      local party = save and save.party
+      if pick.otId and row.otName and party and #party > before then party[#party].otId = pick.otId end
+      return jump
     end)
   end
 `;

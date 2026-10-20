@@ -195,7 +195,7 @@ export function gameTalkEvent(mapId: string, textId: string): EventRow[] | false
 function gameRowsOf(s: EventSpec, id: string): EventRow[] | false | undefined {
   const info = splitEventId(id);
   if (!s.inline) return gameTalkEvent(info.mapId, info.key);
-  const key = inlineGameEvents()[`${info.mapId}:${info.kind}:${info.key}`];
+  const key = inlineGameEvents(true)[`${info.mapId}:${info.kind}:${info.key}`];
   return key ? (s.gameRows?.(store.ctx, key) ?? false) : undefined;
 }
 
@@ -951,7 +951,7 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
         // Gen 2: always a text key (writetext takes no literal line)
         if (spec()?.inline && typeof value === "string") {
           input = typeof store.table("text")[value] === "string"
-            ? h("div", {}, textEditor(value, { rows: 3, compact: true, label: value }), h("div", { class: "row" }, h("button", { class: "btn small ghost", onclick: () => nav.openText(value) }, "Open in Text →")))
+            ? h("div", {}, textEditor(value, { rows: 3, compact: true, label: value, hideEnding: true }), h("div", { class: "row" }, h("button", { class: "btn small ghost", onclick: () => nav.openText(value) }, "Open in Text →")))
             : h("p", { class: "hint warn" }, `Unknown text key ${value}`);
           break;
         }
@@ -960,11 +960,11 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
           input = h(
             "div",
             {},
-            textEditor(value, { rows: 3, compact: true, label: value }),
+            textEditor(value, { rows: 3, compact: true, label: value, hideEnding: true }),
             h(
               "div",
               { class: "row" },
-              h("button", { class: "btn small ghost", title: "Type a line just for this event instead of using the shared text", onclick: () => set(String(store.table("text")[value] ?? "")) }, "Use own text instead"),
+              h("button", { class: "btn small ghost", title: "Type a line just for this event instead of using the shared text", onclick: () => set(String(store.table("text")[value] ?? "").replace(/\s*\{DONE\}\s*$/, "")) }, "Use own text instead"),
               h("button", { class: "btn small ghost", onclick: () => nav.openText(value) }, "Open in Text →"),
             ),
           );
@@ -1107,6 +1107,13 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "trainer":
         input = combo(Object.keys(store.table("trainers")).sort(), value, set);
         break;
+      case "screen": {
+        const list = spec()?.screens ?? [];
+        const sel = selectInput(String(value ?? ""), list.map((x) => x.id), set);
+        for (const o of sel.options) o.textContent = list.find((x) => x.id === o.value)?.label ?? o.value;
+        input = sel;
+        break;
+      }
       case "map":
         input = combo(Object.keys(store.maps).sort(), value, set);
         break;
@@ -1302,6 +1309,18 @@ function helpPanel(s: EventSpec, id: string, selected: string | null): HTMLEleme
     }
   }
   return out;
+}
+
+// what an event does, read-only, in the Events workspace's words: the map
+// inspector shows it under an NPC's or sign's Role (game ids "game:..." too)
+export function eventOutline(id: string): HTMLElement | null {
+  const s = spec();
+  if (!s) return null;
+  const info = splitEventId(id);
+  const rows = info.game ? gameRowsOf(s, id) : events()[id]?.rows;
+  if (!rows) return null;
+  const blocks = info.game ? parseRows(s, rows) : blocksOf(s, id, rows);
+  return h("div", { class: "event-outline" }, blockList(s, info.mapId, blocks, "", null, () => null, () => {}));
 }
 
 export function studioEventsOf(mapId: string): string[] {

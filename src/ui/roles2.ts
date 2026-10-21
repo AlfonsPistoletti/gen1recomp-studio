@@ -23,6 +23,8 @@ import { makeTrainer, objectTrainerSection, removeTrainer } from "./mapTrainer.t
 import { nav } from "./nav.ts";
 import type { RoleCtx, RoleSet } from "./roles.ts";
 import { textEditor } from "./textField.ts";
+import { pickText } from "./textPick.ts";
+import { contactName } from "./globalWorkspace.ts";
 
 type Row = Record<string, unknown> & { op: string };
 type Rec = Record<string, unknown>;
@@ -56,6 +58,7 @@ const scriptOf = (e: EntityRecord) => rowsOf(e) ?? keyRows(e.scriptKey);
 function rowsRole(rows: Row[]): string {
   if (rows.length === 1 && (rows[0].op === "jumptextfaceplayer" || rows[0].op === "jumptext")) return "";
   if (rows.length === 1 && rows[0].op === "jumpstd") return rows[0].std === "PokecenterNurseScript" ? "nurse" : "std";
+  if (rows.length === 1 && rows[0].op === "fruittree") return "fruit";
   if (rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op))) return "mart";
   return "event";
 }
@@ -131,6 +134,7 @@ function setRole(c: RoleCtx, from: string, next: string): void {
       if (next === "nurse") e.scriptKey = [stdRow("PokecenterNurseScript")];
       if (next === "std") e.scriptKey = [stdRow("PictureBookshelfScript")];
       if (next === "mart") e.scriptKey = [{ op: "faceplayer" }, { op: "opentext" }, { op: "pokemart", args: [0, 0, 0] }, { op: "closetext" }, { op: "end" }];
+      if (next === "fruit") e.scriptKey = [{ op: "fruittree", args: [1] }];
       if (next === "game") e.scriptKey = gameScript(c);
       if (next === "item") {
         e.type = OBJECTTYPE_ITEMBALL;
@@ -144,7 +148,7 @@ function setRole(c: RoleCtx, from: string, next: string): void {
       }
       // the role the game's own script plays: its key again, not a copy
       const game = gameScript(c);
-      if (game && keyRole(game) === next && ["", "nurse", "std", "mart"].includes(next)) e.scriptKey = game;
+      if (game && keyRole(game) === next && ["", "nurse", "std", "mart", "fruit"].includes(next)) e.scriptKey = game;
       if (e.scriptKey === undefined) delete e.scriptKey;
     });
     else if (from === "item") c.editEntity("Role: trainer", (e) => {
@@ -174,7 +178,11 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
   switch (role) {
     case "": {
       const key = textIn(e);
-      return key && typeof store.table("text")[key] === "string" ? [textEditor(key, { rows: 3, compact: true, label: c.kind === "sign" ? "It reads" : "It says" })] : [];
+      const other = h("button", {
+        class: "btn small ghost", title: "Show a text the game (or your mod) already has instead",
+        onclick: () => void pickText().then((k) => k && edit("Use text", (x) => (x.scriptKey = [{ op: c.kind === "sign" ? "jumptext" : "jumptextfaceplayer", text: k }]))),
+      }, "Use another text…");
+      return [...(key && typeof store.table("text")[key] === "string" ? [textEditor(key, { rows: 3, compact: true, label: c.kind === "sign" ? "It reads" : "It says" })] : []), h("div", { class: "row" }, other)];
     }
     case "event": {
       const id = eventId(c.map.id, "talk", talkKey(c));
@@ -185,14 +193,49 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
       const t = e.trainer as { scriptKey?: unknown } | undefined;
       const after = eventId(c.map.id, "after", `obj${String(e.index)}`);
       const own = Array.isArray(t?.scriptKey);
+      // what it says when talked to once beaten: one line (the studio's
+      // [endifjustbattled, jumptextfaceplayer t] or the game's endifjustbattled,
+      // opentext, writetext t, waitbutton, closetext, end), or an event.
+      // endifjustbattled ends the script right after the battle (Vm.lua)
+      const rows = ((own ? t!.scriptKey : keyRows(t?.scriptKey)) ?? []) as Row[];
+      const ops = rows.map((r) => r.op).join(",");
+      // (an earlier studio wrote [jumptextfaceplayer t] alone: said right after the battle too)
+      const early = own && ops === "jumptextfaceplayer" ? rows[0].text : null;
+      const line = ops === "endifjustbattled,jumptextfaceplayer" ? rows[1].text
+        : ops === "endifjustbattled,opentext,writetext,waitbutton,closetext,end" ? rows[2].text : early;
+      // a beaten trainer talked to runs the person's script too (inlineEvents writeInline "after")
+      const setAfter = (label: string, next: Row[]) => {
+        edit(label, (x) => {
+          x.trainer = { ...(x.trainer as Rec), scriptKey: next };
+          x.scriptKey = structuredClone(next);
+        });
+        syncEventTexts();
+      };
+      const words = (text: string): Row[] => [{ op: "endifjustbattled" }, { op: "jumptextfaceplayer", text }];
+      // a phone number it offers (askforphonenumber n): the contact, opened in Global
+      const ph = store.adapter.globals?.phone;
+      const number = ph ? [...ph.givers(store.ctx)].find(([, list]) => list.some((g) => g.map === c.map.id && g.index === c.index))?.[0] : undefined;
+      const contact = number !== undefined ? Object.entries(store.table(ph!.registry)).find(([, r]) => (r as { index?: number }).index === number)?.[0] : undefined;
       return [
         ...(box ? [box] : []),
-        h("div", { class: "row" },
-          h("span", { class: "hint" }, own ? "After its battle it runs its own commands." : "After its battle: its own words, made as an event"),
-          own
-            ? h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(after) }, "Edit event →")
-            : h("button", { class: "btn small", onclick: () => { const id = createEvent(c.map.id, "after", `obj${String(e.index)}`); if (id) nav.openEvent(id); } }, "Make an event")),
-        ...(own ? outline(after) : []),
+        ...(contact ? [h("div", { class: "row" },
+          h("span", { class: "hint" }, `Gives its phone number: ${contactName(contact)}`),
+          h("button", { class: "btn small ghost", onclick: () => nav.openGlobal("phone") }, "Open contacts →"))] : []),
+        typeof line === "string" && typeof store.table("text")[line] === "string"
+          ? textEditor(line, { rows: 3, compact: true, label: "After its battle it says", hideEnding: true })
+          : h("p", { class: "hint" }, own ? "When talked to after its battle it runs its own commands." : "When talked to after its battle it says what the trainer it borrows from says."),
+        typeof early === "string"
+          ? h("div", { class: "row" },
+              h("span", { class: "hint warn" }, "It also says this right after the battle."),
+              h("button", { class: "btn small", onclick: () => setAfter("After-battle words: only when talked to", words(early)) }, "Only when talked to again"))
+          : h("p", { class: "hint" }, "Said when player talks to it again after battle"),
+        h("div", { class: "row wrap" },
+          own && line ? null : h("button", { class: "btn small primary-ish", title: "Its own line, said when talked to after the battle", onclick: () => setAfter("After-battle words", words(newEventText())) }, "Own words"),
+          h("button", { class: "btn small ghost", title: "Say a text the game (or your mod) already has", onclick: () => void pickText().then((k) => k && setAfter("After-battle text", words(k))) }, "Use a text…"),
+          own && !line
+            ? h("button", { class: "btn small", onclick: () => nav.openEvent(after) }, "Edit event →")
+            : h("button", { class: "btn small ghost", title: "More than words: items, flags, …", onclick: () => { const id = createEvent(c.map.id, "after", `obj${String(e.index)}`); if (id) nav.openEvent(id); } }, "Make an event")),
+        ...(own && !line ? outline(after) : []),
       ];
     }
     case "item": {
@@ -233,6 +276,17 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
         h("p", { class: "hint" }, (lists[id] ?? []).map((i) => String(items()[i]?.name ?? i)).join(", ")),
       ];
     }
+    case "fruit": {
+      const ft = store.adapter.globals?.fruitTrees;
+      const trees = ft ? ((store.table(ft.registry)[ft.id] as string[] | undefined) ?? []) : [];
+      const cur = Number((scriptOf(e)?.[0]?.args as number[] | undefined)?.[0] ?? 1);
+      const sel = selectInput(String(cur), trees.map((_x, i) => String(i + 1)), (v) => edit("Fruit tree", (x) => (x.scriptKey = [{ op: "fruittree", args: [Number(v)] }])));
+      for (const o of sel.options) o.textContent = `Tree ${o.value}: ${String(items()[trees[Number(o.value) - 1]]?.name ?? trees[Number(o.value) - 1] ?? "?")}`;
+      return [
+        field("Tree", sel, "Trees with the same number share their fruit and are picked together."),
+        h("div", { class: "row" }, h("button", { class: "btn small ghost", onclick: () => nav.openGlobal("fruittrees") }, "Edit what the trees give →")),
+      ];
+    }
     case "game": {
       const id = `game:${eventId(c.map.id, "talk", talkKey(c))}`;
       return [
@@ -254,7 +308,7 @@ export const gen2Roles: RoleSet = (c) => {
   const npc = c.kind === "npc";
   const options = [
     "", "event",
-    ...(npc ? ["trainer", "item", "mart", "nurse"] : ["hidden", "std"]),
+    ...(npc ? ["trainer", "item", "mart", "nurse", ...(store.adapter.globals?.fruitTrees ? ["fruit"] : [])] : ["hidden", "std"]),
     // only when the game's script does more than one of the roles above
     ...((gameScript(c) && keyRole(gameScript(c)!) === "game") || current === "game" ? ["game"] : []),
     ...(current === "none" ? ["none"] : []),

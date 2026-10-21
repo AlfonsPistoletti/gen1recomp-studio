@@ -199,6 +199,12 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
       }
     }
   }
+  // Gen 2: the mod's own registered scripts back inline in its maps
+  if (adapter.scripts && studio.maps) {
+    const own: Record<string, unknown> = {};
+    for (const op of studioOps) if (op.registry === adapter.scripts.registry && adapter.scripts.owns(op.id) && op.op !== "remove") own[op.id] = op.value;
+    adapter.scripts.inline(studio.maps as Record<string, MapDef>, own);
+  }
   const tilesetImages: Record<string, string> = {};
   for (const [id, ts] of Object.entries(data.tilesets)) tilesetImages[id] = ts.image ? host.imageUrl(version, ts.image) : "";
   // records the studio keeps as plain data files in the mod (custom effects)
@@ -347,7 +353,10 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   const file = `mods/${modId}/studio_content.lua`;
   const layers = await buildLayers(host, version, adapter, modId);
   const bases = baseTables(adapter, layers.data);
-  const { calls, patched, registered } = contentCalls(adapter, bases, edited);
+  // Gen 2: inline scripts become registered keys (scriptKeys.ts)
+  const scripts = adapter.scripts && edited.maps ? adapter.scripts.outline(edited.maps as Record<string, MapDef>) : null;
+  const { calls, patched, registered } = contentCalls(adapter, bases, scripts ? { ...edited, maps: scripts.maps as unknown as Record<string, unknown> } : edited);
+  if (scripts) for (const r of scripts.registrations) calls.push({ registry: adapter.scripts!.registry, op: "register", id: r.id, value: r.value });
   // keep what the studio file says about registries the studio does not
   // edit (a tileset it registered earlier, ...) exactly as it was
   const editable = new Set(editableRegistries(adapter));
@@ -361,6 +370,7 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   // Only records that differ from the base go in (vanilla prize counters).
   let before = "";
   let internals = false;
+  const dataFiles: string[] = [];
   for (const c of adapter.content) {
     if (!c.studioFile) continue;
     const records: Record<string, unknown> = {};
@@ -372,17 +382,17 @@ export async function saveProject(project: Project, edited: Record<string, Recor
     if (Object.keys(records).length) {
       const gen = c.generator;
       await host.writeText(path, dataFile(modId, gen?.what ?? c.registry, records, gen?.order ?? []));
+      dataFiles.push(path);
       if (gen) before += gen.runtime + "\n" + gen.registration(modId, c.studioFile) + "\n";
       if (gen?.internals === true || (typeof gen?.internals === "function" && gen.internals(records))) internals = true;
     } else if ((await host.readText("game", path)) !== null) {
       await host.deleteFile(path);
     }
   }
-  if (adapter.saveHelpers) before += adapter.saveHelpers(edited, bases);
   await host.writeText(file, studioContentFile(modId, [...kept, ...calls], fieldOrders(adapter), before));
   await syncPermissions(host, modId, internals);
   const wiredUp = await isWiredUp(host, modId, await readManifest(host, modId));
-  return { file, patched, registered, wiredUp, snippet: wiredUp ? undefined : requireLine(modId) };
+  return { file, dataFiles, patched, registered, wiredUp, snippet: wiredUp ? undefined : requireLine(modId) };
 }
 
 // What the old studio file says that saving must carry over unchanged: calls
@@ -394,6 +404,8 @@ export function keptOps(adapter: GameAdapter, ops: RegistryOp[]): ContentCall[] 
   const generated = new Set(adapter.content.flatMap((c) => c.generator?.writes ?? []));
   return ops
     .filter((op) => !editable.has(op.registry) && !generated.has(op.registry))
+    // the studio's own scripts (regenerated from the maps)
+    .filter((op) => !(adapter.scripts && op.registry === adapter.scripts.registry && adapter.scripts.owns(op.id)))
     .map((op) => ({ registry: op.registry, op: op.op, id: op.id, value: op.value }));
 }
 

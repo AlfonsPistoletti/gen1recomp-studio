@@ -337,12 +337,12 @@ export function markerIcon(name: string, node: IconNode, color: string, onReady:
 // tile: `shift` = the sheet tile moved 0..7 pixels right (water), else the
 // first 8x8 of each frame image. `colors` null: full-color, drawn as is.
 export async function animationFrames(
-  anim: { tile: number; shift?: boolean; urls?: string[] },
+  anim: { tile: number; shift?: boolean; urls?: string[]; strip?: string; scroll?: { h: number; v: number } },
   sheetUrl: string,
   perRow: number,
   colors: Rgb[] | null,
 ): Promise<HTMLCanvasElement[] | null> {
-  const paint = (src: Shades, sx: number, sy: number, shift: number): HTMLCanvasElement => {
+  const paint = (src: Shades, sx: number, sy: number, shift: number, down = 0): HTMLCanvasElement => {
     const c = document.createElement("canvas");
     c.width = TILE;
     c.height = TILE;
@@ -351,7 +351,7 @@ export async function animationFrames(
     for (let y = 0; y < TILE; y++) {
       for (let x = 0; x < TILE; x++) {
         const s = (sy + y) * src.width + sx + x;
-        const o = (y * TILE + ((x + shift) % TILE)) * 4;
+        const o = (((y + down) % TILE) * TILE + ((x + shift) % TILE)) * 4;
         let c3: Rgb;
         if (!colors) c3 = src.rgba[s * 4 + 3] === 0 ? [255, 255, 255] : [src.rgba[s * 4], src.rgba[s * 4 + 1], src.rgba[s * 4 + 2]];
         else c3 = colors[src.px[s] === 255 ? 3 : src.px[s]];
@@ -364,6 +364,24 @@ export async function animationFrames(
     ctx.putImageData(img, 0, 0);
     return c;
   };
+  if (anim.strip) {
+    // Gen 2: 8x8 frames stacked downwards
+    const strip = await shades(anim.strip);
+    if (!strip || strip.width < TILE || strip.height < TILE) return null;
+    return Array.from({ length: Math.floor(strip.height / TILE) }, (_v, k) => paint(strip, 0, k * TILE, 0));
+  }
+  if (anim.scroll) {
+    // Gen 2's ScrollTile*: the sheet tile rotated, one position per timer value 0..7
+    // (gen1recomp World:scrollStrip: right 0,1,2,3,2,1,0,-1; down/up one row a step)
+    const sheet = await shades(sheetUrl);
+    if (!sheet) return null;
+    const sx = (anim.tile % perRow) * TILE;
+    const sy = Math.floor(anim.tile / perRow) * TILE;
+    if (sx + TILE > sheet.width || sy + TILE > sheet.height) return null;
+    const h = [0, 1, 2, 3, 2, 1, 0, 7];
+    const { h: right, v: down } = anim.scroll;
+    return Array.from({ length: TILE }, (_v, t) => paint(sheet, sx, sy, right > 0 ? h[t] : 0, (((t * down) % TILE) + TILE) % TILE));
+  }
   if (anim.shift) {
     const sheet = await shades(sheetUrl);
     if (!sheet) return null;

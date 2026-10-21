@@ -16,6 +16,7 @@
 // shortcut: Ifs in a row copy the tail into every branch (2^n rows); fine for
 // talk scripts, a scall-based layout would be needed for long ones.
 
+import { studioMovementSteps } from "./scriptKeys.ts";
 import type { Block } from "../../core/eventBlocks.ts";
 import type { EventCommand, EventRow, EventSpec, GameContext } from "../types.ts";
 
@@ -42,6 +43,13 @@ const moneyOf = (args: unknown) => {
   return (a[1] ?? 0) * 0x10000 + (a[2] ?? 0) * 0x100 + (a[3] ?? 0);
 };
 const DIRS = ["down", "up", "left", "right"]; // Movement.DIR
+const ARROW: Record<string, string> = { up: "↑", down: "↓", left: "←", right: "→" };
+const arrowsOf = (p: unknown) => (Array.isArray(p) && p.length ? p.map((d) => ARROW[String(d)] ?? "?").join("") : "(no steps)");
+// checktime's mask (MORN 1, DAY 2, NITE 4)
+const TIMES: Record<number, string> = { 1: "morning", 2: "day", 4: "night", 3: "morning or day", 6: "day or night", 7: "any time" };
+// a little-endian word operand (coins)
+const wordArgs = (n: unknown) => { const v = Math.max(0, Math.min(65535, Number(n) || 0)); return [v & 255, v >> 8]; };
+const wordOf = (args: unknown) => { const a = (args as number[] | undefined) ?? []; return (a[0] ?? 0) + (a[1] ?? 0) * 256; };
 const EMOTES = ["shock", "question", "happy"]; // EMOTE_SHOCK 0, QUESTION 1, HAPPY 2
 const who = (v: unknown) => (Number(v) === 0 ? "the player" : `NPC ${Number(v) - 1}`);
 const ops = (rows: Record<string, unknown>[], at: number, list: string[]) => list.every((op, k) => rows[at + k]?.op === op);
@@ -118,6 +126,19 @@ const commands: EventCommand[] = [
     // HAVE_LESS = 2: "has at least" is "not less"
     branch: { op: "ifnotequal", not: "ifequal", value: 2 },
   },
+  {
+    id: "check_time", verb: "checktime", label: "Time of day is", category: "Conditions", help: "True in the morning, the day or the night (never in a pitch-black cave, as on the cart).",
+    params: [{ key: "time", label: "Time", type: "choice", default: 1, options: [{ value: 1, label: "Morning" }, { value: 2, label: "Day" }, { value: 4, label: "Night" }, { value: 3, label: "Morning or day" }, { value: 6, label: "Day or night" }] }],
+    condition: "it is {time}", describe: (a) => `it is ${TIMES[Number(a.time)] ?? `time ${s(a.time)}`}`,
+    pack: (a) => ({ args: [Number(a.time ?? 1)] }), unpack: (r) => ({ time: (r.args as number[] | undefined)?.[0] ?? 1 }),
+  },
+  {
+    id: "check_coins", verb: "checkcoins", label: "Has coins", category: "Conditions", help: "True when the player has at least this many Game Corner coins.",
+    params: [{ key: "amount", label: "Coins", type: "number", default: 50, min: 0, max: 9999 }], condition: "the player has {amount} coins", describe: (a) => `the player has ${s(a.amount)} coins`,
+    pack: (a) => ({ args: wordArgs(a.amount) }), unpack: (r) => ({ amount: wordOf(r.args) }),
+    // HAVE_LESS = 2, as for money
+    branch: { op: "ifnotequal", not: "ifequal", value: 2 },
+  },
   { id: "check_flag", verb: "checkevent", label: "Flag is set", category: "Conditions", help: "True when the event flag is on.", params: [{ key: "event", label: "Flag", type: "flagNumber" }], condition: "flag {event} is set", describe: (a) => `flag ${s(a.event)} is set` },
   {
     id: "check_item", verb: "checkitem", label: "Has item", category: "Conditions", help: "True when the bag holds at least one.",
@@ -135,6 +156,23 @@ const commands: EventCommand[] = [
     describe: (a) => `Give ${s(a.quantity, "1")}× ${nice(a.item)}`,
     pack: (a, ctx) => ({ item: numberOf(ctx, "items", a.item), quantity: Number(a.quantity ?? 1) }),
     unpack: (r, ctx) => ({ item: idOf(ctx, "items", r.item), quantity: r.quantity }),
+  },
+  {
+    id: "give_item_quiet", verb: "giveitem", label: "Give item silently", category: "Items & money", help: "Puts an item in the bag without a message (the last result is NO when the bag is full).",
+    params: [{ key: "item", label: "Item", type: "item", default: "POTION" }, { key: "quantity", label: "Count", type: "number", default: 1, min: 1, max: 99 }],
+    describe: (a) => `Put ${s(a.quantity, "1")}× ${nice(a.item)} in the bag (no message)`,
+    pack: (a, ctx) => ({ item: numberOf(ctx, "items", a.item), quantity: Number(a.quantity ?? 1) }),
+    unpack: (r, ctx) => ({ item: idOf(ctx, "items", r.item), quantity: r.quantity }),
+  },
+  {
+    id: "give_coins", verb: "givecoins", label: "Give coins", category: "Items & money", help: "Adds Game Corner coins (at most 9999).",
+    params: [{ key: "amount", label: "Coins", type: "number", default: 50, min: 1, max: 9999 }], describe: (a) => `Give ${s(a.amount)} coins`,
+    pack: (a) => ({ args: wordArgs(a.amount) }), unpack: (r) => ({ amount: wordOf(r.args) }),
+  },
+  {
+    id: "take_coins", verb: "takecoins", label: "Take coins", category: "Items & money", help: "Takes Game Corner coins (never below 0).",
+    params: [{ key: "amount", label: "Coins", type: "number", default: 50, min: 1, max: 9999 }], describe: (a) => `Take ${s(a.amount)} coins`,
+    pack: (a) => ({ args: wordArgs(a.amount) }), unpack: (r) => ({ amount: wordOf(r.args) }),
   },
   {
     id: "take_item", verb: "takeitem", label: "Take item", category: "Items & money", help: "Removes items from the bag.",
@@ -167,6 +205,18 @@ const commands: EventCommand[] = [
     describe: (a) => `Give ${nice(a.species)} Lv ${s(a.level)}`,
     pack: (a, ctx) => ({ species: numberOf(ctx, "pokemon", a.species), level: Number(a.level ?? 5), item: 0, trainer: 0 }),
     unpack: (r, ctx) => (r.item || r.trainer ? null : { species: idOf(ctx, "pokemon", r.species), level: r.level }),
+  },
+  {
+    id: "give_egg", verb: "giveegg", label: "Give an Egg", category: "Pokémon", help: "Adds an Egg of this Pokémon to the party; it hatches at this level. The last result is 2 when the party had room.",
+    params: [{ key: "species", label: "Pokémon", type: "species", default: "TOGEPI" }, { key: "level", label: "Level", type: "number", default: 5, min: 1, max: 100 }],
+    describe: (a) => `Give an Egg of ${nice(a.species)} (Lv ${s(a.level)})`,
+    pack: (a, ctx) => ({ args: [numberOf(ctx, "pokemon", a.species), Number(a.level ?? 5)] }),
+    unpack: (r, ctx) => { const a = (r.args as number[] | undefined) ?? []; return { species: idOf(ctx, "pokemon", a[0]), level: a[1] ?? 5 }; },
+  },
+  {
+    id: "random", verb: "random", label: "Random number", category: "Flags", help: "Rolls 0 up to this many minus 1 into the last result; an If on \"Last result is\" then picks by it.",
+    params: [{ key: "count", label: "Out of", type: "number", default: 2, min: 1, max: 255 }], describe: (a) => `Roll a random number from 0 to ${Number(a.count ?? 2) - 1}`,
+    pack: (a) => ({ args: [Number(a.count ?? 2)] }), unpack: (r) => ({ count: (r.args as number[] | undefined)?.[0] ?? 2 }),
   },
   {
     id: "play_cry", verb: "cry", label: "Play cry", category: "Pokémon", help: "Plays a Pokémon's cry.",
@@ -211,6 +261,47 @@ const commands: EventCommand[] = [
     unpack: (r) => (Number(r.emote) < EMOTES.length ? { object: r.object, bubble: EMOTES[Number(r.emote)], frames: r.frames } : null),
   },
   {
+    id: "follow", verb: "follow", label: "Follow", category: "People", help: "One walks behind the other (the leader's moves are made with movement commands) until Stop following.",
+    params: [{ key: "leader", label: "Leader", type: "goldObject" }, { key: "follower", label: "Follower", type: "goldObject" }], describe: (a) => `${who(a.follower)} follows ${who(a.leader)}`,
+    pack: (a) => ({ a: Number(a.leader ?? 0), b: Number(a.follower ?? 0) }), unpack: (r) => ({ leader: r.a, follower: r.b }),
+  },
+  { id: "stop_follow", verb: "stopfollow", label: "Stop following", category: "People", help: "Ends a Follow.", params: [], describe: () => "Stop following" },
+  {
+    id: "walk", verb: "applymovement", label: "Walk along a path", category: "Movement", help: "The player or a person walks a drawn path, one cell per arrow; the event waits until it's done. A person whose movement has fixed facing walks without turning, as in the game.",
+    params: [{ key: "who", label: "Who", type: "goldObject" }, { key: "path", label: "Path", type: "path", default: [] }, { key: "speed", label: "Speed", type: "choice", default: 0x0c, options: [{ value: 0x0c, label: "Walk" }, { value: 0x08, label: "Slowly" }, { value: 0x10, label: "Fast" }] }],
+    describe: (a) => `${who(a.who)} walks ${arrowsOf(a.path)}${Number(a.speed) === 0x08 ? " slowly" : Number(a.speed) === 0x10 ? " fast" : ""}`,
+    // the key spells the steps; a save registers it ("movement:<key>", scriptKeys.ts)
+    pack: (a) => {
+      const steps = [...(Array.isArray(a.path) ? a.path : []).map((d) => Number(a.speed ?? 0x0c) | Math.max(0, DIRS.indexOf(String(d)))), 0x47];
+      return { object: Number(a.who ?? 0), movement: `studio:${steps.join(".")}` };
+    },
+    // a path of one speed (the game's own too); anything else stays a game row
+    unpack: (r, ctx) => {
+      const moves = (ctx.data.extra as { scripts?: { movements?: Record<string, number[]> } }).scripts?.movements;
+      // older studio rows carried `steps`
+      const steps = (Array.isArray(r.steps) ? r.steps : studioMovementSteps(r.movement) ?? moves?.[String(r.movement)]) as number[] | undefined;
+      if (!steps || steps[steps.length - 1] !== 0x47 || steps.length < 2) return null;
+      const body = steps.slice(0, -1);
+      const speed = body[0] & 0xfc;
+      if (![0x08, 0x0c, 0x10].includes(speed) || body.some((b) => (b & 0xfc) !== speed)) return null;
+      return { who: r.object, path: body.map((b) => DIRS[b & 3]), speed };
+    },
+  },
+  {
+    id: "warp", verb: "warp", label: "Warp", category: "Movement", help: "Takes the player to a cell of a map at once (the event goes on there).",
+    params: [{ key: "map", label: "Map", type: "map" }, { key: "x", label: "X", type: "number", default: 0, min: 0, max: 255 }, { key: "y", label: "Y", type: "number", default: 0, min: 0, max: 255 }],
+    describe: (a) => `Warp to ${s(a.map)} (${s(a.x)}, ${s(a.y)})`,
+    pack: (a, ctx) => {
+      const m = ctx.maps[String(a.map)] as { group?: number; map?: number } | undefined;
+      return { args: [m?.group ?? 0, m?.map ?? 0, Number(a.x ?? 0), Number(a.y ?? 0)] };
+    },
+    unpack: (r, ctx) => {
+      const a = (r.args as number[] | undefined) ?? [];
+      const map = Object.keys(ctx.maps).find((id) => (ctx.maps[id] as { group?: number; map?: number }).group === a[0] && (ctx.maps[id] as { group?: number; map?: number }).map === a[1]) ?? "";
+      return { map, x: a[2] ?? 0, y: a[3] ?? 0 };
+    },
+  },
+  {
     id: "hide", verb: "disappear", label: "Hide a person", category: "People", help: "Takes a person of this map away now. With its own event flag (Event flag in its properties) it stays away; without one it's back when the map loads again.",
     params: [{ key: "object", label: "Who", type: "goldObject" }], describe: (a) => `Hide ${who(a.object)}`,
     pack: (a) => ({ object: Number(a.object ?? 2) }), unpack: (r) => ({ object: r.object ?? (r.args as number[] | undefined)?.[0] }),
@@ -246,6 +337,18 @@ const commands: EventCommand[] = [
     pack: (a, ctx) => ({ id: placeIn(orders(ctx).sfxOrder, a.sound) }), unpack: (r, ctx) => ({ sound: orders(ctx).sfxOrder?.[Number(r.id)] ?? r.id }),
   },
   {
+    id: "fade_music", verb: "musicfadeout", label: "Fade to a song", category: "Screen & sound", help: "Fades the music out, then starts this song (the game's songs only).",
+    params: [{ key: "song", label: "Then play", type: "song", default: "Music_Route1" }], describe: (a) => `Fade the music, then ${s(a.song).replace(/^Music_/, "")}`,
+    pack: (a, ctx) => { const n = placeIn(orders(ctx).musicOrder, a.song); return { args: [n & 255, n >> 8, 16] }; },
+    unpack: (r, ctx) => { const a = (r.args as number[] | undefined) ?? []; return { song: orders(ctx).musicOrder?.[(a[0] ?? 0) + (a[1] ?? 0) * 256] ?? "" }; },
+  },
+  { id: "map_music", verb: "playmapmusic", label: "Back to the map's music", category: "Screen & sound", help: "Plays the map's own song again (after a song an event started).", params: [], describe: () => "Back to the map's music" },
+  {
+    id: "earthquake", verb: "earthquake", label: "Earthquake", category: "Screen & sound", help: "Shakes the screen. The game uses strength 80 (the shaking lasts strength mod 64 frames).",
+    params: [{ key: "strength", label: "Strength", type: "number", default: 80, min: 1, max: 255 }], describe: (a) => `Earthquake (${s(a.strength)})`,
+    pack: (a) => ({ args: [Number(a.strength ?? 80)] }), unpack: (r) => ({ strength: (r.args as number[] | undefined)?.[0] ?? 80 }),
+  },
+  {
     id: "play_music", verb: "playmusic", label: "Play music", category: "Screen & sound", help: "Switches to one of the game's songs (a mod's own songs can't be picked here: the game plays songs by number).",
     params: [{ key: "song", label: "Song", type: "song", default: "Music_Route1" }], describe: (a) => `Music: ${s(a.song).replace(/^Music_/, "")}`,
     pack: (a, ctx) => ({ id: placeIn(orders(ctx).musicOrder, a.song) }), unpack: (r, ctx) => ({ song: orders(ctx).musicOrder?.[Number(r.id)] ?? r.id }),
@@ -255,7 +358,7 @@ const commands: EventCommand[] = [
 export const GEN2_EVENTS: EventSpec = {
   registry: "",
   inline: true,
-  categories: ["Message", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Screen & sound", "Screens"],
+  categories: ["Message", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Movement", "Screen & sound", "Screens"],
   commands,
   screens: SCREENS,
   choiceVerb: "",
@@ -372,7 +475,7 @@ function describeRaw(r: Row, ctx: GameContext): { text: string; help: string } {
 // a script one of the Roles writes (src/ui/roles2.ts): one line of text, a
 // std script (nurse, bookshelf …), a shop
 export function presetOf(rows: Row[]): boolean {
-  if (rows.length === 1 && ["jumptextfaceplayer", "jumptext", "jumpstd"].includes(rows[0].op)) return true;
+  if (rows.length === 1 && ["jumptextfaceplayer", "jumptext", "jumpstd", "fruittree"].includes(rows[0].op)) return true;
   return rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op));
 }
 
@@ -439,11 +542,14 @@ function emit(list: Block[], tail: Row[], ctx: GameContext): Row[] {
   return [...out, ...tail];
 }
 
+const OPEN_AFTER = ["faceplayer", "endifjustbattled"];
+
 export function compile(blocks: Block[], ctx: GameContext): EventRow[] {
   const rows = emit(blocks, END, ctx);
-  // the text box opens once, after the person turned to the player
+  // the text box opens once, after the person turned to the player (and after
+  // a trainer's endifjustbattled, as the game's after-battle scripts have it)
   let at = 0;
-  while (rows[at]?.op === "faceplayer") at++;
+  while (OPEN_AFTER.includes(String(rows[at]?.op))) at++;
   rows.splice(at, 0, { op: "opentext" });
   return rows as unknown as EventRow[];
 }
@@ -538,9 +644,9 @@ function parseList(rows: Row[], tail: Row[], ctx: GameContext): Block[] {
 
 export function parse(input: Row[], ctx: GameContext): Block[] {
   const rows = [...input];
-  // the opentext compile() puts after the leading faceplayer
+  // the opentext compile() puts after the leading faceplayer / endifjustbattled
   let at = 0;
-  while (rows[at]?.op === "faceplayer") at++;
+  while (OPEN_AFTER.includes(String(rows[at]?.op))) at++;
   if (rows[at]?.op === "opentext") rows.splice(at, 1);
   return endsWith(rows, END) ? parseList(rows.slice(0, -END.length), END, ctx) : parseList(rows, [], ctx);
 }

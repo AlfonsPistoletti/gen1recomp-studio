@@ -9,11 +9,12 @@ import { OPPOSITE, resizeBlocks } from "../core/geometry.ts";
 import { clone, deepEqual } from "../core/merge.ts";
 import { afterStroke, store } from "../core/store.ts";
 import { DIRECTIONS, type Direction, type EntityRecord, type MapDef } from "../core/types.ts";
-import type { EntityLayer, FieldSpec } from "../games/types.ts";
+import type { EntityGroup, EntityLayer, FieldSpec } from "../games/types.ts";
 import type { MapView } from "../render/mapView.ts";
 import { clear, comboInput, field, h, numberInput, rerender, selectInput, toast, errorText, onFocusLeave } from "./dom.ts";
 import { npcTextSection } from "./mapText.ts";
 import { gen1Roles, townSection } from "./mapTown.ts";
+import { visibilitySection } from "./visibility1.ts";
 import { roleBox, type RoleCtx, type RoleSet } from "./roles.ts";
 import { freshRole, gen2Roles } from "./roles2.ts";
 import { changedParts, resetMapDialog } from "./mapReset.ts";
@@ -131,6 +132,11 @@ function renderField(spec: FieldSpec, record: Rec, edit: Edit, all: FieldSpec[],
       const input = h("input", { type: "text", value: (getPath(record, spec.key) as string) ?? "", spellcheck: false });
       input.addEventListener("change", () => edit(spec.label, (r) => setPath(r, spec.key, input.value || undefined)));
       return field(spec.label, input, spec.hint);
+    }
+    case "check": {
+      const box = h("input", { type: "checkbox", checked: getPath(record, spec.key) === true });
+      box.addEventListener("change", () => edit(spec.label, (r) => (box.checked ? setPath(r, spec.key, true) : delete r[spec.key])));
+      return h("label", { class: "inline-check", title: spec.hint ?? "" }, box, spec.label);
     }
     case "int":
       return field(spec.label, numberInput(getPath(record, spec.key) as number | undefined, (v) => edit(spec.label, (r) => setPath(r, spec.key, v)), spec.min, spec.max), spec.hint);
@@ -582,38 +588,49 @@ function entityForm(map: MapDef, layer: EntityLayer, index: number, view: MapVie
     h("button", { class: "btn small danger", onclick: () => deleteSelection() }, "Delete"),
     ...revertEntityButton(map, layer, index, record),
   );
-  // what the NPC/sign says goes right under the fields, before the raw extras
-  const says =
-    layer.kind === "npc" || layer.kind === "sign"
-      ? npcTextSection(map, record, layer.kind, index, (id) => store.edit(map.id, "Text id", (d) => (store.entities(d, layer.key)[index].text = id)))
-      : null;
-  const fields: HTMLElement[] = [];
+  // the cards, always in this order (a dropdown only changes what is inside one):
+  // looks, movement, what it does (the role and its panel), when it's there, advanced
+  const groups: Record<EntityGroup, HTMLElement[]> = { looks: [], movement: [], role: [], when: [], advanced: [] };
   for (const f of layer.fields) {
-    if (f.kind === "extras" && says) fields.push(says);
     const el = renderField(f, record, edit, layer.fields, view);
-    if (el) fields.push(el);
+    const g = f.group ?? (f.kind === "pair" ? f.fields[0].group : undefined) ?? (f.kind === "extras" ? "advanced" : "role");
+    if (el) groups[g].push(el);
   }
-  if (says && !fields.includes(says)) fields.push(says);
-  const fights = layer.kind === "npc" ? trainerSection(record) : null;
-  if (fights) fields.splice(fields.indexOf(says ?? fields[fields.length - 1]), 0, fights);
-  // what it does (says a text, an event, a trainer, a shop, a nurse …) goes
-  // right above what it says
   const roles = rolesFor();
-  const role = roles && (layer.kind === "npc" || layer.kind === "sign")
-    ? roleBox(roles, roleCtx(map, layer, index, record))
-    : null;
-  if (role) fields.splice(says ? fields.indexOf(says) : fields.length, 0, role);
+  const role = roles && (layer.kind === "npc" || layer.kind === "sign") ? roleBox(roles, roleCtx(map, layer, index, record)) : null;
+  if (role) groups.role.unshift(...role);
+  // Gen 1 signs and people without a Role box (no roles in this game): what they say
+  else if (layer.kind === "npc" || layer.kind === "sign") {
+    const says = npcTextSection(map, record, layer.kind, index, (id) => store.edit(map.id, "Text id", (d) => (store.entities(d, layer.key)[index].text = id)));
+    if (says) groups.role.push(says);
+  }
   // Gen 2: a step trigger's own event (an inline script)
   const own = layer.kind === "trigger" ? inlineEventSection(map, layer.kind, index, record) : null;
-  if (own) fields.push(own);
+  if (own) groups.role.push(own);
+  // Gen 1: when it's there (start state, the game's toggles, the mod's rule)
+  const there = layer.kind === "npc" ? visibilitySection(map, record) : null;
+  if (there) groups.when.push(there);
+  const card = (title: string, els: HTMLElement[]): HTMLElement | null => (els.length ? h("div", { class: "field-group npc-text" }, h("h4", {}, title), ...els) : null);
+  const advanced = groups.advanced.length ? h("details", { class: "field-group advanced", open: advancedOpen }, h("summary", {}, "Advanced"), ...groups.advanced) : null;
+  advanced?.addEventListener("toggle", () => (advancedOpen = (advanced as HTMLDetailsElement).open));
+  const cards: HTMLElement[] = [
+    card("Looks", groups.looks),
+    card("Movement", groups.movement),
+    card(layer.kind === "warp" ? "Where it leads" : "What it does", groups.role),
+    card("When it's there", groups.when),
+    advanced,
+  ].filter((c): c is HTMLElement => !!c) as HTMLElement[];
   // a mod's own kind (studio extensions): its fields first
   const kind = extKind((record.custom as Rec | undefined)?.kind);
   if (kind) {
-    fields.unshift(extKindCard(kind, record.custom as Rec, (key, v) =>
+    cards.unshift(extKindCard(kind, record.custom as Rec, (key, v) =>
       edit(`${kind.label}: ${key}`, (e) => (e.custom = { ...(e.custom as Rec), [key]: v }))));
   }
-  return [pos, ...fields, actions];
+  return [pos, ...cards, actions];
 }
+
+// the Advanced card stays open once opened (this session)
+let advancedOpen = false;
 
 // the Role box this generation offers (Gen 2's only in builds with Gen 2)
 function rolesFor(): RoleSet | null {
@@ -639,38 +656,11 @@ function inlineEventSection(map: MapDef, _kind: string, index: number, record: E
   if (!store.adapter.events?.inline) return null;
   const id = eventId(map.id, "step", String(index));
   const has = Array.isArray(record.scriptKey);
-  return h("div", { class: "field-group" },
-    h("h4", {}, "Event"),
-    h("div", { class: "row" },
+  return h("div", { class: "row" },
       h("span", {}, has ? "Stepping here: its own event" : "Stepping here: the game's script"),
       has
         ? h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(id) }, "Edit event →")
-        : h("button", { class: "btn small", title: "Replace what it does with an event made of commands", onclick: () => { const nid = createEvent(map.id, "step", String(index)); if (nid) nav.openEvent(nid); } }, "Make an event")),
-  );
-}
-
-// For an NPC that is a trainer: which class and team it fights with, and a
-// way to jump there.
-function trainerSection(record: EntityRecord): HTMLElement | null {
-  const s = store.adapter.trainers;
-  const cls = s ? record[s.objectClassKey] : undefined;
-  if (!s || typeof cls !== "string") return null;
-  const team = Number(record[s.objectPartyKey] ?? 1);
-  const trainer = store.table(s.registry)[cls] as { name?: string; parties?: { species: string; level: number }[][] } | undefined;
-  const party = trainer?.parties?.[team - 1];
-  const summary = party?.length ? party.map((m) => `${m.species.replace(/_/g, " ")} ${m.level}`).join(" · ") : "";
-  return h(
-    "div",
-    { class: "field-group npc-text" },
-    h("h4", {}, "Trainer"),
-    h("div", { class: "kv" }, h("span", {}, "Fights as"), h("code", {}, `${trainer?.name ?? cls} · team ${team}`)),
-    !trainer
-      ? h("p", { class: "hint bad" }, `There is no trainer class ${cls}.`)
-      : !party
-        ? h("p", { class: "hint bad" }, `${cls} has no team ${team} (it has ${trainer.parties?.length ?? 0}). The battle would fail.`)
-        : h("p", { class: "hint" }, summary),
-    trainer ? h("button", { class: "btn small", onclick: () => nav.openTrainer(cls, party ? team : undefined) }, "Open team in Trainers →") : null,
-  );
+        : h("button", { class: "btn small", title: "Replace what it does with an event made of commands", onclick: () => { const nid = createEvent(map.id, "step", String(index)); if (nid) nav.openEvent(nid); } }, "Make an event"));
 }
 
 // ---------------------------------------------------------------- actions

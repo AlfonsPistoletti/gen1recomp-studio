@@ -61,6 +61,8 @@ export interface RegistryOp {
 
 export interface SaveResult {
   file: string;
+  // the studio data files written beside it (studio_tilesets.lua, ...): they may name imported art too
+  dataFiles: string[];
   patched: string[];
   registered: string[];
   wiredUp: boolean;

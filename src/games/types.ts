@@ -300,6 +300,16 @@ export interface TownSpec {
   gameTrainer?(ctx: GameContext, map: MapDef, entity: Record<string, unknown>): GameTrainerHeader | null;
   // hidden events the engine runs as code (fixed cells; only their texts change)
   codeHidden?: CodeHidden[];
+  // where the game's scripts show / hide map people (Gen 1, restated)
+  toggles?: ObjectToggle[];
+}
+
+export interface ObjectToggle {
+  map: string;
+  objects: string[]; // object names
+  show: boolean;
+  when: string; // in words, after "Shown/Hidden when"
+  versions?: string[];
 }
 
 export interface CodeHidden {
@@ -447,6 +457,15 @@ export interface GlobalsSpec {
   defaults: Record<string, Record<string, unknown>>;
   // which badge each HM's field use needs (constants.hmBadges)
   hmBadges?: { registry: string; id: string; moves: string[]; badges: string[] };
+  // Gen 2: the item each fruit tree number gives (record `id` = the list, tree n = entry n)
+  fruitTrees?: { registry: string; id: string };
+  // Gen 2: Kurt's apricorn -> ball records (the engine's `apricorns` registry)
+  apricorns?: { registry: string };
+  // Gen 2: the Pokégear phone book (the engine's `phone_contacts` registry, one
+  // record per PHONE_* id with its row `index`); `givers`: the map people whose
+  // script asks for a contact's number (askforphonenumber <index>)
+  // `buffers`: per text the scripts `keys` reach, what fills its {STRBUF} there (in words)
+  phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; buffers(ctx: GameContext, keys: string[]): Map<string, Set<string>> };
   // type effectiveness rows ("ATK>DEF" -> { multiplier } x10) and type
   // records ({ category }) in one registry
   typeChart?: { registry: string; multipliers: { value: number; label: string }[]; categories?: string[] };
@@ -625,15 +644,21 @@ export interface TimedEncounterSpec {
 // ------------------------------------------------------------------ fields
 // Declarative inspector fields; the inspector renders them generically.
 
+// the card of an entity's properties a field sits in (the inspector shows the
+// cards in this order); unset: "advanced" for extras, "role" otherwise
+export type EntityGroup = "looks" | "movement" | "role" | "when" | "advanced";
 interface FieldBase {
   label: string;
   hint?: string;
+  group?: EntityGroup;
 }
 // a field's `key` may be a dotted path into the record ("radius.x", "hours.0")
 
 export type FieldSpec =
   | (FieldBase & { kind: "text"; key: string })
   | (FieldBase & { kind: "int"; key: string; min?: number; max?: number })
+  // a yes/no key (unchecked: the key is dropped)
+  | (FieldBase & { kind: "check"; key: string })
   | (FieldBase & {
       kind: "select";
       key: string;
@@ -666,7 +691,7 @@ export type FieldSpec =
   // (hide: keys kept in the record but not shown, e.g. cart data the Role box edits)
   | (FieldBase & { kind: "extras"; hide?: string[] })
   // two fields side by side
-  | { kind: "pair"; fields: [FieldSpec, FieldSpec] };
+  | { kind: "pair"; fields: [FieldSpec, FieldSpec]; group?: EntityGroup };
 
 // ------------------------------------------------------------------ entities
 
@@ -677,6 +702,8 @@ export interface SpriteRef {
   facing: Facing;
   ghost: boolean; // drawn faded (hidden until a script shows it)
   moving: boolean; // wanders; drawn with a dashed outline
+  range?: { x: number; y: number }; // cells it may wander from its spot (Gen 2 radius; Gen 1 has no limit)
+  looks?: Facing[]; // the ways it can face (turns, walks); missing = only `facing`
 }
 
 // ------------------------------------------------------------------ events
@@ -707,6 +734,7 @@ export type EventParamType =
   | "cellY"
   | "trade" // an in-game trade, by its number (field.trades)
   | "screen" // one of EventSpec.screens
+  | "choice" // one of the param's own `options`
   | "ext"; // a mod command's parameter (studio extensions): `ext` says its field type
 
 export interface EventParam {
@@ -716,6 +744,8 @@ export interface EventParam {
   default?: unknown;
   min?: number;
   max?: number;
+  // type "choice": the values offered, in words
+  options?: { value: string | number; label: string }[];
   ext?: import("../project/extensions.ts").ExtField;
 }
 
@@ -902,9 +932,15 @@ export interface GameAdapter {
     envs(ctx: GameContext): Record<string, Record<string, number[]>>;
     times: { key: string; label: string }[];
   };
-  // fixed Lua the save writes into studio_content.lua for the mod's edits
-  // (Gen 2: Pokédex entries for new species); "" = none
-  saveHelpers?(edited: Record<string, Record<string, unknown>>, bases: Record<string, Record<string, unknown>>): string;
+  // Gen 2: the editors keep studio scripts inline (a holder's scriptKey is the
+  // row list); a save registers each in `registry` and names its key, a load
+  // reads the mod's own (`owns`) back inline (src/games/gen2/scriptKeys.ts)
+  scripts?: {
+    registry: string;
+    outline(maps: Record<string, MapDef>): { maps: Record<string, MapDef>; registrations: { id: string; value: unknown }[] };
+    inline(maps: Record<string, MapDef>, scripts: Record<string, unknown>): void;
+    owns(id: string): boolean;
+  };
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;
@@ -943,6 +979,12 @@ export interface GameAdapter {
   sheetOverlay?(ctx: GameContext, tilesetId: string, paletteKey: string): { image: string; first: number; count: number } | null;
   // 4 colors, darkest first, for one 8x8 tile of a tileset under a palette key
   tileColors(ctx: GameContext, tileset: TilesetDef, paletteKey: string): (tile: number) => Rgb[];
+  // the map view's region buttons (Gen 2: Johto, Kanto): the map each jumps to
+  regions?: { label: string; map: string }[];
+  // Gen 2: the tileset's animated tiles (unset: Gen 1's, from its `animation`)
+  tileAnimations?(ctx: GameContext, tileset: TilesetDef, id: string): import("../core/tilesets.ts").MapAnimation[];
+  // Gen 2: the engine's strip patterns a mod's own tile can be animated with
+  tileAnimPatterns?: { func: string; frames: number; label: string }[];
   // the sprite and the map object it stands for, when the game colors sprites one by one (Gen 2)
   spriteColors(ctx: GameContext, paletteKey: string, sprite?: SpriteDef, entity?: EntityRecord): Rgb[];
 

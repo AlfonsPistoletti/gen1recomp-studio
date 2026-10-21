@@ -8,14 +8,14 @@
 // are records of the tilesets registry and can be edited freely.
 
 import { store } from "../core/store.ts";
-import { addAsset } from "../core/assets.ts";
+import { addAsset, addOverride, OVERRIDES } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
 import type { TilesetDef } from "../core/types.ts";
 import {
-  animationsOf, firstAddedTile, foreignExtension, foreignNote, newExtension, baseSheetUrl, canAnimate, canCopyFrom, CUT_TILES, EXTENSIONS, parseTileRef, shoreTilesOf, waterTilesOf, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
+  animationsOf, mapAnimations, firstAddedTile, foreignExtension, foreignNote, newExtension, baseSheetUrl, canAnimate, canCopyFrom, CUT_TILES, EXTENSIONS, parseTileRef, shoreTilesOf, waterTilesOf, extensionOf, isBaseTileset, liveTileset, ownAnimations, perRow, setOwnAnimations, sheetTiles, SHADE_GRAY,
   tilesetIds, tilesetKey, tilesetUrl, type EngineAnimation, type TilesetExtension,
 } from "../core/tilesets.ts";
-import { blockAtlas, loadImage, markerIcon, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
+import { animationFrames, blockAtlas, loadImage, markerIcon, BLOCK, TILE, ATLAS_COLUMNS, type BlockAtlas } from "../render/graphics.ts";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Footprints, Scissors, Waves } from "lucide";
 import { MONO, type Rgb } from "../render/color.ts";
 import { loadFile, pngBytes } from "./artImport.ts";
@@ -24,6 +24,7 @@ import { MAX_BLOCKS } from "../core/tileBrush.ts";
 import { mountRecordList } from "./recordList.ts";
 import { gbcAvailable, gbcColorsFor, gbcKey, GRAYS, GROUP_NAMES, REDPP, groupColors, groupOf, type GbcColoring } from "../core/gbc.ts";
 import { nav } from "./nav.ts";
+import { recall, remember } from "./storage.ts";
 import { paletteChoices } from "./picColors.ts";
 
 const SHEET_ZOOM = 4;
@@ -84,6 +85,84 @@ function editable(id: string): Editable {
 
 function mapsUsing(id: string): string[] {
   return Object.keys(store.maps).filter((m) => store.maps[m].tileset === id).sort();
+}
+
+// Every place that names a block number of tileset `id`: the maps on it (cells,
+// border; Gold's changeblock rows in scenes and events), the mod's Gen 1 events
+// (replace_block rows) and the shared cut-tree swaps: whether `b` is named.
+function blockNamed(id: string, b: number): boolean {
+  let hit = false;
+  const rows = (v: unknown): void => {
+    if (!v || typeof v !== "object" || hit) return;
+    if (Array.isArray(v)) {
+      if (v[0] === "replace_block" && v[3] === b) hit = true;
+      v.forEach(rows);
+      return;
+    }
+    const o = v as Record<string, unknown>;
+    if (o.op === "changeblock" && Array.isArray(o.args) && o.args[2] === b) hit = true;
+    Object.values(o).forEach(rows);
+  };
+  for (const m of mapsUsing(id)) {
+    const map = store.maps[m];
+    if (map.blocks.includes(b) || map.borderBlock === b) return true;
+    rows(map);
+  }
+  const reg = store.adapter.events?.inline ? undefined : store.adapter.events?.registry;
+  if (reg) for (const [eid, ev] of Object.entries(store.table(reg))) if (mapsUsing(id).includes(eid.split(":")[0])) rows(ev);
+  if (CUT_TILES[id] && ((store.table("field").cutTreeSwaps as { before: number; after: number }[] | undefined) ?? []).some((s) => s.before === b || s.after === b)) return true;
+  return hit;
+}
+
+// Removes block `b` (unused) and moves every later block down one number
+// wherever it is named (blockNamed's places), in one undo step.
+function deleteBlock(id: string, b: number, firstBlock: number): void {
+  const down = (n: unknown) => (typeof n === "number" && n > b ? n - 1 : n);
+  const renumber = (v: unknown): void => {
+    if (!v || typeof v !== "object") return;
+    if (Array.isArray(v)) {
+      if (v[0] === "replace_block") v[3] = down(v[3]);
+      v.forEach(renumber);
+      return;
+    }
+    const o = v as Record<string, unknown>;
+    if (o.op === "changeblock" && Array.isArray(o.args)) o.args[2] = down(o.args[2]);
+    Object.values(o).forEach(renumber);
+  };
+  const named = (map: unknown) => JSON.stringify(map).includes("changeblock") || JSON.stringify(map).includes("replace_block");
+  const label = `Delete block #${b}`;
+  store.group(label, () => {
+    editTileset(id, label, (d) => {
+      const k = b - firstBlock;
+      d.blocks.splice(k, 1);
+      d.collision?.splice(k, 1);
+    });
+    for (const m of mapsUsing(id)) {
+      const map = store.maps[m];
+      if (!map.blocks.some((x) => x > b) && !(typeof map.borderBlock === "number" && map.borderBlock > b) && !named(map)) continue;
+      store.edit(m, label, (d) => {
+        d.blocks = d.blocks.map((x) => down(x) as number);
+        if (typeof d.borderBlock === "number") d.borderBlock = down(d.borderBlock) as number;
+        renumber(d);
+      });
+    }
+    const reg = store.adapter.events?.inline ? undefined : store.adapter.events?.registry;
+    if (reg) {
+      for (const [eid, ev] of Object.entries(store.table(reg))) {
+        if (mapsUsing(id).includes(eid.split(":")[0]) && named(ev)) store.editRecord<Record<string, unknown>>(reg, eid, label, (d) => renumber(d));
+      }
+    }
+    const swaps = (store.table("field").cutTreeSwaps as { before: number; after: number }[] | undefined) ?? [];
+    if (CUT_TILES[id] && swaps.some((s) => s.before > b || s.after > b)) {
+      store.editRecord<{ before: number; after: number }[]>("field", "cutTreeSwaps", label, (l) => {
+        for (const s of l) {
+          s.before = down(s.before) as number;
+          s.after = down(s.after) as number;
+        }
+      });
+    }
+  });
+  store.seal();
 }
 
 // highest block id any map on this tileset uses
@@ -195,7 +274,8 @@ function copiedNote(id: string, tiles: number[], ed: Editable): HTMLElement[] {
 
 // The blocks of another game tileset to copy into `target`: pick a tileset,
 // click (or drag over) blocks. Drawn in `palette`.
-function promptBlocksFrom(target: string, palette: string): Promise<{ source: string; blocks: number[] } | null> {
+// `tiles`: pick single tiles of the other sheet instead of its blocks
+function promptBlocksFrom(target: string, palette: string, tiles = false): Promise<{ source: string; blocks: number[] } | null> {
   const sources = tilesetIds().filter((t) => t !== target && canCopyFrom(t));
   return new Promise((done) => {
     const dialog = h("dialog", { class: "blocks-from" });
@@ -212,34 +292,40 @@ function promptBlocksFrom(target: string, palette: string): Promise<{ source: st
     const picked = new Set<number>();
     const sel = h("select", {}, ...sources.map((s) => h("option", { value: s, selected: s === source }, s)));
     const wrap = h("div", { class: "sheet-wrap" });
-    const addBtn = h("button", { class: "btn primary", disabled: true, onclick: () => close({ source, blocks: [...picked].sort((a, b) => a - b) }) }, "Add blocks");
-    const B = BLOCK * 2;
+    const what = tiles ? "tile" : "block";
+    const addBtn = h("button", { class: "btn primary", disabled: true, onclick: () => close({ source, blocks: [...picked].sort((a, b) => a - b) }) }, `Add ${what}s`);
+    const B = tiles ? TILE * 3 : BLOCK * 2;
     let token = 0;
     const draw = async () => {
       const my = ++token;
       const ts = store.baseTable("tilesets")[source] as TilesetDef;
-      const atlas = await blockAtlas(ts, baseSheetUrl(ts), palette, store.adapter.tileColors(store.ctx, ts, palette), `copy|${source}`);
-      if (my !== token) return;
-      const rows = Math.max(1, Math.ceil(ts.blocks.length / ATLAS_COLUMNS));
-      const canvas = h("canvas", { class: "block-sheet", width: ATLAS_COLUMNS * B, height: rows * B });
+      const colors = store.adapter.tileColors(store.ctx, ts, palette);
+      // tiles: the sheet in the map's colors; blocks: the block atlas
+      const sheet = tiles ? await readSheet(baseSheetUrl(ts)) : null;
+      const cols = tiles ? perRow(ts) : ATLAS_COLUMNS;
+      const count = tiles ? (sheet ? Math.floor(sheet.width / TILE) * Math.floor(sheet.height / TILE) : 0) : ts.blocks.length;
+      const image = tiles ? (sheet ? colorSheet(sheet, colors, cols) : null) : (await blockAtlas(ts, baseSheetUrl(ts), palette, colors, `copy|${source}`)).canvas;
+      if (my !== token || !image) return;
+      const rows = Math.max(1, Math.ceil(count / cols));
+      const canvas = h("canvas", { class: "block-sheet", width: cols * B, height: rows * B });
       const ctx = canvas.getContext("2d")!;
       const paint = () => {
         ctx.imageSmoothingEnabled = false;
         ctx.fillStyle = "#11141a";
         ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(atlas.canvas, 0, 0, atlas.canvas.width * 2, atlas.canvas.height * 2);
+        ctx.drawImage(image, 0, 0, image.width * (B / (tiles ? TILE : BLOCK)), image.height * (B / (tiles ? TILE : BLOCK)));
         ctx.strokeStyle = "#4c8dff";
-        ctx.lineWidth = 3;
-        for (const b of picked) ctx.strokeRect((b % ATLAS_COLUMNS) * B + 1.5, Math.floor(b / ATLAS_COLUMNS) * B + 1.5, B - 3, B - 3);
-        addBtn.textContent = picked.size ? `Add ${picked.size} block${picked.size === 1 ? "" : "s"}` : "Add blocks";
+        ctx.lineWidth = tiles ? 2 : 3;
+        for (const b of picked) ctx.strokeRect((b % cols) * B + 1.5, Math.floor(b / cols) * B + 1.5, B - 3, B - 3);
+        addBtn.textContent = picked.size ? `Add ${picked.size} ${what}${picked.size === 1 ? "" : "s"}` : `Add ${what}s`;
         addBtn.disabled = !picked.size;
       };
       // click toggles a block; dragging adds (or removes) every block it passes
       let dragAdds: boolean | null = null;
       const blockAt = (e: MouseEvent) => {
         const r = canvas.getBoundingClientRect();
-        const b = Math.floor(((e.clientY - r.top) / r.height) * rows) * ATLAS_COLUMNS + Math.floor(((e.clientX - r.left) / r.width) * ATLAS_COLUMNS);
-        return b >= 0 && b < ts.blocks.length ? b : null;
+        const b = Math.floor(((e.clientY - r.top) / r.height) * rows) * cols + Math.floor(((e.clientX - r.left) / r.width) * cols);
+        return b >= 0 && b < count ? b : null;
       };
       const apply = (b: number | null) => {
         if (b === null || dragAdds === null) return;
@@ -264,10 +350,12 @@ function promptBlocksFrom(target: string, palette: string): Promise<{ source: st
       void draw();
     });
     dialog.append(
-      h("h3", {}, `Blocks from another tileset → ${target}`),
+      h("h3", {}, `${tiles ? "Tiles" : "Blocks"} from another tileset → ${target}`),
       field("Tileset", sel),
       wrap,
-      h("p", { class: "hint" }, "Click blocks to pick them, or drag over several. They are added after this tileset's blocks; the tiles they need are copied by the game from the player's own files, so the mod ships no game art."),
+      h("p", { class: "hint" }, tiles
+        ? "Click tiles to pick them, or drag over several. They are added after this tileset's tiles (one already there isn't added twice); the game copies them from the player's own files, so the mod ships no game art."
+        : "Click blocks to pick them, or drag over several. They are added after this tileset's blocks; the tiles they need are copied by the game from the player's own files, so the mod ships no game art."),
       h("p", { class: "hint" }, "Copied tiles take the map's colors. Tall grass and the game's water/flower animation don't come along: set them per tile afterwards."),
       h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: () => close(null) }, "Cancel"), addBtn),
     );
@@ -518,8 +606,11 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   // the colors picked in the menu; null = the default (RED++ while the map
   // view is in RED++, else a map's palette)
   let viewPalette: string | null = null;
-  // redraws animated tiles in the side panel
+  // redraws animated tiles (the sheet, the side panel's previews)
   let animTimer: number | null = null;
+  let live: (() => void)[] = [];
+  // the "Animate" toggle of the Tiles card, remembered
+  let animateOn = recall("tilesetAnimate") !== "0";
 
   const newBtn = h("button", { class: "btn small", title: "A new tileset from a picture", onclick: () => void newTileset() }, "+ New");
   const list = mountRecordList(left, {
@@ -541,7 +632,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       }),
     current: () => current,
     pick: (id) => open(id),
-    refreshOn: (reason, _id, registry) => reason === "content" && (registry === "tilesets" || registry === EXTENSIONS),
+    refreshOn: (reason, _id, registry) => reason === "content" && (registry === "tilesets" || registry === EXTENSIONS || registry === OVERRIDES),
   });
 
   const title = h("span", { class: "head-title" }, "Tilesets");
@@ -591,6 +682,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     }
     if (animTimer !== null) clearInterval(animTimer);
     animTimer = null;
+    live = [];
     const ts = liveTileset(id)!;
     const ed = editable(id);
     const per = perRow(ts);
@@ -609,7 +701,13 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const tint = ts.trueColor ? null : colorsFor;
     // animated tiles: their frames, drawn in the same colors
     const anims = new Map<number, { period: number; frames: HTMLCanvasElement[] }>();
-    for (const [tile, a] of animationsOf(id)) {
+    if (store.adapter.tileAnimations) {
+      for (const a of mapAnimations(id)) {
+        const built = await animationFrames(a, url, per, tint ? tint(a.tile) : null);
+        if (built?.length) anims.set(a.tile, { period: a.period, frames: a.sequence.map((k) => built[k - 1] ?? built[0]) });
+      }
+    }
+    else for (const [tile, a] of animationsOf(id)) {
       const frames = await Promise.all(a.urls.map(async (u) => {
         const f = await readSheet(u);
         return f ? colorSheet(f, tint ? () => tint(tile) : null) : null;
@@ -653,7 +751,11 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         class: "btn small",
         title: "Copy blocks of another game tileset into this one (the game copies their tiles from the player's own files, so the mod ships no game art)",
         onclick: () => void addBlocksFrom(id),
-      }, "+ Blocks from another tileset…")]),
+      }, "+ Blocks from another tileset…"), h("button", {
+        class: "btn small",
+        title: "Copy single tiles of another game tileset into this one (copied from the player's own files, like blocks)",
+        onclick: () => void addBlocksFrom(id, true),
+      }, "+ Tiles from another tileset…")]),
     ].filter((x): x is HTMLElement => !!x));
 
     const sheetImg = sheet ? colorSheet(sheet, tint, per) : null;
@@ -665,11 +767,12 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     );
     clear(side);
     side.append(...sidePanel(id, ts, ed, sheetImg, per, tileCount, anims));
+    if (live.length && animateOn) animTimer = window.setInterval(() => live.forEach((f) => f()), 50);
   };
 
-  // the frame an animated tile shows now
+  // the frame an animated tile shows now (the first while Animate is off)
   const frameNow = (a: { period: number; frames: HTMLCanvasElement[] }) =>
-    a.frames[Math.floor(performance.now() / (a.period * (1000 / 60))) % a.frames.length];
+    animateOn ? a.frames[Math.floor(performance.now() / (a.period * (1000 / 60))) % a.frames.length] : a.frames[0];
 
   // what a game tileset's additions are (below the blocks, middle panel)
   const gameTilesetCard = (id: string, ed: Editable): HTMLElement => {
@@ -700,15 +803,24 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   };
 
   // ------------------------------------------------------------- tiles
-  const tilesCard = (ts: TilesetDef, ed: Editable, sheet: Sheet | null, sheetImg: HTMLCanvasElement | null, per: number, tileCount: number, anims: Map<number, unknown>): HTMLElement => {
+  const tilesCard = (ts: TilesetDef, ed: Editable, sheet: Sheet | null, sheetImg: HTMLCanvasElement | null, per: number, tileCount: number, anims: Map<number, { period: number; frames: HTMLCanvasElement[] }>): HTMLElement => {
     const card = h("div", { class: "card" });
     const toggle = h("input", { type: "checkbox", checked: showCollision });
     toggle.addEventListener("change", () => {
       showCollision = toggle.checked;
       void render();
     });
+    const animToggle = h("input", { type: "checkbox", checked: animateOn });
+    animToggle.addEventListener("change", () => {
+      animateOn = animToggle.checked;
+      remember("tilesetAnimate", animateOn ? null : "0");
+      void render();
+    });
     card.append(
-      h("div", { class: "card-head" }, h("h4", {}, `Tiles (${tileCount})`), quadModel() ? null : h("label", { class: "inline-check" }, toggle, "Mark walkable, ledge, water and cut tiles")),
+      h("div", { class: "card-head" }, h("h4", {}, `Tiles (${tileCount})`),
+        h("div", { class: "row nowrap" },
+          anims.size ? h("label", { class: "inline-check", title: "Play the animated tiles (the sheet, blocks and previews)" }, animToggle, "Animate") : null,
+          quadModel() ? null : h("label", { class: "inline-check" }, toggle, "Mark walkable, ledge, water and cut tiles"))),
     );
     if (!sheet || !sheetImg) {
       card.append(h("p", { class: "hint warn" }, `The sheet ${ts.image} could not be loaded.`));
@@ -738,15 +850,6 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       // surfable (water/shore) bottom-left, cuttable top-right
       if (marks && surfable && wet.has(t)) drawMark(ctx, "water", x + 9, y + T - 9, 12, schedule);
       if (marks && cuts.has(t)) drawMark(ctx, "cut", x + T - 9, y + 9, 12, schedule);
-      // animated tiles: a purple corner
-      if (anims.has(t)) {
-        ctx.fillStyle = "#c792ff";
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.lineTo(x + 10, y);
-        ctx.lineTo(x, y + 10);
-        ctx.fill();
-      }
       if (t < ed.firstTile) {
         // vanilla tiles: read-only, dimmed slightly
         ctx.fillStyle = "rgba(0, 0, 0, 0.08)";
@@ -770,6 +873,9 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const paint = () => {
       vctx.clearRect(0, 0, view.width, view.height);
       vctx.drawImage(canvas, 0, 0);
+      // animated tiles show their current frame (marks and dimming stay on the base)
+      vctx.imageSmoothingEnabled = false;
+      for (const [t, a] of anims) if (t < tileCount) vctx.drawImage(frameNow(a), 0, 0, TILE, TILE, (t % per) * T, Math.floor(t / per) * T, T, T);
       const r = selRect ?? (selTile !== null ? { x: selTile % per, y: Math.floor(selTile / per), w: 1, h: 1 } : null);
       if (!r) return;
       vctx.strokeStyle = "#fff";
@@ -777,6 +883,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       vctx.strokeRect(r.x * T + 1, r.y * T + 1, r.w * T - 2, r.h * T - 2);
     };
     paint();
+    if (anims.size) live.push(paint);
     // click selects a tile, dragging a rectangle of them
     const cellAt = (e: MouseEvent) => {
       const r = view.getBoundingClientRect();
@@ -863,8 +970,6 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   // ------------------------------------------------------------- side panel
   const sidePanel = (id: string, ts: TilesetDef, ed: Editable, sheetImg: HTMLCanvasElement | null, per: number, tileCount: number, anims: Map<number, { period: number; frames: HTMLCanvasElement[] }>): HTMLElement[] => {
     const out: HTMLElement[] = [];
-    // canvases with animated tiles redraw on a timer
-    const live: (() => void)[] = [];
     // the block's card goes below the tile's (like the middle column)
     const blockOut: HTMLElement[] = [];
     // the selected block
@@ -977,8 +1082,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         selRect = null;
         void render();
       });
-      const isLast = b === ts.blocks.length - 1;
-      const used = highestBlockUsed(id) >= b;
+      const used = can && blockNamed(id, b);
       const qmodel = quadModel();
       const cutRow = qmodel ? [] : cutSwapRow(id, b, block, ts.blocks.length);
       // Gen 2: a collision code per quarter (top-left, top-right, bottom-left, bottom-right)
@@ -1016,12 +1120,10 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
             ? h("div", { class: "row" },
                 h("button", {
                   class: "btn small danger",
-                  disabled: !isLast || used,
-                  title: !isLast ? "Only the last block can be deleted (block numbers must not shift)" : used ? "A map uses this block" : "Delete this block",
+                  disabled: used,
+                  title: used ? "A map, an event or a cut swap uses this block" : "Delete this block; the blocks after it move down one number, and the maps follow",
                   onclick: () => {
-                    editTileset(id, "Delete block", (d) => {
-                      d.blocks.pop();
-                    });
+                    deleteBlock(id, b, ed.firstBlock);
                     selBlock = null;
                   },
                 }, "Delete block"))
@@ -1058,6 +1160,8 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       const animRow: HTMLElement[] = [];
       if (multi) {
         // one tile at a time
+      } else if (store.adapter.tileAnimPatterns) {
+        animRow.push(...goldAnimRow(id, t, can));
       } else if (anim) {
         const speed = h("select", {}, ...SPEEDS.map(([v, l]) => h("option", { value: String(v), selected: anim.period === v }, l)));
         if (!SPEEDS.some(([v]) => v === anim.period)) speed.append(h("option", { value: String(anim.period), selected: true }, `${anim.period}/60 s a frame`));
@@ -1175,7 +1279,6 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       );
     }
     out.push(...blockOut);
-    if (live.length) animTimer = window.setInterval(() => live.forEach((f) => f()), 50);
     if (selBlock === null && selTile === null) out.push(h("p", { class: "hint" }, "Select a tile or a block."));
     out.push(...settingsCard(id, ts, ed, tileCount));
     return out;
@@ -1406,9 +1509,10 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
   // Blocks of another game tileset, appended to this one: each tile they use
   // becomes an added tile referring to it ("CAVERN:37", copied by the
   // recipe; once per tile), with its walkability, water/shore and RED++ group
-  const addBlocksFrom = async (id: string) => {
-    const pick = await promptBlocksFrom(id, paletteKey(id));
+  const addBlocksFrom = async (id: string, tilesOnly = false) => {
+    const pick = await promptBlocksFrom(id, paletteKey(id), tilesOnly);
     if (!pick) return;
+    const before = extensionOf(id)?.tiles.length ?? 0;
     const src = store.baseTable("tilesets")[pick.source] as TilesetDef;
     const ed = editable(id);
     const walk = new Set((src.walkable as number[] | undefined) ?? []);
@@ -1416,7 +1520,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
     const water = new Set(surf ? waterTilesOf(src) : []);
     const shore = new Set(surf ? shoreTilesOf(src) : []);
     const groups = gbcAvailable() && groupColors(pick.source) && groupColors(id) ? (t: number) => groupOf(pick.source, t) : null;
-    editTileset(id, `Blocks from ${pick.source}`, (d) => {
+    editTileset(id, `${tilesOnly ? "Tiles" : "Blocks"} from ${pick.source}`, (d) => {
       const e = d as unknown as TilesetExtension;
       const idOf = new Map(e.tiles.map((t, i) => [t, ed.firstTile + i] as [string, number]));
       const tileFor = (t: number): number => {
@@ -1434,14 +1538,20 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         if (e.palettes) e.palettes[nid - ed.firstTile] = ((src.tilePalettes as number[] | undefined) ?? [])[t] ?? quadModel()!.defaultSlot;
         return nid;
       };
-      for (const b of pick.blocks) {
+      if (tilesOnly) pick.blocks.forEach(tileFor);
+      else for (const b of pick.blocks) {
         e.blocks.push(src.blocks[b].map(tileFor));
         // Gen 2: with its collision
         if (e.collision) e.collision[e.blocks.length - 1] = [...(((src.collision as number[][] | undefined) ?? [])[b] ?? [0, 0, 0, 0])];
       }
     });
-    selBlock = (liveTileset(id)?.blocks.length ?? 1) - 1;
-    toast(`Added ${pick.blocks.length} block${pick.blocks.length === 1 ? "" : "s"} from ${pick.source}`, "ok");
+    if (tilesOnly) {
+      const added = (extensionOf(id)?.tiles.length ?? 0) - before;
+      toast(added ? `Added ${added} tile${added === 1 ? "" : "s"} from ${pick.source}` : "Those tiles are already in this tileset", added ? "ok" : "info");
+    } else {
+      selBlock = (liveTileset(id)?.blocks.length ?? 1) - 1;
+      toast(`Added ${pick.blocks.length} block${pick.blocks.length === 1 ? "" : "s"} from ${pick.source}`, "ok");
+    }
     void render();
   };
 
@@ -1533,6 +1643,88 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
         setOwnAnimations(d.rec!, mine, store.project.mod ?? "");
       });
     }
+  };
+
+  // ---- Gen 2: the engine animates a tile only with its own patterns
+  // (src/games/gen2/tileAnim.ts): a game animation's frames can be replaced
+  // (its strip, through image_overrides; water and flowers are every
+  // tileset's), and a tile of the mod's gets a pattern with frames of its own
+  type GoldRow = { func: string; tile: number; sheet: string; frames: number };
+  const goldFrames = async (n: number, title: string): Promise<Uint8Array | null> => {
+    const res = await promptAnimation(TILE, title, `${n} frames, each 8×8, side by side (${n * 8}×8) or stacked (8×${n * 8}). The game plays them at this tileset's pace.`, false, false);
+    if (!res) return null;
+    const { n: got, across } = framesOf(res.img, TILE);
+    if (got !== n) throw new Error(`This animation has ${n} frames; the picture has ${got}.`);
+    const cut = cutPicture(res.img, false, false, res.brightness);
+    const frames = Array.from({ length: n }, (_v, f) => cut.tiles[across ? cut.grid[0][f] : cut.grid[f][0]].px);
+    return pngBytes(sheetCanvas(frames, 1));
+  };
+  // the mod's own row for a tile (null: none)
+  const setGoldRow = (id: string, tile: number, row: GoldRow | null, label: string) => {
+    const keep = (rows: GoldRow[]) => [...rows.filter((r) => r.tile !== tile || r.sheet.startsWith("assets/generated/")), ...(row ? [row] : [])];
+    if (isBaseTileset(id)) {
+      store.editRecord<TilesetExtension>(EXTENSIONS, id, label, (d) => {
+        const next = keep(d.anim ?? []);
+        if (next.length) d.anim = next;
+        else delete d.anim;
+      });
+    } else {
+      store.editRecord<TilesetDef>("tilesets", id, label, (d) => {
+        const a = (d.anim as { period?: number; frames?: GoldRow[] } | undefined) ?? {};
+        d.anim = { period: a.period ?? 8, frames: keep(a.frames ?? []) };
+      });
+    }
+    store.seal();
+  };
+  const goldAnimRow = (id: string, t: number, can: boolean): HTMLElement[] => {
+    const patterns = store.adapter.tileAnimPatterns ?? [];
+    const a = mapAnimations(id).find((x) => x.tile === t);
+    const run = (what: () => Promise<void>) => void what().catch((err: unknown) => toast(err instanceof Error ? err.message : String(err), "error"));
+    if (a?.scroll) return [h("p", { class: "hint" }, "Animated: the game rotates this tile in place, so changing the tile changes the animation.")];
+    if (a) {
+      const n = Math.max(...a.sequence);
+      const rel = !a.own && a.source ? a.source.replace(/^assets\/generated\//, "") : null;
+      const shared = rel === "tilesets/water_frames.png" || rel === "tilesets/flower_frames.png";
+      const replaced = rel !== null && store.table(OVERRIDES)[rel] !== undefined;
+      const pattern = patterns.find((p) => a.own && store.table(EXTENSIONS)[id] !== undefined && ((store.table(EXTENSIONS)[id] as TilesetExtension).anim ?? []).some((r) => r.tile === t && r.func === p.func));
+      return [
+        h("p", { class: "hint" }, `Animated: ${n} frames${a.own ? ", your own" : ""}${pattern ? ` (${pattern.label})` : ""}.${shared ? " Every tileset's water and flowers use these frames, as in the game." : ""}`),
+        h("div", { class: "row wrap" },
+          h("button", {
+            class: "btn small", disabled: !store.project.mod,
+            title: "A picture of the frames, each 8×8",
+            onclick: () => run(async () => {
+              const png = await goldFrames(n, `Frames of tile #${t}`);
+              if (!png) return;
+              if (rel) store.setRecord(OVERRIDES, rel, `Replace ${rel}`, addOverride(png));
+              else {
+                const func = (isBaseTileset(id) ? ((store.table(EXTENSIONS)[id] as TilesetExtension).anim ?? []) : ((liveTileset(id)?.anim as { frames?: GoldRow[] } | undefined)?.frames ?? [])).find((r) => r.tile === t)?.func ?? patterns[0].func;
+                setGoldRow(id, t, { func, tile: t, sheet: addAsset(store.project.mod!, `${id.toLowerCase()}_anim_${t}`, png), frames: n }, "Animation frames");
+              }
+              store.seal();
+            }),
+          }, "Replace frames…"),
+          replaced ? h("button", { class: "btn small danger", onclick: () => { store.setRecord(OVERRIDES, rel!, `Revert ${rel}`, undefined); store.seal(); } }, "Back to the game's frames") : null,
+          a.own && can ? h("button", { class: "btn small", onclick: () => setGoldRow(id, t, null, "Stop animating") }, "Stop animating") : null,
+        ),
+      ];
+    }
+    if (!can) return [];
+    const sel = h("select", {}, ...patterns.map((p, i) => h("option", { value: String(i) }, p.label)));
+    return [
+      h("div", { class: "row nowrap" },
+        sel,
+        h("button", {
+          class: "btn small", disabled: !store.project.mod,
+          title: "The game animates a tile only in its own patterns; pick one, then a picture of its frames",
+          onclick: () => run(async () => {
+            const p = patterns[Number(sel.value)];
+            const png = await goldFrames(p.frames, `Animate tile #${t}`);
+            if (png) setGoldRow(id, t, { func: p.func, tile: t, sheet: addAsset(store.project.mod!, `${id.toLowerCase()}_anim_${t}`, png), frames: p.frames }, "Animate tile");
+          }),
+        }, "Animate…")),
+      h("p", { class: "hint" }, "The tile on the sheet stays as it is (the first frame shows only while it moves)."),
+    ];
   };
 
   // One tile's animation from a strip of 8x8 frames; frame 1 becomes the tile.
@@ -1747,7 +1939,7 @@ export function mountTilesetWorkspace(left: HTMLElement, center: HTMLElement, ri
       selTile = null;
       selBlock = null;
       schedule();
-    } else if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS || registry === "field")) {
+    } else if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS || registry === "field" || registry === OVERRIDES)) {
       if (current && !tilesetsTable()[current]) current = tilesetIds()[0] ?? null;
       schedule();
     } else if (reason === "reveal" && (registry === "tilesets" || registry === EXTENSIONS) && id) {
@@ -1877,7 +2069,7 @@ function promptPicture(title: string, hint: string, trueColor: boolean): Promise
 // An animation's frames (each `size`×`size`, side by side or stacked):
 // checked as soon as the picture is picked, then played in the shades it gets
 // at the chosen speed. For "+ Animated block" (32) and "Animate…" (8).
-function promptAnimation(size: number, title: string, intro: string, trueColor: boolean): Promise<{ img: HTMLImageElement; period: number; brightness: number } | null> {
+function promptAnimation(size: number, title: string, intro: string, trueColor: boolean, withSpeed = true): Promise<{ img: HTMLImageElement; period: number; brightness: number } | null> {
   return new Promise((resolve) => {
     const dialog = h("dialog", {});
     const file = h("input", { type: "file", accept: "image/png,image/gif,image/bmp,image/webp" });
@@ -1952,7 +2144,7 @@ function promptAnimation(size: number, title: string, intro: string, trueColor: 
       h("h3", {}, title),
       h("p", { class: "hint" }, intro),
       field("Picture", file),
-      field("Speed", speed),
+      withSpeed ? field("Speed", speed) : "",
       colorNote(trueColor),
       h("div", { class: "anim-preview-wrap" }, canvas),
       info,

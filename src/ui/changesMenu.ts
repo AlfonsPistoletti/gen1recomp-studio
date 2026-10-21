@@ -23,6 +23,7 @@ const NAMES: Record<string, [string, string]> = {
   studio_item_effects: ["Custom item effects", "custom item effect"],
   balls: ["Ball catch numbers", "ball"],
   studio_events: ["Events", "event"],
+  studio_visibility: ["Visibility rules", "visibility rule"],
   map_songs: ["Map music", "map's music"],
   music: ["Songs", "song"],
   sfx: ["Sound effects", "sound effect"],
@@ -188,6 +189,12 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     }
     case "studio_events":
       return removed ? null : () => nav.openEvent(id);
+    case "studio_visibility": {
+      // "<MAP>:<OBJECT>": the person on its map
+      const [mapId, name] = [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)];
+      const at = store.maps[mapId] ? store.entities(store.maps[mapId], "objects").findIndex((o) => o.name === name) : -1;
+      return at >= 0 ? () => nav.selectEntity(mapId, "objects", at) : null;
+    }
     case "map_songs":
       return store.maps[id] ? () => nav.openMap(id) : null;
     case "field":

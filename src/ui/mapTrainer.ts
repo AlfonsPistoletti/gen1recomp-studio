@@ -89,7 +89,20 @@ export function objectTrainerSection(record: EntityRecord, edit: Edit): HTMLElem
     const name = s.teams?.name((store.table(s.registry)[classId] ?? {}) as Rec, i) ?? "";
     o.textContent = `${name || `#${o.value}`} · ${teams[i]?.map((m) => `${m.species} ${m.level}`).join(", ") ?? ""}`;
   }
-  const after = ot.afterScripts(store.map!);
+  // the lines the trainers here say after their battles: the map as it is and
+  // as the game has it (a key nobody uses any more stays offered)
+  const base = store.base[store.map!.id];
+  const after = [...ot.afterScripts(store.map!), ...(base ? ot.afterScripts(base) : [])].filter((a, i, all) => all.findIndex((b) => b.key === a.key) === i);
+  // the words a script says (its writetext / jumptextfaceplayer text), shortened
+  const scripts = (store.ctx.data.extra as { scripts?: Record<string, unknown> }).scripts ?? {};
+  const wordsOf = (key: string) => {
+    const rows = scripts[key];
+    const r = Array.isArray(rows) ? (rows as Rec[]).find((x) => (x.op === "writetext" || x.op === "jumptextfaceplayer" || x.op === "jumptext") && typeof x.text === "string") : undefined;
+    const text = r ? store.table("text")[String(r.text)] : undefined;
+    if (typeof text !== "string") return "";
+    const plain = text.replace(/\{(DONE|PROMPT)\}/g, "").replace(/[\n\v\f]+/g, " ").trim();
+    return plain.length > 40 ? `${plain.slice(0, 39)}…` : plain;
+  };
   const afterSel = selectInput(typeof t.scriptKey === "string" ? t.scriptKey : "", after.map((a) => a.key), (v) => edit("After the battle", (r) => {
     r[ot.key] = { ...(r[ot.key] as Struct), scriptKey: v || undefined };
     if (!v) delete (r[ot.key] as Struct).scriptKey;
@@ -97,12 +110,15 @@ export function objectTrainerSection(record: EntityRecord, edit: Edit): HTMLElem
     if (v) r.scriptKey = v;
     else delete r.scriptKey;
   }), "Nothing (the game's scripts can't be written here)");
-  for (const o of afterSel.options) if (o.value) o.textContent = after.find((a) => a.key === o.value)?.label ?? o.value;
+  for (const o of afterSel.options) {
+    if (!o.value) continue;
+    const words = wordsOf(o.value);
+    o.textContent = `${words ? `“${words}” · ` : ""}${after.find((a) => a.key === o.value)?.label ?? o.value}`;
+  }
 
   return h(
     "div",
-    { class: "field-group npc-text" },
-    h("h4", {}, "Trainer"),
+    { class: "npc-text" },
     h("div", { class: "row two" }, field("Class", clsSel), field("Trainer", memberSel, "Its team is edited in Trainers")),
     h("div", { class: "row two" },
       field("Sight", numberInput(Number(record[ot.sightKey] ?? 0), (v) => edit("Trainer sight", (r) => (r[ot.sightKey] = Math.max(0, Math.min(15, v)))), 0, 15), "Cells it sees ahead; 0: only when talked to"),

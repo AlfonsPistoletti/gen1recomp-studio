@@ -436,5 +436,28 @@ const { CODE_HIDDEN_OPTIONAL } = await import("../src/games/gen1/codeHidden.ts")
   check("code hidden events match the dataset", !bad.length, bad.join("; "));
 }
 
+// where the game shows / hides people: every map and person exists in each imported Gen 1 version
+{
+  const toggles = adapter.towns?.toggles ?? [];
+  for (const v of info.versions.filter((x) => x.available && adapterFor(x.version)?.id === "gen1")) {
+    const maps = v.version === version ? base : (await openProject(nodeHost, v.version, adapterFor(v.version)!, null)).data.maps;
+    const bad: string[] = [];
+    for (const t of toggles) {
+      if (t.versions && !t.versions.includes(v.version)) continue;
+      const m = maps[t.map];
+      if (!m) { bad.push(`${t.map}: no map`); continue; }
+      const names = new Set(((m.objects ?? []) as { name?: string }[]).map((o) => o.name));
+      for (const o of t.objects) if (!names.has(o)) bad.push(`${t.map}: no ${o}`);
+    }
+    check(`object toggles match the ${v.version} maps`, !bad.length, bad.join("; "));
+  }
+  const { VISIBILITY_RUNTIME, visibilityRegistration } = await import("../src/lua/visibilityRuntime.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const f = "mods/studio_selftest/studio_content.lua";
+  const rules = dataFile("studio_selftest", "person visibility rules", { "BLUES_HOUSE:BLUESHOUSE_DAISY2": { flag: "STUDIO_SELFTEST_FLAG" } }, ["flag", "whileSet"]);
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, VISIBILITY_RUNTIME + "\n" + visibilityRegistration("studio_selftest", "studio_visibility.lua"))], ["mods/studio_selftest/studio_visibility.lua", rules]]), "studio_selftest", f, null);
+  check("visibility helper registers an onEnter", ran.errors.length === 0 && ran.ops.some((o) => o.registry === "map_scripts" && o.id === "BLUES_HOUSE"), ran.errors.join("; "));
+}
+
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");
 process.exit(failures ? 1 : 0);

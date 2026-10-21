@@ -3,7 +3,7 @@
 // surface. Each map is rendered once into its own canvas (from the block
 // atlas) and only re-rendered when its record changes; a frame is a handful
 // of drawImage calls plus overlays for the map being edited.
-
+
 import { extIcon } from "./extIcons.ts";
 import { cellAt, cellsOf, extKind, paintCell } from "../core/customCells.ts";
 import { blockAt, BLOCK_PX, floodFill, placeConnected, type Placed } from "../core/geometry.ts";
@@ -14,9 +14,9 @@ import { liveSprite, playerSprites, spriteUrl } from "../core/sprites.ts";
 import { gbcColorsFor, gbcKey, isGbcKey, spriteGbcColors } from "../core/gbc.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
-import { Armchair, Cog, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, ScanEye, Signpost, Sparkles, Zap, type IconNode } from "lucide";
+import { Armchair, Cog, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, Signpost, Sparkles, Zap, type IconNode } from "lucide";
 import { animationFrames, atlasRect, blockAtlas, clearColorCaches, BLOCK, CELL, loadImage, markerIcon, spriteFrame, TILE, type BlockAtlas } from "./graphics.ts";
-import { assetUrl } from "../core/assets.ts";
+import { assetUrl, OVERRIDES } from "../core/assets.ts";
 
 interface CachedMap {
   map: MapDef;
@@ -76,6 +76,9 @@ const HIDDEN_ICONS: Record<string, [string, IconNode, string]> = {
   statue: ["landmark", Landmark, "#5b5f6e"],
 };
 const LANDING_ICON = "#1f9e6b";
+// a trainer's line of sight (the color of the sight step-event icons)
+const SIGHT_COLOR = "#c2410c";
+const SIGHT_STEP: Record<string, [number, number]> = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 // the game's code hidden events on a map, for the open version
 export const codeHiddenOf = (mapId: string) =>
   (store.adapter.towns?.codeHidden ?? []).filter((c) => c.map === mapId && (!c.versions || c.versions.includes(store.project?.version ?? "")));
@@ -124,6 +127,10 @@ export class MapView {
         this.relayout();
       } else if (reason === "content" && (registry === "tilesets" || registry === EXTENSIONS) && id) {
         this.tilesetChanged(id);
+      } else if (reason === "content" && registry === OVERRIDES) {
+        // a replaced game image may be an animation's frames (Gen 2 strips)
+        this.cache.clear();
+        this.relayout();
       } else if (reason === "content" && registry === "palettes") {
         clearColorCaches();
         this.cache.clear();
@@ -178,6 +185,17 @@ export class MapView {
     if (!map) return;
     this.liveFit = "map";
     this.fitRect(0, 0, map.width * BLOCK_PX, map.height * BLOCK_PX);
+  }
+
+  // The world around the open map; inside a building (a map with no
+  // connections) the outdoor map its doors lead out to first.
+  toOverworld(): void {
+    const map = store.map;
+    if (map && !store.adapter.connections(map).length) {
+      const out = outsideOf(store.currentMap);
+      if (out) this.openMap(out);
+    }
+    this.fitWorld();
   }
 
   fitWorld(): void {
@@ -719,8 +737,13 @@ export class MapView {
         for (const [id, ev] of Object.entries(store.table(evReg) as Record<string, EntityRecord>)) {
           if (!id.startsWith(`${map.id}:step:`) || typeof ev.x !== "number") continue;
           // a trainer's line of sight (built from step events) vs other step events
-          if (id.startsWith(`${map.id}:step:trainer`)) this.markerIcon("scan-eye", ScanEye, "#c2410c", ev);
-          else this.markerIcon("zap", Zap, "#d4357a", ev);
+          // a studio trainer's line of sight (Gen 1 step events): drawn like the game trainers' sight
+          if (id.startsWith(`${map.id}:step:trainer`)) {
+            ctx.fillStyle = SIGHT_COLOR;
+            ctx.globalAlpha = 0.28;
+            ctx.fillRect(ev.x * CELL + 2, Number(ev.y) * CELL + 2, CELL - 4, CELL - 4);
+            ctx.globalAlpha = 1;
+          } else this.markerIcon("zap", Zap, "#d4357a", ev);
         }
       }
       // the game's code hidden events (fixed, see their row in the map's properties)
@@ -779,10 +802,31 @@ export class MapView {
       ctx.fill();
       ctx.globalAlpha = 1;
     }
+    // a trainer's line of sight, every way it can face (Gen 1 studio trainers' sight is their step events, drawn there)
+    const ot = store.adapter.trainers?.objectTrainer;
+    const map = store.maps[store.currentMap];
+    const sight = ot && o[ot.key] ? Number(o[ot.sightKey] ?? 0) : map ? Number(store.adapter.towns?.gameTrainer?.(store.ctx, map, o)?.range ?? 0) : 0;
+    if (ref && map && sight > 0) {
+      ctx.fillStyle = SIGHT_COLOR;
+      ctx.globalAlpha = 0.28;
+      for (const dir of ref.looks ?? [ref.facing]) {
+        const [dx, dy] = SIGHT_STEP[dir];
+        for (let k = 1; k <= sight; k++) {
+          const x = o.x + dx * k;
+          const y = o.y + dy * k;
+          if (x < 0 || y < 0 || x >= map.width * 2 || y >= map.height * 2) break;
+          ctx.fillRect(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4);
+        }
+      }
+      ctx.globalAlpha = 1;
+    }
     if (ref?.moving) {
       ctx.strokeStyle = layer.color;
       ctx.setLineDash([2 / this.zoom, 2 / this.zoom]);
-      ctx.strokeRect(o.x * CELL, o.y * CELL, CELL, CELL);
+      // the area it may walk in (Gold refuses every step past its radius)
+      const rx = ref.range?.x ?? 0;
+      const ry = ref.range?.y ?? 0;
+      ctx.strokeRect((o.x - rx) * CELL, (o.y - ry) * CELL, (2 * rx + 1) * CELL, (2 * ry + 1) * CELL);
       ctx.setLineDash([]);
     }
   }
@@ -1251,9 +1295,11 @@ export class MapView {
     const w = warpLayer(store.adapter);
     if (!w) return;
     const warp = store.entities(store.map, w.layer.key)[index];
-    const destId = warp?.[w.spec.mapKey];
+    let destId = warp?.[w.spec.mapKey];
+    const destIndex = Number(warp?.[w.spec.warpKey]) - 1;
+    // LAST_MAP and the like: the map whose door (warp number destIndex + 1) leads in here
+    if (typeof destId === "string" && !store.maps[destId]) destId = entrancesOf(store.currentMap, destIndex)[0];
     if (typeof destId !== "string" || !store.maps[destId]) return;
-    const destIndex = Number(warp[w.spec.warpKey]) - 1;
     const target = store.entities(store.maps[destId], w.layer.key)[destIndex];
     this.openMap(destId);
     this.fitMap();
@@ -1514,6 +1560,41 @@ function sameGraphics(a: MapDef, b: MapDef): boolean {
 type WarpSpec = Extract<FieldSpec, { kind: "warpTarget" }>;
 
 // The adapter's warp layer and its destination field, if it has one.
+// The maps with a warp into `id` (where a LAST_MAP exit returns to); the one
+// whose warp number `door` (0-based) leads in comes first
+export function entrancesOf(id: string, door = -1): string[] {
+  const w = warpLayer(store.adapter);
+  if (!w) return [];
+  const out: string[] = [];
+  for (const [mapId, m] of Object.entries(store.maps)) {
+    if (mapId === id) continue;
+    const warps = store.entities(m, w.layer.key);
+    if (warps[door]?.[w.spec.mapKey] === id) out.unshift(mapId);
+    else if (warps.some((x) => x[w.spec.mapKey] === id)) out.push(mapId);
+  }
+  return out;
+}
+
+// The nearest map with connections (the overworld) through the doors leading
+// into `id` (a house in a cave in a route works too), or null
+export function outsideOf(id: string): string | null {
+  const seen = new Set([id]);
+  let ring = [id];
+  for (let depth = 0; depth < 6 && ring.length; depth++) {
+    const next: string[] = [];
+    for (const m of ring) {
+      for (const e of entrancesOf(m)) {
+        if (seen.has(e)) continue;
+        seen.add(e);
+        if (store.adapter.connections(store.maps[e]).length) return e;
+        next.push(e);
+      }
+    }
+    ring = next;
+  }
+  return null;
+}
+
 export function warpLayer(adapter: GameAdapter): { layer: EntityLayer; spec: WarpSpec } | null {
   for (const layer of adapter.layers) {
     if (layer.kind !== "warp") continue;

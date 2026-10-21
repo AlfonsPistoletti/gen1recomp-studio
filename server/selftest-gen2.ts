@@ -189,7 +189,11 @@ for (const [registry, records] of Object.entries(edited)) {
   const { TILESET_RUNTIME2, tilesetRegistration2 } = await import("../src/lua/tilesetRuntime2.ts");
   const ts = project.data.tilesets.TILESET_JOHTO;
   const first = Math.floor(Number(ts.imageWidth) / 8) * Math.floor(Number(ts.imageHeight) / 8);
-  const ext = { first, tiles: [], blocks: [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], collision: [[0, 0, 7, 7]] };
+  const ext = { first, tiles: [], blocks: [[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], collision: [[0, 0, 7, 7]], anim: [{ func: "AnimateWhirlpoolTile", tile: first, sheet: "mods/studio_selftest/assets/studio/x_anim.png", frames: 4 }] };
+  // an own animation row joins the game's program (later rows win) and counts as the mod's
+  const ownAnims = adapter.tileAnimations!({ data: project.data, maps: base, records: { studio_tilesets: { TILESET_JOHTO: ext } } }, ts, "TILESET_JOHTO");
+  const mine = ownAnims.find((x) => x.tile === first);
+  check("own tile animation joins the tileset's", !!mine?.own && mine.sequence.join() === "1,2,3,4,1,2,3,4" && ownAnims.some((x) => !x.own), JSON.stringify(mine));
   const dataSrc = dataFile("studio_selftest", "tileset extensions", { TILESET_JOHTO: ext });
   const back = await loadLuaData<Record<string, unknown>>(dataSrc, "studio_tilesets.lua");
   check("studio_tilesets.lua round-trips", deepEqual(back.TILESET_JOHTO, ext), JSON.stringify(back.TILESET_JOHTO));
@@ -251,6 +255,18 @@ for (const [registry, records] of Object.entries(edited)) {
   check("a trainer battle closes the text box around its rows", text.includes('{"op":"closetext"},{"op":"winlosstext","winText":"T_WIN"},{"op":"loadtrainer"'));
   check("money is 3 big-endian bytes", text.includes('"op":"takemoney","args":[0,0,3,232]'));
   check("Gold event battles, money and people round-trip", deepEqual(gparse(moreRows as never, ctx), more), JSON.stringify(gparse(moreRows as never, ctx)).slice(0, 400));
+  // a trainer's after-battle talk: endifjustbattled first, the text box after it (the game's order)
+  const afterBlocks = [{ t: "cmd", row: ["#raw", { op: "endifjustbattled" }] }, { t: "cmd", row: ["faceplayer"] }, { t: "cmd", row: ["writetext", "T_AFTER"] }] as never;
+  const afterRows = gcompile(afterBlocks, ctx) as unknown as Record<string, unknown>[];
+  check("after-battle talk keeps the game's order", afterRows.slice(0, 3).map((r) => r.op).join() === "endifjustbattled,faceplayer,opentext" && deepEqual(gparse(afterRows as never, ctx), afterBlocks), JSON.stringify(afterRows.slice(0, 4)));
+  const newer = [
+    { t: "if", cond: ["checktime", 4], not: false, then: [{ t: "cmd", row: ["applymovement", 3, ["up", "left"], 0x0c] }], else: [{ t: "cmd", row: ["givecoins", 50] }] },
+    { t: "if", cond: ["checkcoins", 100], not: false, then: [{ t: "cmd", row: ["takecoins", 100] }], else: null },
+    { t: "cmd", row: ["follow", 2, 0] },
+    { t: "cmd", row: ["stopfollow"] },
+  ] as never;
+  const newerRows = gcompile(newer, ctx) as unknown as Record<string, unknown>[];
+  check("time, coins, walk and follow blocks round-trip", deepEqual(gparse(newerRows as never, ctx), newer), JSON.stringify(gparse(newerRows as never, ctx)).slice(0, 400));
   // the game's own events: New Bark's teacher (three flag checks) reads in
   // with its branches as nested lists, and as If blocks
   const { GEN2_EVENTS } = await import("../src/games/gen2/events.ts");
@@ -258,6 +274,38 @@ for (const [registry, records] of Object.entries(edited)) {
   check("a game script reads in with its branches", !!teacher && teacher.some((r) => r.op === "iftrue" && Array.isArray(r.script)), JSON.stringify(teacher).slice(0, 200));
   const tb = gparse((teacher ?? []) as never, ctx) as { t: string }[];
   check("a game script shows as If blocks", tb.filter((b) => b.t === "if").length >= 1 && !JSON.stringify(tb).includes('"#raw",{"op":"iftrue"'), JSON.stringify(tb).slice(0, 300));
+  // animated tiles: the tilesets' anim programs give animations, and their strips exist
+  {
+    const all = Object.entries(project.data.tilesets).flatMap(([id, t]) => adapter.tileAnimations!(ctx, t, id));
+    const paths = [...new Set(all.map((x) => x.strip).filter((x): x is string => !!x))];
+    const missing: string[] = [];
+    for (const p of paths) {
+      const dir = p.replace(/^assets\/generated\//, "assets/generated/").replace(/\/[^/]+$/, "");
+      const names = (await nodeHost.list(`cache:${version}`, dir).catch(() => [])).map((e) => `${dir}/${e.name}`);
+      if (!names.includes(p)) missing.push(p);
+    }
+    check("tileset animations and their strips", all.length > 20 && all.some((x) => x.scroll) && !missing.length, `${all.length} animated tiles, ${paths.length} strips; missing ${missing.join(", ")}`);
+  }
+  // the newer commands: arguments -> row -> arguments again; a game movement reads as a path
+  {
+    const mapId = Object.keys(base).find((id) => typeof (base[id] as { group?: number }).group === "number" && (base[id] as { group?: number }).group! > 0)!;
+    const cases: [string, Record<string, unknown>][] = [
+      ["check_time", { time: 4 }], ["check_coins", { amount: 300 }], ["give_coins", { amount: 500 }], ["take_coins", { amount: 50 }],
+      ["give_item_quiet", { item: "POTION", quantity: 2 }], ["give_egg", { species: "TOGEPI", level: 5 }], ["random", { count: 3 }],
+      ["earthquake", { strength: 80 }], ["fade_music", { song: (project.data.extra as { musicOrder: string[] }).musicOrder[3] }],
+      ["follow", { leader: 2, follower: 0 }], ["warp", { map: mapId, x: 4, y: 7 }], ["walk", { who: 3, path: ["up", "up", "left"], speed: 0x08 }],
+    ];
+    const bad: string[] = [];
+    for (const [id, args] of cases) {
+      const c = GEN2_EVENTS.commands.find((x) => x.id === id);
+      const row = c?.pack ? { op: c.verb, ...c.pack(args, ctx) } : null;
+      const back = row && c?.unpack ? c.unpack(row, ctx) : null;
+      if (!back || !deepEqual(back, args)) bad.push(`${id}: ${JSON.stringify(back)}`);
+    }
+    check("new event commands round-trip", !bad.length, bad.join("; "));
+    const walk = GEN2_EVENTS.commands.find((x) => x.id === "walk")!;
+    check("a game movement reads as a path", deepEqual(walk.unpack!({ op: "applymovement", object: 10, movement: "4a:4868" }, ctx), { who: 10, path: ["left"], speed: 0x0c }));
+  }
   // screens: the picture's three rows and a screen special read back; every listed special exists
   {
     const cmd = (id: string) => GEN2_EVENTS.commands.find((c) => c.id === id)!;
@@ -328,10 +376,9 @@ for (const [registry, records] of Object.entries(edited)) {
   const edits: Record<string, Rec> = { pokemon: { STUDIO_MON: mon } };
   for (const x of extras) edits[x.registry] = { ...(edits[x.registry] ?? {}), [x.id]: x.value };
   const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, ...edits });
-  const helper = adapter.saveHelpers!(edits, content as Record<string, Record<string, unknown>>);
-  check("Pokédex helper written for a new species", helper.includes("game.ready") && !helper.includes("`"));
-  check("no Pokédex helper without one", adapter.saveHelpers!({ pokemon: { RATTATA: content.pokemon.RATTATA as Rec } }, content as Record<string, Record<string, unknown>>) === "");
-  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter), helper);
+  // the engine builds the #DEX entry from the species' dexEntry (070ca01+): no helper
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("a new species carries its Pokédex entry", src.includes("dexEntry"));
   const f = "mods/studio_selftest/studio_content.lua";
   const ran = await runMod(new Map([[f, src]]), "studio_selftest", f, null);
   check("new species file runs", ran.errors.length === 0, ran.errors.join("; "));
@@ -468,6 +515,96 @@ for (const [registry, records] of Object.entries(edited)) {
   const f = "mods/studio_selftest/studio_content.lua";
   const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, code)], ["mods/studio_selftest/studio_field_moves.lua", hm], ["mods/studio_selftest/studio_slots.lua", sl]]), "studio_selftest", f, null);
   check("field helpers load in the studio", ran.errors.length === 0, ran.errors.join("; "));
+}
+
+// a fishing day/night pair: a patch of pair 1 alone would read as a Lua list
+// (and replace every pair), so it carries an unchanged pair along
+{
+  const tfg = (content.encounters as Record<string, Record<string, Rec>>).timeFishGroups;
+  const one = clone(tfg) as Record<string, Rec>;
+  one["1"] = { ...one["1"], day: { species: "MAGIKARP", level: 40 } };
+  const d1 = diffRecord(tfg, one) as Record<string, unknown>;
+  const eight = clone(tfg) as Record<string, Rec>;
+  eight["8"] = { ...eight["8"], nite: { species: "DRAGONAIR", level: 20 } };
+  const d8 = diffRecord(tfg, eight) as Record<string, unknown>;
+  check("a pair-1 patch keeps a second key (not a list)", Object.keys(d1).length === 2 && "1" in d1, JSON.stringify(Object.keys(d1)));
+  check("a pair-8 patch stays one entry", Object.keys(d8).join() === "8", JSON.stringify(Object.keys(d8)));
+}
+
+// studio scripts: inline in the editor, registered map_scripts keys on disk,
+// and back inline on load (the same maps); movements by their key
+{
+  const sk = await import("../src/games/gen2/scriptKeys.ts");
+  const { GEN2_EVENTS } = await import("../src/games/gen2/events.ts");
+  const ctx = { data: project.data, maps: base, records: {} };
+  const id = "NEW_BARK_TOWN";
+  const m = clone(base[id]) as Rec;
+  const talk = [{ op: "faceplayer" }, { op: "opentext" }, { op: "applymovement", object: 0, movement: "studio:13.12.71" }, { op: "closetext" }, { op: "end" }];
+  const objs = m.objects as Rec[];
+  objs[0] = { ...objs[0], scriptKey: talk };
+  objs[1] = { ...objs[1], trainer: { class: 1, member: 1, event: 2000, scriptKey: [{ op: "jumptext", text: "X" }] } };
+  m.sceneScripts = { "1": { sceneId: 1, scriptKey: [{ op: "end" }] } };
+  m.callbacks = [{ callback: "MAPCALLBACK_TILES", type: 1, scriptKey: [{ op: "checkscene" }, { op: "endcallback" }] }];
+  const edited = { [id]: m } as unknown as Record<string, import("../src/core/types.ts").MapDef>;
+  const out = sk.outlineScripts(edited);
+  const regs = Object.fromEntries(out.registrations.map((r) => [r.id, r.value]));
+  const om = out.maps[id] as unknown as Rec;
+  check("scripts become keys", (om.objects as Rec[])[0].scriptKey === `STUDIO_${id}_OBJ${objs[0].index}` && ((om.objects as Rec[])[1].trainer as Rec).scriptKey === `STUDIO_${id}_OBJ${objs[1].index}_AFTER`
+    && (om.sceneScripts as Record<string, Rec>)["1"].scriptKey === `STUDIO_${id}_SCENE1` && (om.callbacks as Rec[])[0].scriptKey === `STUDIO_${id}_CB_TILES`, JSON.stringify(Object.keys(regs)));
+  check("a studio movement is registered by its key", deepEqual(regs["movement:studio:13.12.71"], [13, 12, 71]));
+  check("the editor's maps stay inline", Array.isArray(objs[0].scriptKey));
+  const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: out.maps as unknown as Rec });
+  for (const r of out.registrations) calls.push({ registry: "map_scripts", op: "register", id: r.id, value: r.value });
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, src]]), "studio_selftest", f, null);
+  check("script registrations run", ran.errors.length === 0 && src.includes(`map_scripts:register("STUDIO_${id}_OBJ`), ran.errors.join("; "));
+  const own: Record<string, unknown> = {};
+  for (const op of ran.ops) if (op.registry === "map_scripts" && sk.ownsScript(op.id)) own[op.id] = op.value;
+  const back = clone(out.maps) as Record<string, import("../src/core/types.ts").MapDef>;
+  sk.inlineScripts(back, own);
+  check("scripts read back inline", deepEqual(back[id], m), JSON.stringify((back[id] as Rec).objects).slice(0, 200));
+  check("keys are stable across saves", deepEqual(sk.outlineScripts(back).registrations.map((r) => r.id), out.registrations.map((r) => r.id)));
+  const walk = GEN2_EVENTS.commands.find((x) => x.id === "walk")!;
+  check("an older walk row (steps) still reads", deepEqual(walk.unpack!({ op: "applymovement", object: 2, movement: "studio:13.71", steps: [13, 71] }, ctx), { who: 2, path: ["up"], speed: 0x0c }));
+}
+
+// the phone book: Joey is contact 15 on Route 30, Route 30's NPC 2 gives his
+// number, and moving him saves as a patch of the map only
+{
+  const ctx = { data: project.data, maps: base, records: {} };
+  const book = content.phone_contacts as Record<string, Rec>;
+  const joey = book.PHONE_YOUNGSTER_JOEY;
+  const givers = adapter.globals!.phone!.givers(ctx);
+  check("phone contacts load (Joey = 15 on ROUTE_30)", joey?.index === 15 && joey.map === "ROUTE_30" && !("PHONE_UNUSED" in book), JSON.stringify(joey));
+  // what fills {STRBUF} in Joey's call: his name in the greeting, his own mon in the chat
+  const bufs = adapter.globals!.phone!.buffers(ctx, [String(joey?.callerKey)]);
+  check("phone {STRBUF}: caller's name / own Pokémon", [...(bufs.get("41:5989") ?? [])].join() === "a trainer's name" && [...(bufs.get("41:5b0d") ?? [])].join() === "one of the caller's own Pokémon" && [...(bufs.get("41:5cdb") ?? [])].join() === "“ROUTE 30”", JSON.stringify([...bufs].map(([k, v]) => [k, [...v]])));
+  check("Joey's number is given on Route 30", (givers.get(15) ?? []).some((g) => g.map === "ROUTE_30"), JSON.stringify(givers.get(15)));
+  const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, phone_contacts: { PHONE_YOUNGSTER_JOEY: { ...joey, map: "ROUTE_31" } } });
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  check("a moved contact is a map patch", src.includes('phone_contacts:patch("PHONE_YOUNGSTER_JOEY"') && src.includes('map = "ROUTE_31"') && !src.includes("calleeKey"), src.split("\n").filter((l) => l.includes("phone") || l.includes("ROUTE_31")).join(" | "));
+}
+
+// fruit trees: the restated list matches the trees on the maps, and the helper loads
+{
+  const { fruitTreeRegistration2 } = await import("../src/lua/fieldRuntime2.ts");
+  const { dataFile, studioContentFile: contentFile } = await import("../src/lua/writer.ts");
+  const trees = (content.studio_fruit_trees as Record<string, unknown>).trees as string[];
+  const scripts = (project.data.extra as { scripts: Record<string, unknown> }).scripts;
+  const used = new Set<number>();
+  for (const m of Object.values(base)) for (const o of (m.objects ?? []) as { scriptKey?: unknown }[]) {
+    const rows = typeof o.scriptKey === "string" ? scripts[o.scriptKey] : null;
+    const r = Array.isArray(rows) ? (rows as { op?: string; args?: number[] }[]).find((x) => x?.op === "fruittree") : undefined;
+    if (typeof r?.args?.[0] === "number") used.add(r.args[0]);
+  }
+  check("fruit trees: 30 restated, every map tree number has one", trees.length === 30 && [...used].every((n) => n >= 1 && n <= 30) && used.size >= 25, `${used.size} numbers on maps`);
+  check("fruit tree items exist", trees.every((i) => content.items[i] !== undefined), trees.filter((i) => content.items[i] === undefined).join(", "));
+  check("apricorn balls restated", Object.keys(content.apricorns ?? {}).length === 7 && Object.values(content.apricorns as Record<string, { ball: string }>).every((r) => content.items[r.ball] !== undefined));
+  const f = "mods/studio_selftest/studio_content.lua";
+  const data = dataFile("studio_selftest", "fruit trees", { trees: [...trees.slice(0, 29), "GOLD_BERRY"] }, []);
+  const ran = await runMod(new Map([[f, contentFile("studio_selftest", [], {}, fruitTreeRegistration2("studio_selftest", "studio_fruit_trees.lua"))], ["mods/studio_selftest/studio_fruit_trees.lua", data]]), "studio_selftest", f, null);
+  check("fruit tree helper loads in the studio VM", ran.errors.length === 0, ran.errors.join("; "));
 }
 
 // scenes: Elm's lab's scenes, per-scene block layouts in an own TILES callback

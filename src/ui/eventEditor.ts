@@ -8,6 +8,7 @@
 // every edit back (src/core/eventBlocks.ts). The game's own events are shown
 // read-only, with "Edit a copy" to override one.
 
+import { FEATURES } from "../features.ts";
 import { fieldDefault, type ExtCommand } from "../project/extensions.ts";
 import { extFieldInput } from "./extFields.ts";
 import { clone } from "../core/merge.ts";
@@ -154,7 +155,10 @@ export function createEvent(mapId: string, kind: EventKind, key: string, init: P
     // a person faces the player and says a new line (a new text key)
     store.group("New event", () => {
       const text = newEventText();
-      const blocks: Block[] = [...(kind === "step" || kind === "enter" || key.startsWith("sign") ? [] : [{ t: "cmd", row: ["faceplayer"] } as Block]), { t: "cmd", row: ["writetext", text] }];
+      const blocks: Block[] = [
+        // a trainer's after-battle talk: nothing right after the battle, only when talked to again (as the game's)
+        ...(FEATURES.gen2 && kind === "after" ? [{ t: "cmd", row: ["#raw", { op: "endifjustbattled" }] } as Block] : []),
+        ...(kind === "step" || kind === "enter" || key.startsWith("sign") ? [] : [{ t: "cmd", row: ["faceplayer"] } as Block]), { t: "cmd", row: ["writetext", text] }];
       writeInline(id, "New event", { rows: init.rows ?? compileBlocks(s, blocks) });
     });
     return id;
@@ -1013,7 +1017,9 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
         break;
       case "path": {
         // walks from where the walker stands at this point of the event
-        const walker = args.who ?? args.npc;
+        let walker = args.who ?? args.npc;
+        // Gold names people by object number: 0 the player, a person its index + 1
+        if (spec()?.inline && typeof walker === "number") walker = walker === 0 ? "player" : walker - 1;
         const at = positionsAt(owner);
         const start = walker === "player" ? at.player : typeof walker === "number" ? (at.npcs.get(walker) ?? null) : null;
         input = pathWidget(mapId, start, Array.isArray(value) ? value.map(String) : [], ro, (path) => set(path));
@@ -1107,6 +1113,14 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "trainer":
         input = combo(Object.keys(store.table("trainers")).sort(), value, set);
         break;
+      case "choice": {
+        const opts = p.options ?? [];
+        const sel = selectInput(String(value ?? opts[0]?.value ?? ""), opts.map((o) => String(o.value)), (v) => set(typeof opts[0]?.value === "number" ? Number(v) : v));
+        for (const o of sel.options) o.textContent = opts.find((x) => String(x.value) === o.value)?.label ?? o.value;
+        sel.disabled = ro;
+        input = sel;
+        break;
+      }
       case "screen": {
         const list = spec()?.screens ?? [];
         const sel = selectInput(String(value ?? ""), list.map((x) => x.id), set);

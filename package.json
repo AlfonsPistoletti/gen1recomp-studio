@@ -1,6 +1,6 @@
 {
   "name": "gen1recomp-studio",
-  "version": "0.3.2",
+  "version": "0.3.5",
   "private": true,
   "description": "Map and content editor for gen1recomp",
   "type": "module",

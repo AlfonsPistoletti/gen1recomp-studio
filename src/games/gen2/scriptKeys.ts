@@ -79,5 +79,43 @@ export function inlineScripts(maps: Record<string, MapDef>, scripts: Record<stri
   }
 }
 
+// Phone contacts (the phone_contacts registry): a contact's calleeKey /
+// callerKey may hold its own call inline; saved as STUDIO_PHONE_<CONTACT>_CALLEE
+// / _CALLER (gen1recomp Phone.lua copies the record's keys onto its row, and
+// the call runs vm.scripts[key]).
+const CALLS = [["calleeKey", "CALLEE"], ["callerKey", "CALLER"]] as const;
+
+export function outlineContacts(table: Record<string, unknown>): { table: Record<string, unknown>; registrations: ScriptRegistration[] } {
+  const out: Record<string, unknown> = {};
+  const registrations: ScriptRegistration[] = [];
+  for (const [id, rec] of Object.entries(table)) {
+    const r = rec as Rec | undefined;
+    if (!r || !CALLS.some(([f]) => Array.isArray(r[f]))) {
+      out[id] = rec;
+      continue;
+    }
+    const copy = structuredClone(r);
+    for (const [f, part] of CALLS) {
+      if (!Array.isArray(copy[f])) continue;
+      const key = `${PREFIX}${id}_${part}`;
+      registrations.push({ id: key, value: copy[f] });
+      copy[f] = key;
+    }
+    out[id] = copy;
+  }
+  return { table: out, registrations };
+}
+
+export function inlineContacts(table: Record<string, unknown>, scripts: Record<string, unknown>): void {
+  for (const rec of Object.values(table)) {
+    const r = rec as Rec | undefined;
+    if (!r) continue;
+    for (const [f] of CALLS) {
+      const rows = typeof r[f] === "string" && ownsScript(String(r[f])) ? scripts[String(r[f])] : undefined;
+      if (Array.isArray(rows)) r[f] = structuredClone(rows);
+    }
+  }
+}
+
 // the script ids a studio save writes (regenerated on every save)
 export const ownsScript = (id: string): boolean => id.startsWith(PREFIX) || id.startsWith(`movement:${MOVE}`);

@@ -29,8 +29,10 @@ import { GEN2_EXP_STATS, GEN2_ITEM_STATUSES, gen2ItemTemplate, gen2ItemText, gen
 import { playtestMain2 } from "../../lua/playRuntime.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
 import { gen2TileAnimations, OWN_PATTERNS, type TileAnimSheets } from "./tileAnim.ts";
-import { inlineScripts, outlineScripts, ownsScript } from "./scriptKeys.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import { inlineContacts, inlineScripts, outlineContacts, outlineScripts, ownsScript } from "./scriptKeys.ts";
+import { gen2FlagUses } from "./flags.ts";
+import { GOLD_FLAG_NAMES } from "./flagNames.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PhoneLine, PhoneTime, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
 interface Roofs {
@@ -179,6 +181,8 @@ const content: ContentSpec[] = [
   },
   // Kurt's apricorn balls: the engine's own registry (patched)
   { registry: "apricorns", editable: true, build: () => structuredClone(GOLD_APRICORNS) },
+  // Events > Flags: the mod's notes on flags (key -> { note }); a data file only the studio reads
+  { registry: "studio_flag_notes", editable: true, build: () => ({}), studioFile: "studio_flags.lua" },
   // the Pokégear phone book: events.lua `phone` rows by their PHONE_* id
   // (gen1recomp Phone.lua applies registry rows onto its table by `index`; no new rows)
   {
@@ -751,10 +755,13 @@ const trainers: TrainerSpec = {
       // the game's flags, plus every flag a map names now: people's
       // visibility flags, studio trainers' and the studio's inline events'
       const taken = new Set(usedFlags);
-      JSON.stringify(Object.values(ctx.maps), (k, v: unknown) => {
+      // (and phone contacts' own calls: a gift's flag)
+      JSON.stringify([Object.values(ctx.maps), ctx.records.phone_contacts], (k, v: unknown) => {
         if ((k === "event" || k === "eventFlag") && typeof v === "number") taken.add(v);
         return v;
       });
+      // and flags the mod noted down (Events > Flags "+ New flag"), used or not yet
+      for (const k of Object.keys(ctx.records.studio_flag_notes ?? {})) taken.add(Number(k));
       for (let f = NUM_EVENTS - 1; f > Math.max(0, ...usedFlags); f--) if (!taken.has(f)) return f;
       return null;
     },
@@ -857,11 +864,14 @@ const globals: GlobalsSpec = {
   fruitTrees: { registry: "studio_fruit_trees", id: "trees" },
   phone: {
     registry: "phone_contacts",
-    // the VM has one string buffer: {STRBUF} shows what the last of these rows
-    // put there (gen1recomp Vm:setStringBuffer; specials 90-92 = Specials.lua's
-    // phone name-drops). Rows are walked in order, calls return, jumps don't.
-    buffers: (ctx, keys) => {
-      const out = new Map<string, Set<string>>();
+    // The texts a call script says, in order, with the time of day they belong
+    // to (a checktime mask before an iftrue: MORN 1, DAY 2, NITE 4; the fall-
+    // through gets the rest) and what fills their {STRBUF}: the VM has one
+    // string buffer, and the text shows what the last of these rows put there
+    // (gen1recomp Vm:setStringBuffer; specials 90-92 = Specials.lua's phone
+    // name-drops). Rows are walked in order, calls return, jumps don't.
+    lines: (ctx, script) => {
+      const out = new Map<string, PhoneLine>();
       const text = ctx.data.content.text ?? {};
       const specials = (ctx.data.extra as { specialOrder?: string[] }).specialOrder ?? [];
       const fills = (r: Record<string, unknown>): string | undefined => {
@@ -886,32 +896,48 @@ const globals: GlobalsSpec = {
         }
         return undefined;
       };
+      const TIMES: [number, PhoneTime][] = [[1, "Morning"], [2, "Day"], [4, "Night"]];
+      const timeOf = (mask: number): PhoneTime | undefined => TIMES.find(([bit]) => bit === mask)?.[1];
       const visited = new Set<string>();
       // returns the buffer after the rows ran (undefined: nothing set yet)
-      const run = (key: string, cur: string | undefined, depth: number): string | undefined => {
-        const rows = scriptRows[key];
-        if (!Array.isArray(rows) || depth > 12 || visited.has(`${key}|${cur}`)) return cur;
-        visited.add(`${key}|${cur}`);
+      const run = (body: unknown, cur: string | undefined, mask: number, depth: number): string | undefined => {
+        const rows = typeof body === "string" ? scriptRows[body] : body;
+        const seenKey = `${typeof body === "string" ? body : JSON.stringify(body).length}|${cur}|${mask}`;
+        if (!Array.isArray(rows) || depth > 12 || (typeof body === "string" && visited.has(seenKey))) return cur;
+        if (typeof body === "string") visited.add(seenKey);
+        let checked: number | null = null;
         for (const r of rows as Record<string, unknown>[]) {
           cur = fills(r) ?? cur;
           for (const v of Object.values(r)) {
-            if (typeof v !== "string") continue;
-            if (typeof text[v] === "string" && text[v].includes("{STRBUF}")) {
-              const set = out.get(v) ?? new Set<string>();
-              set.add(cur ?? "whatever an earlier script left there");
-              out.set(v, set);
+            if (typeof v !== "string" || typeof text[v] !== "string") continue;
+            const line = out.get(v) ?? { text: v, fills: [] };
+            if (!out.has(v)) line.time = timeOf(mask);
+            else if (line.time !== timeOf(mask)) line.time = undefined;
+            if (text[v].includes("{STRBUF}")) {
+              const f = cur ?? "whatever an earlier script left there";
+              if (!line.fills.includes(f)) line.fills.push(f);
             }
+            out.set(v, line);
           }
-          const target = typeof r.script === "string" ? r.script : undefined;
-          if (!target) continue;
-          if (r.op === "sjump" || r.op === "farsjump") return run(target, cur, depth + 1);
-          if (r.op === "scall" || r.op === "farscall") cur = run(target, cur, depth + 1);
-          else run(target, cur, depth + 1);
+          const time = r.op === "checktime" ? Number((r.args as number[] | undefined)?.[0] ?? 0) : null;
+          if (time !== null) {
+            checked = time;
+            continue;
+          }
+          const target = r.script;
+          const branchMask = checked === null ? mask : r.op === "iftrue" ? mask & checked : r.op === "iffalse" ? mask & ~checked : mask;
+          const restMask = checked === null ? mask : r.op === "iftrue" ? mask & ~checked : r.op === "iffalse" ? mask & checked : mask;
+          checked = null;
+          if (typeof target !== "string" && !Array.isArray(target)) continue;
+          if (r.op === "sjump" || r.op === "farsjump") return run(target, cur, mask, depth + 1);
+          if (r.op === "scall" || r.op === "farscall") cur = run(target, cur, mask, depth + 1);
+          else run(target, cur, branchMask, depth + 1);
+          mask = restMask;
         }
         return cur;
       };
-      for (const k of keys) run(k, undefined, 0);
-      return out;
+      run(script, undefined, 7, 0);
+      return [...out.values()];
     },
     // every map person whose script (followed through calls) runs askforphonenumber n
     givers: (ctx) => {
@@ -1110,6 +1136,12 @@ export const gen2: GameAdapter = {
   viewOnly: { registries: ["tilesets", "sprites"], reason: "Gen 2 tilesets and sprites can be looked at, not changed yet." },
   workspaces: ["maps", "pokemon", "moves", "items", "trainers", "text", "events", "graphics", "global"],
   events: GEN2_EVENTS,
+  flags: {
+    notes: "studio_flag_notes", numeric: true,
+    // pokegold's names; Crystal numbers its flags differently
+    name: (_ctx, key) => (gameVersion === "crystal" ? undefined : GOLD_FLAG_NAMES[Number(key)]),
+    uses: (ctx) => gen2FlagUses(ctx, scriptRows, startFlags),
+  },
   roles: "gen2",
   textSets: [{ registry: "text", label: "Script texts" }, { registry: "rom_text", label: "Game texts" }],
   scriptTexts(ctx, key) {
@@ -1202,7 +1234,10 @@ export const gen2: GameAdapter = {
     setScript: setSceneScript,
   },
   // studio scripts and movements as map_scripts records (engine 070ca01+)
-  scripts: { registry: "map_scripts", outline: outlineScripts, inline: inlineScripts, owns: ownsScript },
+  scripts: {
+    registry: "map_scripts", outline: outlineScripts, inline: inlineScripts, owns: ownsScript,
+    records: { registry: "phone_contacts", outline: outlineContacts, inline: inlineContacts },
+  },
 
   async load(read, version): Promise<Dataset> {
     gameVersion = version ?? "gold";

@@ -7,6 +7,7 @@ import type { Block } from "../core/eventBlocks.ts";
 export type WorkspaceId = "maps" | "pokemon" | "moves" | "items" | "trainers" | "text" | "events" | "graphics" | "global";
 // the Graphics workspace's two views
 export type GraphicsView = "tilesets" | "sprites" | "images" | "palettes" | "townmap";
+export type EventsView = "events" | "flags";
 
 export const WORKSPACES: { id: WorkspaceId; label: string; key: string }[] = [
   { id: "maps", label: "Maps", key: "1" },
@@ -38,6 +39,10 @@ export const nav = {
   openText: (_key: string, _registry?: string): void => {},
   // an event: a studio_events id, or game:<MAP>:talk:<TEXT> for the game's own
   openEvent: (_id: string): void => {},
+  // Events workspace: the events or the flags they use
+  eventsView: "events" as EventsView,
+  showEvents: (_view: EventsView): void => {},
+  openFlag: (_key: string): void => {},
   openGlobal: (_section: string): void => {},
   // Graphics workspace: which view, then a tileset or a sprite in it
   graphicsView: "tilesets" as GraphicsView,

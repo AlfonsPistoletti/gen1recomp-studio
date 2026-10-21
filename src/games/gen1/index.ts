@@ -25,6 +25,7 @@ import { VISIBILITY_RUNTIME, visibilityRegistration } from "../../lua/visibility
 import { GEN1_EVENTS } from "./events.ts";
 import { internalItem, isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
 import { paletteColors, paletteNames, resolveMapPalettes, type PaletteData } from "./palette.ts";
+import { gen1FlagUses } from "./flags.ts";
 
 interface Gen1Map extends MapDef {
   warps: EntityRecord[];
@@ -163,6 +164,8 @@ const content: ContentSpec[] = [
     registry: "studio_visibility", editable: true, build: () => ({}), studioFile: "studio_visibility.lua",
     generator: { what: "person visibility rules", order: ["flag", "whileSet"], runtime: VISIBILITY_RUNTIME, registration: visibilityRegistration, writes: ["map_scripts"] },
   },
+  // Events > Flags: the mod's notes on flags (key -> { note }); a data file only the studio reads
+  { registry: "studio_flag_notes", editable: true, build: () => ({}), studioFile: "studio_flags.lua" },
   // map events made in the studio: plain data in studio_events.lua, turned
   // into map_scripts (talk rows, onStep/onEnter) by the generated helper
   {
@@ -975,6 +978,7 @@ export const gen1: GameAdapter = {
   towns,
   renames,
   events: GEN1_EVENTS,
+  flags: { notes: "studio_flag_notes", numeric: false, uses: gen1FlagUses },
 };
 
 function tileAt(map: MapDef, tileset: TilesetDef | undefined, tx: number, ty: number): number | undefined {

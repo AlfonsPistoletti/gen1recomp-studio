@@ -294,6 +294,9 @@ body.resizing.rows, body.resizing.rows * { cursor: row-resize !important; }
 .map-row.active { background: #233250; color: #fff; }
 .map-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-meta { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+/* Events > Flags: the flag on its line, what uses it on one line below */
+#flags-left .map-row { flex-wrap: wrap; }
+#flags-left .map-meta { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .tag {
   font-size: 10px;
@@ -410,6 +413,11 @@ body.resizing.rows, body.resizing.rows * { cursor: row-resize !important; }
 /* the entity's raw fields, folded away under the cards */
 .inspector details.advanced > summary { cursor: pointer; font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; }
 .inspector details.advanced[open] > summary { margin-bottom: 6px; }
+/* Global > Phone contacts: one call's lines, the greetings by time of day side by side */
+.phone-call { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+/* Events > Flags: one group of a flag's uses */
+.flag-uses { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.phone-times { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
 .field-label { font-size: 11px; color: var(--muted); }
 .field > input, .field > select { width: 100%; }
 .hint { margin: 0; font-size: 11px; color: var(--muted); line-height: 1.4; }

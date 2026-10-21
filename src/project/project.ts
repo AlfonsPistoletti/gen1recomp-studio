@@ -199,11 +199,13 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
       }
     }
   }
-  // Gen 2: the mod's own registered scripts back inline in its maps
-  if (adapter.scripts && studio.maps) {
+  // Gen 2: the mod's own registered scripts back inline in its maps (and phone contacts)
+  if (adapter.scripts) {
     const own: Record<string, unknown> = {};
     for (const op of studioOps) if (op.registry === adapter.scripts.registry && adapter.scripts.owns(op.id) && op.op !== "remove") own[op.id] = op.value;
-    adapter.scripts.inline(studio.maps as Record<string, MapDef>, own);
+    if (studio.maps) adapter.scripts.inline(studio.maps as Record<string, MapDef>, own);
+    const rec = adapter.scripts.records;
+    if (rec && studio[rec.registry]) rec.inline(studio[rec.registry], own);
   }
   const tilesetImages: Record<string, string> = {};
   for (const [id, ts] of Object.entries(data.tilesets)) tilesetImages[id] = ts.image ? host.imageUrl(version, ts.image) : "";
@@ -355,8 +357,11 @@ export async function saveProject(project: Project, edited: Record<string, Recor
   const bases = baseTables(adapter, layers.data);
   // Gen 2: inline scripts become registered keys (scriptKeys.ts)
   const scripts = adapter.scripts && edited.maps ? adapter.scripts.outline(edited.maps as Record<string, MapDef>) : null;
-  const { calls, patched, registered } = contentCalls(adapter, bases, scripts ? { ...edited, maps: scripts.maps as unknown as Record<string, unknown> } : edited);
-  if (scripts) for (const r of scripts.registrations) calls.push({ registry: adapter.scripts!.registry, op: "register", id: r.id, value: r.value });
+  const recs = adapter.scripts?.records;
+  const recScripts = recs && edited[recs.registry] ? recs.outline(edited[recs.registry]) : null;
+  const outlined = { ...edited, ...(scripts ? { maps: scripts.maps as unknown as Record<string, unknown> } : {}), ...(recScripts ? { [recs!.registry]: recScripts.table } : {}) };
+  const { calls, patched, registered } = contentCalls(adapter, bases, outlined);
+  for (const r of [...(scripts?.registrations ?? []), ...(recScripts?.registrations ?? [])]) calls.push({ registry: adapter.scripts!.registry, op: "register", id: r.id, value: r.value });
   // keep what the studio file says about registries the studio does not
   // edit (a tileset it registered earlier, ...) exactly as it was
   const editable = new Set(editableRegistries(adapter));
@@ -381,7 +386,7 @@ export async function saveProject(project: Project, edited: Record<string, Recor
     const path = `mods/${modId}/${c.studioFile}`;
     if (Object.keys(records).length) {
       const gen = c.generator;
-      await host.writeText(path, dataFile(modId, gen?.what ?? c.registry, records, gen?.order ?? []));
+      await host.writeText(path, dataFile(modId, gen?.what ?? c.registry, records, gen?.order ?? [], !gen));
       dataFiles.push(path);
       if (gen) before += gen.runtime + "\n" + gen.registration(modId, c.studioFile) + "\n";
       if (gen?.internals === true || (typeof gen?.internals === "function" && gen.internals(records))) internals = true;

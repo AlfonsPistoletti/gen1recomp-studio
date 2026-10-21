@@ -41,12 +41,18 @@ export function visibilitySection(map: MapDef, record: EntityRecord): HTMLElemen
   }
   const key = `${map.id}:${name}`;
   const rule = store.table(VISIBILITY)[key] as Rule | undefined;
+  // read fresh: the inspector isn't redrawn for this record, the fields follow by hand
+  const current = () => store.table(VISIBILITY)[key] as Rule | undefined;
   const set = (label: string, next: Rule | undefined) => {
     store.setRecord(VISIBILITY, key, label, next);
     store.seal();
+    flag.value = next?.flag ?? "";
+    flag.disabled = !next;
   };
+  // a flag of its own: <MOD>_<MAP>_NPC_<object index>
+  const fresh = () => `${store.project.mod ?? "MOD"}_${map.id}_NPC_${String(record.index ?? "")}`.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
   const mode = selectInput(rule ? (rule.whileSet === false ? "unset" : "set") : "", ["", "set", "unset"], (v) =>
-    set("Visibility rule", v ? { flag: rule?.flag ?? `${(store.project.mod ?? "MOD").toUpperCase()}_FLAG`, ...(v === "unset" ? { whileSet: false } : {}) } : undefined));
+    set("Visibility rule", v ? { flag: current()?.flag ?? fresh(), ...(v === "unset" ? { whileSet: false } : {}) } : undefined));
   mode.options[0].textContent = "No rule of the mod's";
   mode.options[1].textContent = "Only while a flag is set";
   mode.options[2].textContent = "Only while a flag is not set";
@@ -54,7 +60,8 @@ export function visibilitySection(map: MapDef, record: EntityRecord): HTMLElemen
   attachCombo(flag, knownFlags, "flags");
   flag.addEventListener("change", () => {
     const v = flag.value.trim().toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-    if (rule && v) set("Visibility rule flag", { ...rule, flag: v });
+    const r = current();
+    if (r && v) set("Visibility rule flag", { ...r, flag: v });
   });
   const mine = modEvents(map.id, name);
   return h("div", { class: "npc-text" },

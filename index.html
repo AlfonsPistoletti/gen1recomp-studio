@@ -47,9 +47,13 @@
       <section id="text-center" class="panel ws-main" data-ws="text" hidden></section>
       <aside id="text-right" class="panel side-right" data-ws="text" hidden></aside>
 
-      <aside id="events-left" class="panel side-left" data-ws="events" hidden></aside>
-      <section id="events-center" class="panel ws-main" data-ws="events" hidden></section>
-      <aside id="events-right" class="panel side-right" data-ws="events" hidden></aside>
+      <!-- Events: two views (data-view), switched in src/main.ts -->
+      <aside id="events-left" class="panel side-left" data-ws="events" data-view="events" hidden></aside>
+      <section id="events-center" class="panel ws-main" data-ws="events" data-view="events" hidden></section>
+      <aside id="events-right" class="panel side-right" data-ws="events" data-view="events" hidden></aside>
+      <aside id="flags-left" class="panel side-left" data-ws="events" data-view="flags" hidden></aside>
+      <section id="flags-center" class="panel ws-main" data-ws="events" data-view="flags" hidden></section>
+      <aside id="flags-right" class="panel side-right" data-ws="events" data-view="flags" hidden></aside>
 
       <!-- Graphics: two views (data-view), switched in src/main.ts -->
       <aside id="tilesets-left" class="panel side-left" data-ws="graphics" data-view="tilesets" hidden></aside>

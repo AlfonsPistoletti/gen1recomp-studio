@@ -7,8 +7,12 @@
 //   <MAP>:step:<k>          the k-th step trigger
 //   <MAP>:after:obj<index>  a trainer's talk after the battle (trainer.scriptKey)
 //   <MAP>:enter:scene<n>    entering the map in scene n (adapter.scenes script)
-// Edits go through the maps registry (one undo history, saved with the map).
+//   PHONE:callee|caller:<CONTACT>  a phone contact's call (GlobalsSpec.phone:
+//                           the record's calleeKey / callerKey)
+// Edits go through the maps registry (one undo history, saved with the map);
+// a phone call through the phone contacts registry.
 
+import { FEATURES } from "../features.ts";
 import type { EventRow } from "../games/types.ts";
 import { clone } from "./merge.ts";
 import { store } from "./store.ts";
@@ -47,6 +51,15 @@ export function inlineTarget(mapId: string, kind: string, key: string): { layer:
   return entityIn(store.maps[mapId], kind, key);
 }
 
+// Gen 2: the phone contacts' calls, id -> the record's calleeKey / callerKey
+function phoneCalls(): [string, unknown][] {
+  const reg = FEATURES.gen2 ? store.adapter.globals?.phone?.registry : undefined;
+  if (!reg) return [];
+  return Object.entries(store.table(reg) as Record<string, Record<string, unknown>>)
+    .filter(([id]) => id !== "PHONE_00")
+    .flatMap(([id, c]) => (["callee", "caller"] as const).map((k): [string, unknown] => [`PHONE:${k}:${id}`, c[`${k}Key`]]));
+}
+
 const scriptOf = (kind: string, e: EntityRecord) => (kind === "after" ? (e.trainer as { scriptKey?: unknown } | undefined)?.scriptKey : e.scriptKey);
 
 // every inline event of every map; `all`: also the scripts a role made (a
@@ -75,7 +88,8 @@ export function inlineEvents(all = false): Record<string, InlineEvent> {
       if (Array.isArray(rows)) out[`${mapId}:enter:scene${n}`] = { rows: rows as EventRow[] };
     }
   }
-  if (preset) for (const [id, ev] of Object.entries(out)) if (!id.includes(":after:") && preset(ev.rows)) delete out[id];
+  for (const [id, v] of phoneCalls()) if (Array.isArray(v)) out[id] = { rows: v as EventRow[] };
+  if (preset) for (const [id, ev] of Object.entries(out)) if (!id.includes(":after:") && !(FEATURES.gen2 && id.startsWith("PHONE:")) && preset(ev.rows)) delete out[id];
   return out;
 }
 
@@ -104,6 +118,7 @@ export function inlineGameEvents(all = false): Record<string, string> {
       if (typeof key === "string") out[`${mapId}:enter:scene${n}`] = key;
     }
   }
+  for (const [id, v] of phoneCalls()) if (typeof v === "string" && v) out[id] = v;
   const ev = store.adapter.events;
   if (!all && ev?.preset && ev.gameRows) {
     for (const [id, key] of Object.entries(out)) {
@@ -149,6 +164,18 @@ function split(id: string): { mapId: string; kind: string; key: string } {
 // step trigger the studio made goes away). One undo step.
 export function writeInline(id: string, label: string, ev: InlineEvent | undefined): void {
   const { mapId, kind, key } = split(id);
+  // a phone call: the contact's own rows, or the game's call back
+  const phone = FEATURES.gen2 && mapId === "PHONE" ? store.adapter.globals?.phone?.registry : undefined;
+  if (phone) {
+    const rec = store.table(phone)[key] as Record<string, unknown> | undefined;
+    if (!rec) return;
+    const field = `${kind}Key`;
+    const base = (store.baseTable(phone)[key] as Record<string, unknown> | undefined)?.[field];
+    store.setRecord(phone, key, label, { ...rec, [field]: ev ? clone(ev.rows) : base });
+    syncEventTexts();
+    store.seal();
+    return;
+  }
   if (!store.maps[mapId]) return;
   // a scene's entering script: the rows, or the game's script for it back
   const scenes = store.adapter.scenes;
@@ -183,6 +210,11 @@ export function writeInline(id: string, label: string, ev: InlineEvent | undefin
       if (own !== undefined) tr.scriptKey = own;
       else delete tr.scriptKey;
       at.trainer = tr;
+      // the person's own script was set to the same rows (a beaten trainer runs it): back too
+      if (Array.isArray(at.scriptKey)) {
+        if (base && base.scriptKey !== undefined) at.scriptKey = base.scriptKey;
+        else delete at.scriptKey;
+      }
     } else if (own !== undefined) at.scriptKey = own;
     else if (kind === "step") e.splice(t.index, 1);
     else delete at.scriptKey;

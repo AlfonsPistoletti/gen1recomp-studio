@@ -423,6 +423,25 @@ if (mods.some((m) => m.id === "bills_garden") && (await nodeHost.readText("game"
 }
 
 const { CODE_HIDDEN_OPTIONAL } = await import("../src/games/gen1/codeHidden.ts");
+// Events > Flags: the game's trainers' beaten flags, a mod's event and rule flags, and notes as a data file
+{
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const { loadLuaData } = await import("../src/lua/vm.ts");
+  const ctx = { data: project.data, maps: base, records: {
+    studio_events: { "PALLET_TOWN:talk:TEXT_X": { rows: [["check_flag", "MYMOD_A"], ["set_flag", "MYMOD_B"]] } },
+    studio_visibility: { "PALLET_TOWN:PALLET_TOWN_OAK": { flag: "MYMOD_A", whileSet: false } },
+  } } as unknown as Parameters<NonNullable<typeof adapter.flags>["uses"]>[0];
+  const uses = adapter.flags!.uses(ctx);
+  const pewter = uses.get("EVENT_BEAT_PEWTER_GYM_TRAINER_0") ?? [];
+  check("flags: a game trainer's beaten flag", pewter.some((u) => u.kind === "beaten" && u.map === "PEWTER_GYM" && u.layer === "objects"), JSON.stringify(pewter));
+  const a = uses.get("MYMOD_A") ?? [];
+  check("flags: a mod's event and rule", a.some((u) => u.kind === "check" && u.own) && a.some((u) => u.kind === "hides") && (uses.get("MYMOD_B") ?? []).some((u) => u.kind === "set"), JSON.stringify([...a, ...(uses.get("MYMOD_B") ?? [])]));
+  const notesSpec = adapter.content.find((c) => c.registry === adapter.flags!.notes)!;
+  const file = dataFile("studio_selftest", notesSpec.registry, { MYMOD_A: { note: "Oak's gone \"home\"" } }, []);
+  const back = await loadLuaData<Record<string, { note?: string }>>(file, "studio_flags.lua");
+  check("flags: a note round-trips through its data file (no helper registers it)", back.MYMOD_A?.note === "Oak's gone \"home\"" && notesSpec.studioFile === "studio_flags.lua" && !notesSpec.generator, file.slice(0, 200));
+}
+
 // the game's code hidden events: their maps, cells and texts exist in this version
 {
   const bad: string[] = [];

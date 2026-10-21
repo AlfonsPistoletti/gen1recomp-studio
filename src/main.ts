@@ -27,7 +27,7 @@ import { modDetailsDialog } from "./ui/modDetails.ts";
 import { $, clear, dropdown, field, h, icon, numberInput, setComboLabels, toast, errorText } from "./ui/dom.ts";
 import { addCustom, addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
 import { mountMapList } from "./ui/mapList.ts";
-import { nav, WORKSPACES, type GraphicsView, type WorkspaceId } from "./ui/nav.ts";
+import { nav, WORKSPACES, type EventsView, type GraphicsView, type WorkspaceId } from "./ui/nav.ts";
 import { mountEncounterPane } from "./ui/encounterPanel.ts";
 import { mountGlobalWorkspace } from "./ui/globalWorkspace.ts";
 import { mountPokemonWorkspace } from "./ui/pokemonEditor.ts";
@@ -47,6 +47,7 @@ import { mountTownMap2 } from "./ui/townMapEditor2.ts";
 import { FEATURES } from "./features.ts";
 import { MAX_BLOCKS } from "./core/tileBrush.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
+import { mountFlagsView } from "./ui/flagsView.ts";
 import { bugReportDialog } from "./ui/bugReport.ts";
 import { installLog, log } from "./core/log.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
@@ -562,6 +563,7 @@ mountPokemonWorkspace($("#pokemon-left"), $("#pokemon-center"), $("#pokemon-righ
 mountMoveWorkspace($("#moves-left"), $("#moves-center"), $("#moves-right"));
 mountItemWorkspace($("#items-left"), $("#items-center"), $("#items-right"));
 mountEventWorkspace($("#events-left"), $("#events-center"), $("#events-right"));
+mountFlagsView($("#flags-left"), $("#flags-center"), $("#flags-right"));
 // a trainer's line of sight moves with its NPC
 installTrainerSync();
 mountTrainerWorkspace($("#trainers-left"), $("#trainers-center"), $("#trainers-right"));
@@ -615,6 +617,23 @@ nav.showGraphics = (view) => {
   if (nav.workspace === "graphics") setWorkspace("graphics");
 };
 for (const s of viewSwitches) s.value = nav.graphicsView;
+// the Events workspace's: its events, or the flags they use
+const EVENTS_VIEW_KEY = "studio.eventsView";
+nav.eventsView = recall(EVENTS_VIEW_KEY) === "flags" ? "flags" : "events";
+const eventSwitches: HTMLSelectElement[] = [];
+for (const host of [$("#events-left"), $("#flags-left")]) {
+  const select = h("select", { class: "view-switch", "aria-label": "Events view", onchange: () => nav.showEvents(select.value as EventsView) },
+    h("option", { value: "events" }, "Events"), h("option", { value: "flags" }, "Flags"));
+  eventSwitches.push(select);
+  host.prepend(select);
+}
+nav.showEvents = (view) => {
+  nav.eventsView = view;
+  remember(EVENTS_VIEW_KEY, view);
+  for (const s of eventSwitches) s.value = view;
+  if (nav.workspace === "events") setWorkspace("events");
+};
+for (const s of eventSwitches) s.value = nav.eventsView;
 mountSplitters($("#layout"));
 mountPaletteSplitter($("#right-base"), $("#palette"));
 
@@ -628,7 +647,8 @@ function setWorkspace(id: WorkspaceId): void {
   nav.workspace = id;
   document.body.dataset.ws = id;
   for (const el of document.querySelectorAll<HTMLElement>("#layout > [data-ws]")) {
-    el.hidden = el.dataset.ws !== id || (el.dataset.view !== undefined && el.dataset.view !== nav.graphicsView);
+    const view = el.dataset.ws === "events" ? nav.eventsView : nav.graphicsView;
+    el.hidden = el.dataset.ws !== id || (el.dataset.view !== undefined && el.dataset.view !== view);
   }
   for (const b of workspaceTabs) b.classList.toggle("active", b.dataset.ws === id);
   remember(WORKSPACE_KEY, id);

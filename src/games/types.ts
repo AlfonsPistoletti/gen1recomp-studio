@@ -464,8 +464,8 @@ export interface GlobalsSpec {
   // Gen 2: the Pokégear phone book (the engine's `phone_contacts` registry, one
   // record per PHONE_* id with its row `index`); `givers`: the map people whose
   // script asks for a contact's number (askforphonenumber <index>)
-  // `buffers`: per text the scripts `keys` reach, what fills its {STRBUF} there (in words)
-  phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; buffers(ctx: GameContext, keys: string[]): Map<string, Set<string>> };
+  // `lines`: the texts a call script (a key or inline rows) says, in order
+  phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; lines(ctx: GameContext, script: unknown): PhoneLine[] };
   // type effectiveness rows ("ATK>DEF" -> { multiplier } x10) and type
   // records ({ category }) in one registry
   typeChart?: { registry: string; multipliers: { value: number; label: string }[]; categories?: string[] };
@@ -644,6 +644,37 @@ export interface TimedEncounterSpec {
 // ------------------------------------------------------------------ fields
 // Declarative inspector fields; the inspector renders them generically.
 
+// a text a phone call says: the time of day its branch runs in (unset: any),
+// and what fills its {STRBUF} there, in words
+export type PhoneTime = "Morning" | "Day" | "Night";
+export interface PhoneLine {
+  text: string;
+  time?: PhoneTime;
+  fills: string[];
+}
+
+// Events > Flags. A flag's key is its name (Gen 1) or its number as a string (Gen 2).
+export type FlagUseKind = "set" | "clear" | "check" | "hides" | "shows" | "beaten" | "item" | "hidden" | "start";
+export interface FlagUse {
+  kind: FlagUseKind;
+  label: string; // who, in words ("ROUTE_30 NPC 3")
+  map?: string;
+  layer?: string; // with `index`: the map entity (its place in the layer's list)
+  index?: number;
+  eventId?: string; // the event to open (game events: "game:" ids)
+  contact?: string; // a phone contact
+  own?: boolean; // the mod's own (an edited or new script, a studio record)
+}
+export interface FlagSpec {
+  notes: string; // the studio-only registry of notes: key -> { note }
+  numeric: boolean; // Gen 2: flags are numbers (new ones from trainers.objectTrainer.freeFlag)
+  // the game's name for a flag (Gen 2 Gold/Silver: EVENT_*), when it has one
+  name?(ctx: GameContext, key: string): string | undefined;
+  // every use of every flag, from the live maps and records (`gameTalk`: Gen 1's game
+  // talk events, read by the Events workspace from a checkout)
+  uses(ctx: GameContext, gameTalk?: Record<string, { talk: Record<string, unknown[][] | false> }>): Map<string, FlagUse[]>;
+}
+
 // the card of an entity's properties a field sits in (the inspector shows the
 // cards in this order); unset: "advanced" for extras, "role" otherwise
 export type EntityGroup = "looks" | "movement" | "role" | "when" | "advanced";
@@ -735,6 +766,7 @@ export type EventParamType =
   | "trade" // an in-game trade, by its number (field.trades)
   | "screen" // one of EventSpec.screens
   | "choice" // one of the param's own `options`
+  | "word" // a few letters typed as they are (Gold getstring)
   | "ext"; // a mod command's parameter (studio extensions): `ext` says its field type
 
 export interface EventParam {
@@ -788,8 +820,9 @@ export interface EventSpec {
   // Talk and step events only, no Choice / follow / preview / game events.
   inline?: boolean;
   // rows <-> blocks in this game's script format (unset: Gen 1's, eventBlocks.ts)
-  compile?(blocks: import("../core/eventBlocks.ts").Block[], ctx: GameContext): EventRow[];
-  parse?(rows: EventRow[], ctx: GameContext): import("../core/eventBlocks.ts").Block[];
+  // `mode` "phone": a Pokégear call (Gen 2: no text box of its own, promptbutton between texts)
+  compile?(blocks: import("../core/eventBlocks.ts").Block[], ctx: GameContext, mode?: "phone"): EventRow[];
+  parse?(rows: EventRow[], ctx: GameContext, mode?: "phone"): import("../core/eventBlocks.ts").Block[];
   // Gen 2: a script a Role made (a person's text, a nurse, a shop), not an event
   preset?(rows: EventRow[]): boolean;
   // Gen 2: the game's script of this key as one row list (branches and jumps
@@ -935,11 +968,19 @@ export interface GameAdapter {
   // Gen 2: the editors keep studio scripts inline (a holder's scriptKey is the
   // row list); a save registers each in `registry` and names its key, a load
   // reads the mod's own (`owns`) back inline (src/games/gen2/scriptKeys.ts)
+  // Events > Flags: the event flags the game and the mod use (Gen 1 names, Gen 2 numbers as strings)
+  flags?: FlagSpec;
   scripts?: {
     registry: string;
     outline(maps: Record<string, MapDef>): { maps: Record<string, MapDef>; registrations: { id: string; value: unknown }[] };
     inline(maps: Record<string, MapDef>, scripts: Record<string, unknown>): void;
     owns(id: string): boolean;
+    // other records holding inline scripts (Gen 2: phone contacts' calls)
+    records?: {
+      registry: string;
+      outline(table: Record<string, unknown>): { table: Record<string, unknown>; registrations: { id: string; value: unknown }[] };
+      inline(table: Record<string, unknown>, scripts: Record<string, unknown>): void;
+    };
   };
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;

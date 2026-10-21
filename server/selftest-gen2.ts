@@ -578,12 +578,51 @@ for (const [registry, records] of Object.entries(edited)) {
   const givers = adapter.globals!.phone!.givers(ctx);
   check("phone contacts load (Joey = 15 on ROUTE_30)", joey?.index === 15 && joey.map === "ROUTE_30" && !("PHONE_UNUSED" in book), JSON.stringify(joey));
   // what fills {STRBUF} in Joey's call: his name in the greeting, his own mon in the chat
-  const bufs = adapter.globals!.phone!.buffers(ctx, [String(joey?.callerKey)]);
-  check("phone {STRBUF}: caller's name / own Pokémon", [...(bufs.get("41:5989") ?? [])].join() === "a trainer's name" && [...(bufs.get("41:5b0d") ?? [])].join() === "one of the caller's own Pokémon" && [...(bufs.get("41:5cdb") ?? [])].join() === "“ROUTE 30”", JSON.stringify([...bufs].map(([k, v]) => [k, [...v]])));
+  const phoneLines = (k: unknown) => new Map(adapter.globals!.phone!.lines(ctx, k).map((l) => [l.text, l]));
+  const bufs = phoneLines(joey?.callerKey);
+  const fill = (t: string) => bufs.get(t)?.fills.join() ?? "";
+  check("phone {STRBUF}: caller's name / own Pokémon", fill("41:5989") === "a trainer's name" && fill("41:5b0d") === "one of the caller's own Pokémon" && fill("41:5cdb") === "“ROUTE 30”", JSON.stringify([...bufs.values()]));
+  // the greetings by time of day: checktime DAY / NITE branches, morning falls through
+  check("phone greetings by time (Joey calls you)", bufs.get("41:5955")?.time === "Morning" && bufs.get("41:5989")?.time === "Day" && bufs.get("41:59b5")?.time === "Night" && bufs.get("41:5b0d")?.time === undefined, JSON.stringify([...bufs.values()].map((l) => [l.text, l.time])));
+  // Gold's trainers share their phone talk: Wade says Joey's greeting too
+  const wade = book.PHONE_BUG_CATCHER_WADE;
+  check("phone talk shared (Joey and Wade)", phoneLines(wade?.callerKey).has("41:5955"), String(wade?.callerKey));
   check("Joey's number is given on Route 30", (givers.get(15) ?? []).some((g) => g.map === "ROUTE_30"), JSON.stringify(givers.get(15)));
   const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, phone_contacts: { PHONE_YOUNGSTER_JOEY: { ...joey, map: "ROUTE_31" } } });
   const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
   check("a moved contact is a map patch", src.includes('phone_contacts:patch("PHONE_YOUNGSTER_JOEY"') && src.includes('map = "ROUTE_31"') && !src.includes("calleeKey"), src.split("\n").filter((l) => l.includes("phone") || l.includes("ROUTE_31")).join(" | "));
+
+  // a contact's own call: written in the phone's shape (no text box, promptbutton), saved as a
+  // map_scripts register the contact's patch names, read back inline
+  const ev = adapter.events!;
+  const gameCall = ev.gameRows!(ctx, String(joey?.callerKey))!;
+  const blocks = ev.parse!(gameCall, ctx, "phone");
+  const phoneRows = ev.compile!(blocks, ctx, "phone");
+  const flat = JSON.stringify(phoneRows);
+  check("phone call compiles in the phone's shape", !/"op":"(opentext|closetext|waitbutton)"/.test(flat) && flat.includes('"op":"promptbutton"') && JSON.stringify(ev.parse!(phoneRows, ctx, "phone")) === JSON.stringify(blocks), flat.slice(0, 300));
+  check("phone call reads its name slot commands", JSON.stringify(blocks).includes('"gettrainername"') && JSON.stringify(blocks).includes('"#slotphone"'), JSON.stringify(blocks).slice(0, 300));
+  const recs = adapter.scripts!.records!;
+  const own = { PHONE_YOUNGSTER_JOEY: { ...joey, calleeKey: phoneRows } };
+  const outlined = recs.outline(own);
+  const outKey = (outlined.table.PHONE_YOUNGSTER_JOEY as Rec).calleeKey;
+  const saved = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, phone_contacts: outlined.table });
+  const savedSrc = studioContentFile("studio_selftest", [...saved.calls, ...outlined.registrations.map((r) => ({ registry: "map_scripts", op: "register" as const, id: r.id, value: r.value }))], fieldOrders(adapter));
+  check("own call saved as a script the contact names", outKey === "STUDIO_PHONE_YOUNGSTER_JOEY_CALLEE" && savedSrc.includes('calleeKey = "STUDIO_PHONE_YOUNGSTER_JOEY_CALLEE"') && savedSrc.includes('map_scripts:register("STUDIO_PHONE_YOUNGSTER_JOEY_CALLEE"'), savedSrc.split("\n").filter((l) => l.includes("STUDIO_PHONE")).join(" | "));
+  const back = structuredClone(outlined.table);
+  recs.inline(back, Object.fromEntries(outlined.registrations.map((r) => [r.id, r.value])));
+  check("own call read back inline", JSON.stringify((back.PHONE_YOUNGSTER_JOEY as Rec).calleeKey) === JSON.stringify(phoneRows), String((back.PHONE_YOUNGSTER_JOEY as Rec).calleeKey).slice(0, 80));
+}
+
+// Events > Flags: Joey's rematch flag in his after-battle script and his call, Route 30's
+// beaten flags, flags a new game sets, Gold's names
+{
+  const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
+  const uses = adapter.flags!.uses(ctx);
+  const joey = uses.get("628") ?? [];
+  check("flags: 628 checked and set (Joey's rematch)", joey.some((u) => u.kind === "check" && u.map === "ROUTE_30") && joey.some((u) => u.kind === "set" && !!u.contact), JSON.stringify(joey.slice(0, 4)));
+  const beaten = [...uses.values()].flat().filter((u) => u.kind === "beaten" && u.map === "ROUTE_30");
+  check("flags: Route 30's trainers' beaten flags", beaten.length >= 2, JSON.stringify(beaten));
+  check("flags: a new game's flags and Gold's names", [...uses.values()].flat().some((u) => u.kind === "start") && adapter.flags!.name!(ctx, "628") === "EVENT_JOEY_READY_FOR_REMATCH", String(adapter.flags!.name!(ctx, "628")));
 }
 
 // fruit trees: the restated list matches the trees on the maps, and the helper loads

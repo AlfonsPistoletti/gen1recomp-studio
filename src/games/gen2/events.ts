@@ -312,6 +312,47 @@ const commands: EventCommand[] = [
     pack: (a) => ({ object: Number(a.object ?? 2), args: [Number(a.object ?? 2)] }), unpack: (r) => ({ object: r.object ?? (r.args as number[] | undefined)?.[0] }),
   },
 
+  // ---- Name slot: the one string buffer {STRBUF} shows (gen1recomp Vm:setStringBuffer)
+  {
+    id: "slot_word", verb: "getstring", label: "Name slot: a word", category: "Name slot",
+    help: "Puts these letters where a later text says {STRBUF}.",
+    params: [{ key: "string", label: "Word", type: "word", default: "ROUTE 30" }], describe: (a) => `Name slot: "${s(a.string)}"`,
+    pack: (a) => ({ buffer: 0, string: String(a.string ?? "") }), unpack: (r) => ({ string: r.string }),
+  },
+  {
+    id: "slot_mon", verb: "getmonname", label: "Name slot: a Pokémon", category: "Name slot",
+    help: "Puts a Pokémon's name where a later text says {STRBUF}.",
+    params: [{ key: "species", label: "Pokémon", type: "species", default: "RATTATA" }], describe: (a) => `Name slot: ${nice(a.species)}`,
+    pack: (a, ctx) => ({ species: numberOf(ctx, "pokemon", a.species), buffer: 0 }), unpack: (r, ctx) => ({ species: idOf(ctx, "pokemon", r.species) }),
+  },
+  {
+    id: "slot_item", verb: "getitemname", label: "Name slot: an item", category: "Name slot",
+    help: "Puts an item's name where a later text says {STRBUF}.",
+    params: [{ key: "item", label: "Item", type: "item", default: "POTION" }], describe: (a) => `Name slot: ${nice(a.item)}`,
+    pack: (a, ctx) => ({ item: numberOf(ctx, "items", a.item), buffer: 0 }), unpack: (r, ctx) => ({ item: idOf(ctx, "items", r.item) }),
+  },
+  {
+    id: "slot_trainer", verb: "gettrainername", label: "Name slot: a trainer's name", category: "Name slot",
+    help: "Puts a trainer's name where a later text says {STRBUF} (a phone call: the caller's own class and trainer).",
+    params: [{ key: "trainer", label: "Class", type: "trainer", default: "YOUNGSTER" }, { key: "member", label: "Trainer", type: "number", default: 1, min: 1, max: 255 }],
+    describe: (a) => `Name slot: ${nice(a.trainer)} #${s(a.member)}'s name`,
+    pack: (a, ctx) => ({ group: numberOf(ctx, "trainers", a.trainer), trainer: Number(a.member ?? 1), buffer: 0 }), unpack: (r, ctx) => ({ trainer: idOf(ctx, "trainers", r.group), member: r.trainer }),
+  },
+  {
+    id: "slot_phone", verb: "#slotphone", label: "Name slot: from the caller", category: "Name slot",
+    help: "Phone calls: puts one of the caller's own Pokémon, or a wild Pokémon of the caller's map, where a later text says {STRBUF}.",
+    params: [{ key: "what", label: "What", type: "choice", default: "RandomPhoneMon", options: [
+      { value: "RandomPhoneMon", label: "one of the caller's Pokémon" },
+      { value: "RandomPhoneWildMon", label: "a wild Pokémon of the caller's map" },
+    ] }],
+    describe: (a) => `Name slot: ${a.what === "RandomPhoneWildMon" ? "a wild Pokémon of the caller's map" : "one of the caller's Pokémon"}`,
+    rows: (a, ctx) => [{ op: "special", id: placeIn(orders(ctx).specialOrder, a.what) }],
+    match: (rows, at, ctx) => {
+      const name = rows[at]?.op === "special" ? orders(ctx).specialOrder?.[Number(rows[at].id)] : undefined;
+      return name === "RandomPhoneMon" || name === "RandomPhoneWildMon" ? { args: { what: name }, length: 1 } : null;
+    },
+  },
+
   // ---- Screens
   {
     id: "show_pic", verb: "#pokepic", label: "Show a Pokémon's picture", category: "Screens", help: "Shows a Pokémon's front picture until the player presses A.",
@@ -358,16 +399,16 @@ const commands: EventCommand[] = [
 export const GEN2_EVENTS: EventSpec = {
   registry: "",
   inline: true,
-  categories: ["Message", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Movement", "Screen & sound", "Screens"],
+  categories: ["Message", "Name slot", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Movement", "Screen & sound", "Screens"],
   commands,
   screens: SCREENS,
   choiceVerb: "",
   stopVerb: "end",
-  compile: (blocks, ctx) => compile(blocks, ctx),
+  compile: (blocks, ctx, mode) => (mode === "phone" ? compilePhone(blocks, ctx) : compile(blocks, ctx)),
   preset: (rows) => presetOf(rows as unknown as Row[]),
   describeRaw: (row, ctx) => describeRaw(row as Row, ctx),
   gameRows: (ctx, key) => gameScriptRows((ctx.data.extra as { scripts?: Record<string, unknown> }).scripts ?? {}, key) as unknown as EventRow[] | null,
-  parse: (rows, ctx) => parse(rows as unknown as Row[], ctx),
+  parse: (rows, ctx, mode) => (mode === "phone" ? parsePhone(rows as unknown as Row[], ctx) : parse(rows as unknown as Row[], ctx)),
 };
 
 // ------------------------------------------------------------------ the game's other commands
@@ -385,7 +426,9 @@ function describeRaw(r: Row, ctx: GameContext): { text: string; help: string } {
   const special = (id: unknown) => orders(ctx).specialOrder?.[Number(id)] ?? s(id);
   const d = (text: string, help = "") => ({ text, help });
   switch (r.op) {
-    case "scall": case "farscall": return d("Runs another of the game's scripts, then goes on", "A call: the game script runs and comes back here. Kept as the game's.");
+    case "scall": case "farscall": return Array.isArray(r.script)
+      ? d(`Runs ${(r.script as unknown[]).length} steps of its own, then goes on`, "A copied part of the game's script with several endings (each comes back here); its lines are edited in Global > Phone contacts.")
+      : d("Runs another of the game's scripts, then goes on", "A call: the game script runs and comes back here. Kept as the game's.");
     case "sjump": case "farsjump": return d("Goes on in another of the game's scripts", "A jump: nothing after it runs. Kept as the game's.");
     case "jumpstd": return d(`Runs the game's ${pretty(r.std)} script (and ends)`, "One of the game's standard scripts (nurse, bookshelves, phone calls …).");
     case "callstd": return d(`Runs the game's ${pretty(r.std)} script`, "One of the game's standard scripts, then goes on.");
@@ -640,6 +683,29 @@ function parseList(rows: Row[], tail: Row[], ctx: GameContext): Block[] {
     out.push({ t: "cmd", row: blockRow(r, ctx) });
   }
   return out;
+}
+
+// A Pokégear call (gen1recomp PhoneRing.script rings, shows the caller box and
+// hangs up around it): no text box of its own, and a promptbutton after each
+// text, as the cart's phone scripts have it. Written as an event's rows with
+// those swapped, so compile/parse stay one.
+const mapRows = (rows: Row[], f: (r: Row) => Row[]): Row[] =>
+  rows.flatMap((r) => f(Array.isArray(r.script) ? { ...r, script: mapRows(r.script as Row[], f) } : r));
+
+function compilePhone(blocks: Block[], ctx: GameContext): EventRow[] {
+  const rows = compile(blocks, ctx) as unknown as Row[];
+  return mapRows(rows, (r) => (r.op === "opentext" || r.op === "closetext" ? [] : r.op === "waitbutton" ? [{ op: "promptbutton" }] : [r])) as unknown as EventRow[];
+}
+
+function parsePhone(input: Row[], ctx: GameContext): Block[] {
+  // back to an event's shape: waitbutton after a text, closetext before each end
+  const withClose = (rows: Row[]): Row[] => {
+    const out = rows.map((r) => (Array.isArray(r.script) ? { ...r, script: withClose(r.script as Row[]) } : r.op === "promptbutton" ? { op: "waitbutton" } : r));
+    const last = out[out.length - 1];
+    if (last?.op === "end" && out[out.length - 2]?.op !== "closetext") out.splice(out.length - 1, 0, { op: "closetext" });
+    return out;
+  };
+  return parse(withClose(input), ctx);
 }
 
 export function parse(input: Row[], ctx: GameContext): Block[] {

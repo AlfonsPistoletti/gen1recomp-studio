@@ -24,6 +24,7 @@ const NAMES: Record<string, [string, string]> = {
   balls: ["Ball catch numbers", "ball"],
   studio_events: ["Events", "event"],
   studio_visibility: ["Visibility rules", "visibility rule"],
+  studio_flag_notes: ["Flag notes", "flag note"],
   map_songs: ["Map music", "map's music"],
   music: ["Songs", "song"],
   sfx: ["Sound effects", "sound effect"],
@@ -189,6 +190,8 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     }
     case "studio_events":
       return removed ? null : () => nav.openEvent(id);
+    case "studio_flag_notes":
+      return () => nav.openFlag(id);
     case "studio_visibility": {
       // "<MAP>:<OBJECT>": the person on its map
       const [mapId, name] = [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)];

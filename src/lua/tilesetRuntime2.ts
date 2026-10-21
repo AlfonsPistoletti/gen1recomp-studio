@@ -6,6 +6,9 @@
 //   collision    the tileset's collision quads + one per added block
 //   tilePalettes the tileset's palette slot per tile + the added tiles' (tile
 //                first + i; Crystal's list has gaps, so it is copied by key)
+//   anim         the tileset's animation program + the mod's rows (an added
+//                tile animated with one of the engine's strip patterns; the
+//                program's period stays, so the game's tiles keep their speed)
 //   image        the sheet the assets_transforms recipe builds on the
 //                player's machine when tiles were added (as for Gen 1):
 //                below the sheet, or into its blank slots (Crystal: `first`
@@ -41,6 +44,9 @@ export const TILESET_RUNTIME2 = String.raw`
       for k, v in pairs(base.tilePalettes or {}) do pals[k] = v end
       for i, v in ipairs(ext.palettes) do pals[ext.first + i] = v end
       patch.tilePalettes = pals
+    end
+    if type(ext.anim) == "table" and #ext.anim > 0 and type(base.anim) == "table" then
+      patch.anim = { period = base.anim.period, frames = joined(base.anim.frames, ext.anim) }
     end
     local count = #(ext.tiles or {})
     if count > 0 then

@@ -8,7 +8,7 @@
 import { GEN1_IMAGES } from "./images.ts";
 import { blockAt } from "../../core/geometry.ts";
 import type { Direction, EntityRecord, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, FieldSpec, GameAdapter, GameContext, GameTrainerHeader, GlobalNumber, IconMotion, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, EncounterSpec, Facing, FieldSpec, GameAdapter, GameContext, GameTrainerHeader, GlobalNumber, IconMotion, GlobalsSpec, ItemSpec, MartRef, MoveSpec, RenameSpec, TownSpec, PokemonSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 import { GEN1_EFFECTS } from "./effects.ts";
 import { EFFECT_RUNTIME, effectRegistration } from "../../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME, itemEffectRegistration } from "../../lua/itemEffectRuntime.ts";
@@ -20,9 +20,12 @@ import { EVENT_RUNTIME, eventRegistration } from "../../lua/eventRuntime.ts";
 import { ROOF_RUNTIME, roofRegistration, TILESET_RUNTIME, tilesetRegistration } from "../../lua/tilesetRuntime.ts";
 import { vanillaPrizes } from "./prizes.ts";
 import { CODE_HIDDEN } from "./codeHidden.ts";
+import { GEN1_TOGGLES } from "./objectToggles.ts";
+import { VISIBILITY_RUNTIME, visibilityRegistration } from "../../lua/visibilityRuntime.ts";
 import { GEN1_EVENTS } from "./events.ts";
 import { internalItem, isSpecialItem, ITEM_STATUSES, itemTemplate, picksMove, VANILLA_BALLS, vanillaItemText } from "./items.ts";
 import { paletteColors, paletteNames, resolveMapPalettes, type PaletteData } from "./palette.ts";
+import { gen1FlagUses } from "./flags.ts";
 
 interface Gen1Map extends MapDef {
   warps: EntityRecord[];
@@ -156,6 +159,13 @@ const content: ContentSpec[] = [
   // replaces them with files ({ file, loopFile? }), written with override
   { registry: "sfx", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { sfx?: Record<string, unknown> }).sfx ?? {}), fieldOrder: ["file"] },
   { registry: "music", file: "audio.lua", editable: true, replace: true, build: (f) => ((f as { songs?: Record<string, unknown> }).songs ?? {}), fieldOrder: ["file", "loopFile"] },
+  // people shown only while a flag is (not) set: "<MAP>:<OBJECT>" -> { flag, whileSet }
+  {
+    registry: "studio_visibility", editable: true, build: () => ({}), studioFile: "studio_visibility.lua",
+    generator: { what: "person visibility rules", order: ["flag", "whileSet"], runtime: VISIBILITY_RUNTIME, registration: visibilityRegistration, writes: ["map_scripts"] },
+  },
+  // Events > Flags: the mod's notes on flags (key -> { note }); a data file only the studio reads
+  { registry: "studio_flag_notes", editable: true, build: () => ({}), studioFile: "studio_flags.lua" },
   // map events made in the studio: plain data in studio_events.lua, turned
   // into map_scripts (talk rows, onStep/onEnter) by the generated helper
   {
@@ -521,6 +531,7 @@ const BENCH_GUY_TEXT: Record<string, string> = {
 
 const towns: TownSpec = {
   codeHidden: CODE_HIDDEN,
+  toggles: GEN1_TOGGLES,
   pointerRegistry: "text_pointers",
   fieldRegistry: "field",
   prizeRegistry: "prize_counters",
@@ -835,10 +846,11 @@ export const gen1: GameAdapter = {
       singular: "NPC / object",
       color: "#3cc8e6",
       fields: [
-        { kind: "text", key: "name", label: "Name" },
-        { kind: "select", key: "sprite", label: "Sprite", options: (ctx) => Object.keys(ctx.records.sprites ?? ctx.data.sprites).sort() },
+        { kind: "text", key: "name", label: "Name", group: "advanced" },
+        { kind: "select", key: "sprite", label: "Sprite", group: "looks", options: (ctx) => Object.keys(ctx.records.sprites ?? ctx.data.sprites).sort() },
         {
           kind: "pair",
+          group: "movement",
           fields: [
             { kind: "select", key: "movement", label: "Movement", options: (ctx) => objectValues(ctx, "movement", MOVEMENTS) },
             {
@@ -852,8 +864,9 @@ export const gen1: GameAdapter = {
             },
           ],
         },
-        { kind: "text", key: "text", label: "Text id", hint: "TEXT_* label; trainers and items use the extra fields below" },
-        { kind: "extras", label: "Extra fields (JSON)", hint: "trainerClass, trainerParty, item, pokemon, level, hidden…" },
+        { kind: "text", key: "text", label: "Text id", group: "advanced", hint: "TEXT_* label (What it does sets it up)" },
+        { kind: "check", key: "hidden", label: "Starts hidden", group: "when", hint: "Not there at the start of the game; a script (or the rule below) shows it" },
+        { kind: "extras", label: "Extra fields (JSON)", hint: "trainerClass, trainerParty, item, pokemon, level…" },
       ],
       create: (map, x, y) => {
         const index = nextObjectIndex(map);
@@ -885,7 +898,10 @@ export const gen1: GameAdapter = {
         const still = o.movement === "STAY";
         const range = still ? o.range : "DOWN";
         const facing = range === "UP" ? "up" : range === "LEFT" ? "left" : range === "RIGHT" ? "right" : "down";
-        return { sprite: o.sprite, facing, ghost: o.hidden === true, moving: !!o.movement && !still };
+        // gen1recomp NPC.lua: a STAY person with a direction keeps it, any other turns among ROAM_DIRS
+        const pinned = still && ["UP", "DOWN", "LEFT", "RIGHT"].includes(String(o.range));
+        const looks: Facing[] | undefined = pinned ? undefined : o.range === "UP_DOWN" ? ["up", "down"] : o.range === "LEFT_RIGHT" ? ["left", "right"] : ["down", "up", "left", "right"];
+        return { sprite: o.sprite, facing, ghost: o.hidden === true, moving: !!o.movement && !still, looks };
       },
     },
     {
@@ -894,7 +910,7 @@ export const gen1: GameAdapter = {
       label: "Signs",
       singular: "Sign",
       color: "#ffc828",
-      fields: [{ kind: "text", key: "text", label: "Text id", hint: "A TEXT_* label from text.lua" }],
+      fields: [{ kind: "text", key: "text", label: "Text id", group: "advanced", hint: "A TEXT_* label from text.lua" }],
       create: (_map, x, y) => ({ x, y, text: "TEXT_" }),
     },
   ],
@@ -962,6 +978,7 @@ export const gen1: GameAdapter = {
   towns,
   renames,
   events: GEN1_EVENTS,
+  flags: { notes: "studio_flag_notes", numeric: false, uses: gen1FlagUses },
 };
 
 function tileAt(map: MapDef, tileset: TilesetDef | undefined, tx: number, ty: number): number | undefined {

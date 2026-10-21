@@ -48,6 +48,26 @@ export function townMapRegistration2(modId: string, file: string): string {
   end`;
 }
 
+// Fruit trees (studio_fruit_trees.lua: record "trees" = the item each tree
+// number gives, 1-based like FRUITTREE_*): Apricorns.FRUIT_TREES is a module
+// table, set on game.ready. Trees past the game's 30 work too (the daily
+// refill clears every tree's picked mark at once).
+export function fruitTreeRegistration2(modId: string, file: string): string {
+  const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
+  return String.raw`
+  -- studio fruit trees (Gen 2): the item each tree number gives
+  do
+    local trees = require(${JSON.stringify(module)}).trees
+    mod.events:on("game.ready", function()
+      local Apricorns = require("src.core.gen2.Apricorns")
+      if type(trees) == "table" and type(Apricorns.FRUIT_TREES) == "table" then
+        for i, id in ipairs(trees) do Apricorns.FRUIT_TREES[i] = id end
+        Apricorns.NUM_FRUIT_TREES = #Apricorns.FRUIT_TREES
+      end
+    end)
+  end`;
+}
+
 export function slotRegistration2(modId: string, file: string): string {
   const module = `mods.${modId}.${file.replace(/\.lua$/, "")}`;
   return String.raw`

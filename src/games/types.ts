@@ -300,6 +300,16 @@ export interface TownSpec {
   gameTrainer?(ctx: GameContext, map: MapDef, entity: Record<string, unknown>): GameTrainerHeader | null;
   // hidden events the engine runs as code (fixed cells; only their texts change)
   codeHidden?: CodeHidden[];
+  // where the game's scripts show / hide map people (Gen 1, restated)
+  toggles?: ObjectToggle[];
+}
+
+export interface ObjectToggle {
+  map: string;
+  objects: string[]; // object names
+  show: boolean;
+  when: string; // in words, after "Shown/Hidden when"
+  versions?: string[];
 }
 
 export interface CodeHidden {
@@ -447,6 +457,15 @@ export interface GlobalsSpec {
   defaults: Record<string, Record<string, unknown>>;
   // which badge each HM's field use needs (constants.hmBadges)
   hmBadges?: { registry: string; id: string; moves: string[]; badges: string[] };
+  // Gen 2: the item each fruit tree number gives (record `id` = the list, tree n = entry n)
+  fruitTrees?: { registry: string; id: string };
+  // Gen 2: Kurt's apricorn -> ball records (the engine's `apricorns` registry)
+  apricorns?: { registry: string };
+  // Gen 2: the Pokégear phone book (the engine's `phone_contacts` registry, one
+  // record per PHONE_* id with its row `index`); `givers`: the map people whose
+  // script asks for a contact's number (askforphonenumber <index>)
+  // `lines`: the texts a call script (a key or inline rows) says, in order
+  phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; lines(ctx: GameContext, script: unknown): PhoneLine[] };
   // type effectiveness rows ("ATK>DEF" -> { multiplier } x10) and type
   // records ({ category }) in one registry
   typeChart?: { registry: string; multipliers: { value: number; label: string }[]; categories?: string[] };
@@ -625,15 +644,52 @@ export interface TimedEncounterSpec {
 // ------------------------------------------------------------------ fields
 // Declarative inspector fields; the inspector renders them generically.
 
+// a text a phone call says: the time of day its branch runs in (unset: any),
+// and what fills its {STRBUF} there, in words
+export type PhoneTime = "Morning" | "Day" | "Night";
+export interface PhoneLine {
+  text: string;
+  time?: PhoneTime;
+  fills: string[];
+}
+
+// Events > Flags. A flag's key is its name (Gen 1) or its number as a string (Gen 2).
+export type FlagUseKind = "set" | "clear" | "check" | "hides" | "shows" | "beaten" | "item" | "hidden" | "start";
+export interface FlagUse {
+  kind: FlagUseKind;
+  label: string; // who, in words ("ROUTE_30 NPC 3")
+  map?: string;
+  layer?: string; // with `index`: the map entity (its place in the layer's list)
+  index?: number;
+  eventId?: string; // the event to open (game events: "game:" ids)
+  contact?: string; // a phone contact
+  own?: boolean; // the mod's own (an edited or new script, a studio record)
+}
+export interface FlagSpec {
+  notes: string; // the studio-only registry of notes: key -> { note }
+  numeric: boolean; // Gen 2: flags are numbers (new ones from trainers.objectTrainer.freeFlag)
+  // the game's name for a flag (Gen 2 Gold/Silver: EVENT_*), when it has one
+  name?(ctx: GameContext, key: string): string | undefined;
+  // every use of every flag, from the live maps and records (`gameTalk`: Gen 1's game
+  // talk events, read by the Events workspace from a checkout)
+  uses(ctx: GameContext, gameTalk?: Record<string, { talk: Record<string, unknown[][] | false> }>): Map<string, FlagUse[]>;
+}
+
+// the card of an entity's properties a field sits in (the inspector shows the
+// cards in this order); unset: "advanced" for extras, "role" otherwise
+export type EntityGroup = "looks" | "movement" | "role" | "when" | "advanced";
 interface FieldBase {
   label: string;
   hint?: string;
+  group?: EntityGroup;
 }
 // a field's `key` may be a dotted path into the record ("radius.x", "hours.0")
 
 export type FieldSpec =
   | (FieldBase & { kind: "text"; key: string })
   | (FieldBase & { kind: "int"; key: string; min?: number; max?: number })
+  // a yes/no key (unchecked: the key is dropped)
+  | (FieldBase & { kind: "check"; key: string })
   | (FieldBase & {
       kind: "select";
       key: string;
@@ -666,7 +722,7 @@ export type FieldSpec =
   // (hide: keys kept in the record but not shown, e.g. cart data the Role box edits)
   | (FieldBase & { kind: "extras"; hide?: string[] })
   // two fields side by side
-  | { kind: "pair"; fields: [FieldSpec, FieldSpec] };
+  | { kind: "pair"; fields: [FieldSpec, FieldSpec]; group?: EntityGroup };
 
 // ------------------------------------------------------------------ entities
 
@@ -677,6 +733,8 @@ export interface SpriteRef {
   facing: Facing;
   ghost: boolean; // drawn faded (hidden until a script shows it)
   moving: boolean; // wanders; drawn with a dashed outline
+  range?: { x: number; y: number }; // cells it may wander from its spot (Gen 2 radius; Gen 1 has no limit)
+  looks?: Facing[]; // the ways it can face (turns, walks); missing = only `facing`
 }
 
 // ------------------------------------------------------------------ events
@@ -707,6 +765,8 @@ export type EventParamType =
   | "cellY"
   | "trade" // an in-game trade, by its number (field.trades)
   | "screen" // one of EventSpec.screens
+  | "choice" // one of the param's own `options`
+  | "word" // a few letters typed as they are (Gold getstring)
   | "ext"; // a mod command's parameter (studio extensions): `ext` says its field type
 
 export interface EventParam {
@@ -716,6 +776,8 @@ export interface EventParam {
   default?: unknown;
   min?: number;
   max?: number;
+  // type "choice": the values offered, in words
+  options?: { value: string | number; label: string }[];
   ext?: import("../project/extensions.ts").ExtField;
 }
 
@@ -758,8 +820,9 @@ export interface EventSpec {
   // Talk and step events only, no Choice / follow / preview / game events.
   inline?: boolean;
   // rows <-> blocks in this game's script format (unset: Gen 1's, eventBlocks.ts)
-  compile?(blocks: import("../core/eventBlocks.ts").Block[], ctx: GameContext): EventRow[];
-  parse?(rows: EventRow[], ctx: GameContext): import("../core/eventBlocks.ts").Block[];
+  // `mode` "phone": a Pokégear call (Gen 2: no text box of its own, promptbutton between texts)
+  compile?(blocks: import("../core/eventBlocks.ts").Block[], ctx: GameContext, mode?: "phone"): EventRow[];
+  parse?(rows: EventRow[], ctx: GameContext, mode?: "phone"): import("../core/eventBlocks.ts").Block[];
   // Gen 2: a script a Role made (a person's text, a nurse, a shop), not an event
   preset?(rows: EventRow[]): boolean;
   // Gen 2: the game's script of this key as one row list (branches and jumps
@@ -902,9 +965,23 @@ export interface GameAdapter {
     envs(ctx: GameContext): Record<string, Record<string, number[]>>;
     times: { key: string; label: string }[];
   };
-  // fixed Lua the save writes into studio_content.lua for the mod's edits
-  // (Gen 2: Pokédex entries for new species); "" = none
-  saveHelpers?(edited: Record<string, Record<string, unknown>>, bases: Record<string, Record<string, unknown>>): string;
+  // Gen 2: the editors keep studio scripts inline (a holder's scriptKey is the
+  // row list); a save registers each in `registry` and names its key, a load
+  // reads the mod's own (`owns`) back inline (src/games/gen2/scriptKeys.ts)
+  // Events > Flags: the event flags the game and the mod use (Gen 1 names, Gen 2 numbers as strings)
+  flags?: FlagSpec;
+  scripts?: {
+    registry: string;
+    outline(maps: Record<string, MapDef>): { maps: Record<string, MapDef>; registrations: { id: string; value: unknown }[] };
+    inline(maps: Record<string, MapDef>, scripts: Record<string, unknown>): void;
+    owns(id: string): boolean;
+    // other records holding inline scripts (Gen 2: phone contacts' calls)
+    records?: {
+      registry: string;
+      outline(table: Record<string, unknown>): { table: Record<string, unknown>; registrations: { id: string; value: unknown }[] };
+      inline(table: Record<string, unknown>, scripts: Record<string, unknown>): void;
+    };
+  };
 
   load(read: (file: string) => Promise<unknown>, version?: string): Promise<Dataset>;
   normalizeMap(map: MapDef): MapDef;
@@ -943,6 +1020,12 @@ export interface GameAdapter {
   sheetOverlay?(ctx: GameContext, tilesetId: string, paletteKey: string): { image: string; first: number; count: number } | null;
   // 4 colors, darkest first, for one 8x8 tile of a tileset under a palette key
   tileColors(ctx: GameContext, tileset: TilesetDef, paletteKey: string): (tile: number) => Rgb[];
+  // the map view's region buttons (Gen 2: Johto, Kanto): the map each jumps to
+  regions?: { label: string; map: string }[];
+  // Gen 2: the tileset's animated tiles (unset: Gen 1's, from its `animation`)
+  tileAnimations?(ctx: GameContext, tileset: TilesetDef, id: string): import("../core/tilesets.ts").MapAnimation[];
+  // Gen 2: the engine's strip patterns a mod's own tile can be animated with
+  tileAnimPatterns?: { func: string; frames: number; label: string }[];
   // the sprite and the map object it stands for, when the game colors sprites one by one (Gen 2)
   spriteColors(ctx: GameContext, paletteKey: string, sprite?: SpriteDef, entity?: EntityRecord): Rgb[];
 

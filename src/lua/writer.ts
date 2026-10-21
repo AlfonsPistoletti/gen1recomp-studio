@@ -159,12 +159,13 @@ export function requireLine(modId: string): string {
 }
 
 // A plain data file of records (studio_effects.lua): `return { id = {...} }`.
-export function dataFile(modId: string, what: string, records: Record<string, unknown>, order: string[] = []): string {
+// `studioOnly`: no helper reads it (notes for the studio itself), the game never loads it
+export function dataFile(modId: string, what: string, records: Record<string, unknown>, order: string[] = [], studioOnly = false): string {
   const ids = Object.keys(records).sort();
   const body = ids.map((id) => `  ${luaKey(id)} = ${luaValue(records[id], "  ", { order })},`).join("\n");
   return [
     `-- ${modId}: ${what}, written by G1R Studio (https://github.com/AlfonsPistoletti/gen1recomp-studio).`,
-    "-- Plain data; edit it in the studio (studio_content.lua turns it into game records).",
+    studioOnly ? "-- Plain data for the studio only (the game never loads it); edit it in the studio." : "-- Plain data; edit it in the studio (studio_content.lua turns it into game records).",
     "return {",
     body,
     "}",

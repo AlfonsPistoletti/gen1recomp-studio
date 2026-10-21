@@ -13,7 +13,7 @@ import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { HiddenKind, TownSpec } from "../games/types.ts";
 import { codeHiddenOf, type MapView } from "../render/mapView.ts";
 import { comboInput, field, h, numberInput, selectInput, toast } from "./dom.ts";
-import { idBase, newTextId, pointerEntry, type PointerEntry } from "./mapText.ts";
+import { idBase, newTextId, npcTextSection, pointerEntry, type PointerEntry } from "./mapText.ts";
 import { nav } from "./nav.ts";
 import { textEditor } from "./textField.ts";
 import { ROLE_LABEL, type RoleSet } from "./roles.ts";
@@ -108,6 +108,9 @@ export const gen1Roles: RoleSet = (c) => {
 
   const note = vanillaCounter ? h("p", { class: "hint" }, "One of the game's prize counters.") : undefined;
 
+  // what it says: every role that shows its text (a trainer's lines are in its fields; an
+  // item ball's and an event's text is never shown as is)
+  if (role !== "trainer" && role !== "item" && role !== "event") wrap.append(npcTextSection(map, entity, kind, index, setTextId));
   if (role === "trainer") wrap.append(...trainerFields(map, entity, index, setTextId, editEntity));
   if (role === "item") {
     const items = Object.keys(store.table("items")).sort();
@@ -561,13 +564,23 @@ function trainerFields(map: MapDef, entity: EntityRecord, index: number, setText
   const cls = comboInput(String(entity.trainerClass ?? ""), "dl-trainer-classes", classes, (v) => rebuild("Trainer class", undefined, (e) => (e.trainerClass = v)));
   const team = numberInput(Number(entity.trainerParty ?? 1), (v) => rebuild("Trainer team", undefined, (e) => (e.trainerParty = Math.max(1, v))), 1, 99);
   out.push(h("div", { class: "row nowrap" }, cls, h("span", { class: "muted" }, "team"), team, h("button", { class: "btn small ghost", onclick: () => nav.openTrainer(String(entity.trainerClass), Number(entity.trainerParty ?? 1)) }, "Team →")));
+  // the team it fights with (or why the battle would fail)
+  const clsId = String(entity.trainerClass ?? "");
+  const teamNo = Number(entity.trainerParty ?? 1);
+  const trainer = store.table(store.adapter.trainers?.registry ?? "trainers")[clsId] as { parties?: { species: string; level: number }[][] } | undefined;
+  const party = trainer?.parties?.[teamNo - 1];
+  out.push(!trainer
+    ? h("p", { class: "hint bad" }, `There is no trainer class ${clsId}.`)
+    : !party
+      ? h("p", { class: "hint bad" }, `${clsId} has no team ${teamNo} (it has ${trainer.parties?.length ?? 0}). The battle would fail.`)
+      : h("p", { class: "hint" }, party.map((m) => `${m.species.replace(/_/g, " ")} ${m.level}`).join(" · ")));
   if (game) {
     // its header (sight, which lines) is fixed game data; the lines' wording is ordinary text
     const header = spec()?.gameTrainer?.(store.ctx, map, entity);
     if (header) {
       const line = (label: string, key?: string) => (key ? [h("span", { class: "field-label" }, label), textEditor(key, { rows: 3, compact: true, label: key })] : []);
       out.push(
-        h("div", { class: "kv" }, h("span", {}, "Line of sight"), h("span", {}, header.range ? `${header.range} cell${header.range === 1 ? "" : "s"}` : "0 (only when talked to)")),
+        h("div", { class: "kv" }, h("span", {}, "Sight"), h("span", {}, header.range ? `${header.range} cell${header.range === 1 ? "" : "s"}` : "0 (only when talked to)")),
         ...line("Before the battle", header.battle),
         ...line("In the battle, when it loses", header.won),
         ...line("When talked to after losing", header.after),
@@ -590,11 +603,11 @@ function trainerFields(map: MapDef, entity: EntityRecord, index: number, setText
     return out;
   }
   const facing = facingOf(entity);
-  const range = selectInput(String(setup.range), ["0", "1", "2", "3", "4", "5"], (v) => rebuild("Line of sight", { range: Number(v) }));
-  for (const o of range.options) o.textContent = o.value === "0" ? "0 (only when talked to)" : `${o.value} cell${o.value === "1" ? "" : "s"}`;
+  // the same field as Gold's trainers (Sight: cells ahead, 0 = only when talked to)
+  const range = numberInput(setup.range, (v) => rebuild("Line of sight", { range: Math.max(0, Math.min(15, v)) }), 0, 15);
   range.disabled = !facing;
   out.push(
-    h("div", { class: "row nowrap" }, h("span", {}, "Line of sight"), range, h("span", { class: "muted" }, facing ? `looking ${facing}` : "")),
+    field("Sight", range, `Cells it sees ahead${facing ? ` (looking ${facing})` : ""}; 0: only when talked to`),
     ...(facing ? [] : [h("p", { class: "hint" }, "Only a standing NPC (Movement: STAY) can spot the player; this one walks around.")]),
     musicSelect(setup, (music) => rebuild("Encounter music", { music })),
     h("span", { class: "field-label" }, "Before the battle"),

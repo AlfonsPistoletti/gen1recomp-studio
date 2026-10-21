@@ -280,15 +280,26 @@ function fishRods(spec: TimedEncounterSpec, group: string, editable: boolean): H
               })
           : undefined;
         if (r.timeGroup !== undefined) {
-          // a shared day/night pair (timeFishGroups): shown, not edited here
-          const tg = (kindTable(spec, "timeFishGroups")[String(r.timeGroup)] ?? {}) as { day?: Slot; nite?: Slot };
-          const name = (x?: Slot) => (x ? `${x.species} Lv ${x.level}` : "?");
-          return h(
-            "div",
-            { class: "slot-row" },
-            h("span", { class: "slot-odds" }, share),
-            h("span", { class: "hint slot-wide", title: `Time group ${r.timeGroup}: shared by other fishing groups` }, `Day: ${name(tg.day)} · Night: ${name(tg.nite)} (shared)`),
-          );
+          // a day/night pair of its own table (timeFishGroups), which other
+          // groups' rods may name too: edited in Global, for all of them
+          const tg = String(r.timeGroup);
+          const pair = (kindTable(spec, "timeFishGroups")[tg] ?? {}) as { day?: Slot; nite?: Slot };
+          const users = timeGroupUsers(spec, r.timeGroup).filter((u) => u !== `${listName(group)} ${rod.label}`);
+          const note = users.length ? h("p", { class: "hint" }, `Also on: ${users.join(", ")} (one list).`) : null;
+          const editPair = (key: "day" | "nite") => editable
+            ? (label: string, mutate: (x: Slot) => void) =>
+                setEntry(spec, "timeFishGroups", tg, label, (e) => {
+                  const d = { ...(e ?? {}) } as Rec;
+                  const x = { ...(d[key] as Slot) };
+                  mutate(x);
+                  d[key] = x;
+                  return d;
+                })
+            : undefined;
+          return h("div", {},
+            pair.day ? slotRow(`${share} day`, pair.day, editPair("day")) : null,
+            pair.nite ? slotRow("night", pair.nite, editPair("nite")) : null,
+            note);
         }
         if (r.day && r.nite && (r.day.species !== r.nite.species || r.day.level !== r.nite.level)) {
           return h("div", {}, slotRow(`${share} day`, r.day, editSlot("day")), slotRow("night", r.nite, editSlot("nite")));
@@ -310,6 +321,18 @@ function fishRods(spec: TimedEncounterSpec, group: string, editable: boolean): H
   });
   const bite = (g as unknown as { chance?: number }).chance;
   return [h("p", { class: "hint" }, `A cast bites ${bite !== undefined ? `${((bite / 256) * 100).toFixed(0)}% of the time` : "sometimes"}; then the rod's list picks by the chances shown.`), ...rods];
+}
+
+// the rods (as "<group> <rod>") whose list names day/night pair `n`
+function timeGroupUsers(spec: TimedEncounterSpec, n: number): string[] {
+  const out: string[] = [];
+  for (const [g, rods] of Object.entries(kindTable(spec, spec.fish.kind) as Record<string, Record<string, unknown>>)) {
+    for (const rod of spec.fish.rods) {
+      const rows = rods[rod.key];
+      if (Array.isArray(rows) && (rows as FishRow[]).some((r) => r.timeGroup === n)) out.push(`${listName(g)} ${rod.label}`);
+    }
+  }
+  return out;
 }
 
 // the map's fishing group (picked here) and what bites (shown; edited in Global)

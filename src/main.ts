@@ -1,4 +1,4 @@
-import wasmUrl from "wasmoon/dist/glue.wasm?url";
+import wasmUrl from "wasmoon/dist/glue.wasm?url";
 import { startAreaBrush } from "./ui/mapAreas.ts";
 import { extKinds } from "./ui/extFields.ts";
 import { extIcon } from "./render/extIcons.ts";
@@ -22,12 +22,12 @@ import { modPageDialog } from "./ui/modPage.ts";
 import { isTyping, MapView, warpLayer } from "./render/mapView.ts";
 import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { differencesMarkdown, mountChangesMenu } from "./ui/changesMenu.ts";
-import { ScanSearch, Brush, DoorOpen, Footprints, Package, Globe, Grid3x3, LayoutGrid, MapPin, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
+import { ScanSearch, Brush, DoorOpen, Footprints, Package, Globe, Grid3x3, LayoutGrid, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, User, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
 import { $, clear, dropdown, field, h, icon, numberInput, setComboLabels, toast, errorText } from "./ui/dom.ts";
 import { addCustom, addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
 import { mountMapList } from "./ui/mapList.ts";
-import { nav, WORKSPACES, type GraphicsView, type WorkspaceId } from "./ui/nav.ts";
+import { nav, WORKSPACES, type EventsView, type GraphicsView, type WorkspaceId } from "./ui/nav.ts";
 import { mountEncounterPane } from "./ui/encounterPanel.ts";
 import { mountGlobalWorkspace } from "./ui/globalWorkspace.ts";
 import { mountPokemonWorkspace } from "./ui/pokemonEditor.ts";
@@ -47,6 +47,7 @@ import { mountTownMap2 } from "./ui/townMapEditor2.ts";
 import { FEATURES } from "./features.ts";
 import { MAX_BLOCKS } from "./core/tileBrush.ts";
 import { mountEventWorkspace } from "./ui/eventEditor.ts";
+import { mountFlagsView } from "./ui/flagsView.ts";
 import { bugReportDialog } from "./ui/bugReport.ts";
 import { installLog, log } from "./core/log.ts";
 import { installTrainerSync } from "./ui/trainerEvents.ts";
@@ -278,7 +279,7 @@ const TOOLS: { id: Tool; label: string; key: string; tip: string; icon: IconNode
 const OVERLAYS: { id: keyof Overlays; label: string; key: string; tip?: string; icon: IconNode }[] = [
   { id: "grid", label: "Grid", key: "G", icon: Grid3x3 },
   { id: "collision", label: "Collisions", key: "C", tip: "where the player can't walk", icon: Footprints },
-  { id: "entities", label: "Entities", key: "E", tip: "warps, NPCs and signs", icon: MapPin },
+  { id: "entities", label: "Entities", key: "E", tip: "warps, NPCs and signs", icon: User },
   { id: "neighbors", label: "Neighbouring maps", key: "N", icon: LayoutGrid },
   { id: "wild", label: "Wild encounters", key: "W", tip: "the cells that can start a wild battle", icon: Swords },
   { id: "animate", label: "Animated tiles", key: "A", icon: Waves },
@@ -340,6 +341,8 @@ function updateSceneSelect(): void {
 
 function updateColorButton(): void {
   const ok = gbcAvailable();
+  // RED++ is Gen 1's color mode: other games have no such toggle
+  colorButton.hidden = !!store.project && store.adapter.id !== "gen1";
   colorButton.disabled = !ok;
   colorButton.classList.toggle("active", ok && store.colorMode === "redpp");
   colorButton.title = ok
@@ -348,6 +351,7 @@ function updateColorButton(): void {
 }
 store.on((reason, _id) => {
   if (reason === "project" || reason === "colors") updateColorButton();
+  if (reason === "project") updateRegionButtons();
   if (reason === "project") updateTimeSelect();
   if (reason === "project" || reason === "map" || reason === "scene" || (reason === "edit" && !store.brushing)) updateSceneSelect();
   // an edit of a registry this game only shows (Gen 2 maps), once per gesture
@@ -400,6 +404,7 @@ function renderAddButtons(): void {
   }
 }
 const zoomLabel = h("span", { class: "zoom-label" });
+const regionButtons = h("span", { class: "row nowrap" });
 
 $("#toolbar").append(
   h("div", { class: "seg" }, ...toolButtons),
@@ -476,9 +481,18 @@ $("#viewport").append(
     h("button", { class: "btn small ghost", onclick: () => view.zoomBy(1.25), title: "Zoom in (+)", "aria-label": "Zoom in" }, icon(ZoomIn)),
     h("span", { class: "view-float-sep" }),
     h("button", { class: "btn small ghost", onclick: () => view.fitMap(), title: "Fit the map (0)", "aria-label": "Fit map" }, icon(Maximize)),
-    h("button", { class: "btn small ghost", onclick: () => view.fitWorld(), title: "Fit the connected world (Shift+0)", "aria-label": "Fit world" }, icon(Globe)),
+    h("button", { class: "btn small ghost", onclick: () => view.toOverworld(), title: "The connected world; inside a building, the outdoor map it leads out to (Shift+0)", "aria-label": "Fit world" }, icon(Globe)),
+    regionButtons,
   ),
 );
+// games with several regions (Gen 2: Johto, Kanto): jump to one's world
+function updateRegionButtons(): void {
+  const regions = store.project ? store.adapter.regions ?? [] : [];
+  regionButtons.replaceChildren(...regions.filter((r) => store.maps[r.map]).map((r) =>
+    h("button", { class: "btn small ghost", title: `${r.label}: the world around ${r.map}`, onclick: () => { view.openMap(r.map); view.fitWorld(); } }, r.label),
+  ));
+  regionButtons.hidden = !regionButtons.childElementCount;
+}
 
 function addAt(layer: string, variant?: string): void {
   const { cx, cy } = view.centerCell();
@@ -549,6 +563,7 @@ mountPokemonWorkspace($("#pokemon-left"), $("#pokemon-center"), $("#pokemon-righ
 mountMoveWorkspace($("#moves-left"), $("#moves-center"), $("#moves-right"));
 mountItemWorkspace($("#items-left"), $("#items-center"), $("#items-right"));
 mountEventWorkspace($("#events-left"), $("#events-center"), $("#events-right"));
+mountFlagsView($("#flags-left"), $("#flags-center"), $("#flags-right"));
 // a trainer's line of sight moves with its NPC
 installTrainerSync();
 mountTrainerWorkspace($("#trainers-left"), $("#trainers-center"), $("#trainers-right"));
@@ -602,6 +617,23 @@ nav.showGraphics = (view) => {
   if (nav.workspace === "graphics") setWorkspace("graphics");
 };
 for (const s of viewSwitches) s.value = nav.graphicsView;
+// the Events workspace's: its events, or the flags they use
+const EVENTS_VIEW_KEY = "studio.eventsView";
+nav.eventsView = recall(EVENTS_VIEW_KEY) === "flags" ? "flags" : "events";
+const eventSwitches: HTMLSelectElement[] = [];
+for (const host of [$("#events-left"), $("#flags-left")]) {
+  const select = h("select", { class: "view-switch", "aria-label": "Events view", onchange: () => nav.showEvents(select.value as EventsView) },
+    h("option", { value: "events" }, "Events"), h("option", { value: "flags" }, "Flags"));
+  eventSwitches.push(select);
+  host.prepend(select);
+}
+nav.showEvents = (view) => {
+  nav.eventsView = view;
+  remember(EVENTS_VIEW_KEY, view);
+  for (const s of eventSwitches) s.value = view;
+  if (nav.workspace === "events") setWorkspace("events");
+};
+for (const s of eventSwitches) s.value = nav.eventsView;
 mountSplitters($("#layout"));
 mountPaletteSplitter($("#right-base"), $("#palette"));
 
@@ -615,7 +647,8 @@ function setWorkspace(id: WorkspaceId): void {
   nav.workspace = id;
   document.body.dataset.ws = id;
   for (const el of document.querySelectorAll<HTMLElement>("#layout > [data-ws]")) {
-    el.hidden = el.dataset.ws !== id || (el.dataset.view !== undefined && el.dataset.view !== nav.graphicsView);
+    const view = el.dataset.ws === "events" ? nav.eventsView : nav.graphicsView;
+    el.hidden = el.dataset.ws !== id || (el.dataset.view !== undefined && el.dataset.view !== view);
   }
   for (const b of workspaceTabs) b.classList.toggle("active", b.dataset.ws === id);
   remember(WORKSPACE_KEY, id);
@@ -1012,7 +1045,7 @@ async function save(): Promise<void> {
     await host.writeText(`mods/${currentMod}/DIFFERENCES.md`, differencesMarkdown(modName));
     // imported art the saved file uses goes next to it; studio images it no
     // longer uses are removed (assets/studio/ only)
-    const saved = (await host.readText("game", result.file)) ?? "";
+    const saved = (await Promise.all([result.file, ...result.dataFiles].map((f) => host.readText("game", f)))).map((t) => t ?? "").join("\n");
     const art = await saveAssets(host, currentMod, saved);
     // replaced game images: files in overrides/
     const shots = await saveOverrides(host, currentMod, store.table(OVERRIDES));
@@ -1207,7 +1240,7 @@ window.addEventListener("keydown", (e) => {
   if (key === "P") return toggleColors();
   // Shift+0 by key position: ")" sits elsewhere on other layouts (Shift+9 on German ones)
   if (e.code === "Digit0" && e.shiftKey) {
-    view.fitWorld();
+    view.toOverworld();
     zoomLabel.textContent = `${Math.round(view.zoom * 100)}%`;
     return;
   }

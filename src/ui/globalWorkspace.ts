@@ -5,8 +5,11 @@
 // so a value set back to vanilla is dropped instead of saved.
 
 import { clone, deepEqual } from "../core/merge.ts";
+import { writeInline } from "../core/inlineEvents.ts";
+import { addGift, copyCall, followCopies, giftOf, giverOf, removeGift, setGiftChance, setGiftItem } from "./phoneGift.ts";
+import { createEvent } from "./eventEditor.ts";
 import { store } from "../core/store.ts";
-import type { GlobalNumber, GlobalsSpec } from "../games/types.ts";
+import type { EventRow, GlobalNumber, GlobalsSpec, PhoneLine } from "../games/types.ts";
 import { clear, comboInput, field, h, listFocus, listKeys, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
 import { liveTileset } from "../core/tilesets.ts";
 import { chancesCard } from "./encounterPanel.ts";
@@ -95,6 +98,9 @@ export function globalSectionOf(registry: string, id: string): string | null {
   const odds = store.adapter.encounters?.sharedOdds;
   if (odds && registry === odds.registry && id === odds.id) return "wild";
   if (s.hmBadges && registry === s.hmBadges.registry && id === s.hmBadges.id) return "fieldmoves";
+  if (s.fruitTrees && registry === s.fruitTrees.registry) return "fruittrees";
+  if (s.apricorns && registry === s.apricorns.registry) return "apricorns";
+  if (s.phone && registry === s.phone.registry) return "phone";
   return s.numbers.find((n) => n.registry === registry && n.id === id)?.section ?? null;
 }
 
@@ -129,6 +135,9 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (registry === SFX) return `Sound: ${id}`;
   if (section === "wild") return "Wild slot chances";
   if (section === "fieldmoves") return "HM badges";
+  if (section === "fruittrees") return "Fruit trees";
+  if (section === "apricorns") return `Kurt's ball for ${id}`;
+  if (section === "phone") return `Phone: ${contactName(id)}`;
   const labels = s.numbers.filter((n) => n.registry === registry && n.id === id).map((n) => n.label);
   return labels.length === 1 ? labels[0] : (s.sections.find((x) => x.id === section)?.label ?? null);
 }
@@ -153,6 +162,9 @@ function sectionChanged(id: string): boolean {
   if (id === "gifts" && Object.keys(store.table(GIFTS)).length > 0) return true;
   if (id === "badges" && store.isRecordEdited("constants", "badges")) return true;
   if (id === "slots" && slotsEdited()) return true;
+  if (id === "fruittrees" && s.fruitTrees && store.isRecordEdited(s.fruitTrees.registry, s.fruitTrees.id)) return true;
+  if (id === "apricorns" && s.apricorns && Object.keys(store.table(s.apricorns.registry)).some((k) => store.isRecordEdited(s.apricorns!.registry, k))) return true;
+  if (id === "phone" && s.phone && Object.keys(store.table(s.phone.registry)).some((k) => store.isRecordEdited(s.phone!.registry, k))) return true;
   if (id === "sounds" && soundsEdited()) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
   const towns = store.adapter.towns;
@@ -245,7 +257,7 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
-    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || registry === s.trades?.registry || registry === s.slots?.registry || registry === s.hmBadges?.registry || registry === "statuses" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
+    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || registry === s.trades?.registry || registry === s.slots?.registry || registry === s.hmBadges?.registry || registry === s.fruitTrees?.registry || registry === s.apricorns?.registry || registry === s.phone?.registry || registry === "statuses" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
     if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || sharedListSection(registry ?? "", _id ?? "") || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === s.start?.registry)) nav.setWorkspace("global");
   });
 }
@@ -674,6 +686,9 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   }
   if (id === "types" && s.typeChart) out.push(...typeChartCards(s.typeChart));
   if (id === "fieldmoves" && s.hmBadges) out.push(hmBadgesCard(s.hmBadges));
+  if (id === "fruittrees" && s.fruitTrees) out.push(fruitTreesCard(s.fruitTrees));
+  if (id === "apricorns" && s.apricorns) out.push(apricornsCard(s.apricorns.registry));
+  if (FEATURES.gen2 && id === "phone" && s.phone) out.push(...phoneCards(s.phone));
   if (id === "trades") out.push(...tradeCards());
   const timed = FEATURES.gen2 ? store.adapter.timedEncounters : undefined;
   if (timed && id === "fishing") out.push(...fishGroupCards(timed));
@@ -723,6 +738,286 @@ function numberRow(n: GlobalNumber): HTMLElement {
     field(n.label, control),
     h("span", { class: "hint" }, `${n.hint}${def !== undefined ? ` Vanilla: ${def}.` : ""}`),
   );
+}
+
+// Gen 2: the map people whose script is `fruittree n` (inline, or the game's key), by tree number
+export function fruitTreeUses(): Map<number, { map: string; index: number }[]> {
+  const scripts = (store.ctx.data.extra as { scripts?: Record<string, unknown> }).scripts ?? {};
+  const out = new Map<number, { map: string; index: number }[]>();
+  for (const [mapId, map] of Object.entries(store.maps)) {
+    store.entities(map, "objects").forEach((o, index) => {
+      const rows = Array.isArray(o.scriptKey) ? o.scriptKey : typeof o.scriptKey === "string" ? scripts[o.scriptKey] : null;
+      const row = Array.isArray(rows) ? (rows as { op?: string; args?: number[] }[]).find((r) => r?.op === "fruittree") : undefined;
+      const n = row?.args?.[0];
+      if (typeof n === "number") out.set(n, [...(out.get(n) ?? []), { map: mapId, index }]);
+    });
+  }
+  return out;
+}
+
+function fruitTreesCard(ft: NonNullable<GlobalsSpec["fruitTrees"]>): HTMLElement {
+  const list = (store.table(ft.registry)[ft.id] as string[] | undefined) ?? [];
+  const base = (store.baseTable(ft.registry)[ft.id] as string[] | undefined) ?? [];
+  const items = store.table("items") as Record<string, { name?: string }>;
+  const ids = Object.keys(items).sort();
+  const uses = fruitTreeUses();
+  const set = (label: string, next: string[]) => write(ft.registry, ft.id, label, next);
+  const rows = list.map((item, i) => {
+    const n = i + 1;
+    const where = uses.get(n) ?? [];
+    const own = i >= base.length;
+    return h("div", { class: "global-row" },
+      field(`Tree ${n}`, h("div", { class: "row nowrap" },
+        comboInput(item, "dl-items", ids, (v) => items[v] ? set(`Fruit tree ${n}`, list.map((x, j) => (j === i ? v : x))) : toast(`${v} is not an item`, "error")),
+        ...where.map((w) => h("button", { class: "btn small ghost", title: "Show this tree on the map", onclick: () => nav.selectEntity(w.map, "objects", w.index) }, w.map)),
+        !where.length ? h("span", { class: "hint" }, "on no map") : null,
+        !own && base[i] !== item ? h("button", { class: "btn small danger", onclick: () => set(`Fruit tree ${n}: the game's`, list.map((x, j) => (j === i ? base[i] : x))) }, "Back to the game's") : null,
+        own && i === list.length - 1 && !where.length ? h("button", { class: "btn small danger", onclick: () => set(`Remove fruit tree ${n}`, list.slice(0, -1)) }, "Remove") : null,
+      )));
+  });
+  return h("section", { class: "card" },
+    h("h4", {}, "What each tree gives"),
+    ...rows,
+    h("div", { class: "row" },
+      h("button", { class: "btn small", onclick: () => set(`New fruit tree ${list.length + 1}`, [...list, "BERRY"]) }, "+ Tree"),
+      h("span", { class: "hint" }, "A new tree gets the next number: give a map person the Fruit tree role with it. Every tree refills once a day.")),
+  );
+}
+
+function apricornsCard(reg: string): HTMLElement {
+  type Row = { apricorn: string; ball: string; index?: number };
+  const rows = Object.entries(store.table(reg) as Record<string, Row>).sort((a, b) => (a[1].index ?? 0) - (b[1].index ?? 0));
+  const items = store.table("items") as Record<string, { name?: string }>;
+  const ids = Object.keys(items).sort();
+  return h("section", { class: "card" },
+    h("h4", {}, "Kurt makes"),
+    ...rows.map(([id, r]) => h("div", { class: "global-row" },
+      field(String(items[id]?.name ?? id), h("div", { class: "row nowrap" },
+        comboInput(r.ball, "dl-items", ids, (v) => items[v] ? write(reg, id, `${id}: ball`, { ...r, ball: v }) : toast(`${v} is not an item`, "error")),
+        store.isRecordEdited(reg, id) ? h("button", { class: "btn small danger", onclick: () => { store.revertRecord(reg, id, `${id}: the game's ball`); store.seal(); } }, "Back to the game's") : null,
+      )))),
+    h("p", { class: "hint" }, "Kurt takes the apricorn and hands this item back the next day."),
+  );
+}
+
+// a PHONE_* id in words: "PHONE_YOUNGSTER_JOEY" -> "Youngster Joey"
+export const contactName = (id: string) => id.replace(/^PHONE_/, "").toLowerCase().replace(/_/g, " ").replace(/(^| )\w/g, (c) => c.toUpperCase());
+
+// Gen 2: the Pokégear phone book. Most trainers' calls say the same lines: a
+// "voice" is the group of contacts sharing one set of greetings (Gold: 20
+// trainers, 8 trainers). Voices come first, one card each, then one card per
+// contact with its settings and the lines no voice holds. Lines are grouped by
+// call (you call / they call), greetings by time of day side by side.
+function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
+  type Contact = { index?: number; map?: string; calleeTime?: number; callerTime?: number; calleeKey?: unknown; callerKey?: unknown };
+  type Lines = { callee: PhoneLine[]; caller: PhoneLine[] };
+  const table = store.table(ph.registry) as Record<string, Contact>;
+  const givers = ph.givers(store.ctx);
+  const maps = Object.keys(store.maps).sort();
+  const TIMES: [number, string][] = [[1, "Morning"], [2, "Day"], [4, "Night"]];
+  const ids = Object.keys(table).filter((id) => id !== "PHONE_00").sort((a, b) => Number(table[a].index ?? 0) - Number(table[b].index ?? 0));
+  const texts = store.table("text");
+  const said = (l: PhoneLine) => typeof texts[l.text] === "string";
+  const lines = new Map<string, Lines>(ids.map((id) => [id, { callee: ph.lines(store.ctx, table[id].calleeKey).filter(said), caller: ph.lines(store.ctx, table[id].callerKey).filter(said) }]));
+  const all = (l: Lines) => [...l.callee, ...l.caller];
+  // who says each text
+  const owners = new Map<string, string[]>();
+  for (const [id, l] of lines) for (const x of all(l)) if (!owners.get(x.text)?.includes(id)) owners.set(x.text, [...(owners.get(x.text) ?? []), id]);
+  // the voices: the contacts saying a contact's first greeting, when three or more do
+  const voiceOf = new Map<string, string[]>();
+  for (const [id, l] of lines) {
+    const greeting = all(l).find((x) => x.time)?.text;
+    const who = greeting ? owners.get(greeting) ?? [] : [];
+    if (who.length >= 3) voiceOf.set(id, who);
+  }
+  const voices = [...new Map([...voiceOf.values()].map((v) => [v.join(","), v])).values()].sort((a, b) => b.length - a.length);
+  // a shared line belongs to the voice most of its speakers have
+  const voiceOfText = (text: string): string[] | undefined => {
+    const who = owners.get(text) ?? [];
+    if (who.length < 2) return undefined;
+    let best: string[] | undefined;
+    let most = 1;
+    for (const v of voices) {
+      const n = who.filter((id) => v.includes(id)).length;
+      if (n > most) [best, most] = [v, n];
+    }
+    return best;
+  };
+  const names = (list: string[]) => `${list.slice(0, 5).map(contactName).join(", ")}${list.length > 5 ? ` and ${list.length - 5} more` : ""}`;
+
+  // one call's lines: the greetings by time of day side by side, then the rest
+  const lineEditor = (l: PhoneLine, label: string, note?: string) => h("div", { class: "npc-text" },
+    textEditor(l.text, { rows: 3, compact: true, label, hideEnding: true }),
+    l.fills.length && String(texts[l.text]).includes("{STRBUF}") ? h("p", { class: "hint" }, `{STRBUF} here: ${l.fills.join(" or ")}`) : null,
+    note ? h("p", { class: "hint" }, note) : null);
+  const ORDER = ["Morning", "Day", "Night"];
+  const callBlock = (title: string, list: PhoneLine[], noteOf: (text: string) => string | undefined): HTMLElement | null => {
+    if (!list.length) return null;
+    const timed = list.filter((l) => l.time);
+    const greet = timed.length > 1 ? timed : [];
+    const rest = list.filter((l) => !greet.includes(l));
+    return h("div", { class: "phone-call" },
+      h("span", { class: "field-label" }, title),
+      greet.length ? h("div", { class: "phone-times" }, ...[...greet].sort((a, b) => ORDER.indexOf(a.time!) - ORDER.indexOf(b.time!)).map((l) => lineEditor(l, `Greeting · ${l.time}`, noteOf(l.text)))) : null,
+      ...rest.map((l) => lineEditor(l, l.time ? `${l.time} only` : "Line", noteOf(l.text))));
+  };
+  const calls = (l: Lines, keep: (text: string) => boolean, noteOf: (text: string) => string | undefined): HTMLElement[] => {
+    const callee = l.callee.filter((x) => keep(x.text));
+    const caller = l.caller.filter((x) => keep(x.text) && !callee.some((y) => y.text === x.text));
+    return [callBlock("When you call", callee, noteOf), callBlock("When they call you", caller, noteOf)].filter((x): x is HTMLElement => !!x);
+  };
+  const count = (blocks: HTMLElement[]) => blocks.reduce((n, b) => n + b.querySelectorAll(".text-editor").length, 0);
+
+  // a voice's lines over every member: each line once, its {STRBUF} words from
+  // everyone saying it (a fixed word such as the route differs per contact)
+  const voiceLines = (voice: string[]): Lines => {
+    const out: Lines = { callee: [], caller: [] };
+    const seen = new Set<string>();
+    for (const id of voice) {
+      const l = lines.get(id)!;
+      for (const dir of ["callee", "caller"] as const) {
+        for (const x of l[dir]) {
+          if (seen.has(x.text) || voiceOfText(x.text) !== voice) continue;
+          seen.add(x.text);
+          const fills = [...new Set(voice.flatMap((v) => all(lines.get(v)!).filter((y) => y.text === x.text).flatMap((y) => y.fills)))];
+          const words = fills.filter((f) => f.startsWith("“"));
+          out[dir].push({ ...x, fills: words.length > 1 ? [...fills.filter((f) => !f.startsWith("“")), `each contact's own word (${words.slice(0, 3).join(", ")}${words.length > 3 ? " …" : ""})`] : fills });
+        }
+      }
+    }
+    return out;
+  };
+  const voiceNote = (voice: string[]) => (text: string) => {
+    const who = owners.get(text) ?? [];
+    const missing = voice.filter((id) => !who.includes(id));
+    const extra = who.filter((id) => !voice.includes(id));
+    const parts = [missing.length ? `not said by ${names(missing)}` : "", extra.length ? `also said by ${names(extra)}` : ""].filter(Boolean);
+    return parts.length ? `${parts.join("; ")[0].toUpperCase()}${parts.join("; ").slice(1)}.` : undefined;
+  };
+  const shared = voices.map((voice) => {
+    const blocks = calls(voiceLines(voice), () => true, voiceNote(voice));
+    return h("section", { class: "card", "data-phone-voice": voice.join(",") },
+      h("h4", {}, "Shared phone talk", h("span", { class: "hint team-choice" }, `${voice.length} contacts`)),
+      h("p", { class: "hint" }, `Said by ${voice.map(contactName).join(", ")}.`),
+      h("p", { class: "hint warn" }, "Editing a line here changes it for every one of them."),
+      h("details", {}, h("summary", {}, `Lines (${count(blocks)})`), ...blocks));
+  });
+
+  // a call of the contact's own (an event in the phone's shape, saved as a
+  // script of the mod's the contact points at), or the game's
+  const callRow = (id: string, dir: "callee" | "caller") => {
+    const key = table[id][`${dir}Key`];
+    const evId = `PHONE:${dir}:${id}`;
+    const what = dir === "callee" ? "When you call" : "When they call you";
+    if (Array.isArray(key)) {
+      return h("div", { class: "row wrap" },
+        h("span", { class: "hint" }, `${what}: its own call.`),
+        h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(evId) }, "Edit call →"),
+        h("button", { class: "btn small danger", onclick: () => writeInline(evId, `${contactName(id)}: the game's call`, undefined) }, "Back to the game's call"));
+    }
+    const rows = typeof key === "string" && key ? store.adapter.events?.gameRows?.(store.ctx, key) : null;
+    if (!rows?.length) return null;
+    return h("div", { class: "row wrap" },
+      h("span", { class: "hint" }, `${what}: the game's call.`),
+      h("button", {
+        class: "btn small",
+        title: "Copies the game's call into an event of its own: change its lines and what fills {STRBUF}, for this contact only",
+        onclick: () => {
+          const own = copyCall(String(key));
+          if (!own) return;
+          // one undo step: the event, then its texts' words joined to it
+          const nid = createEvent("PHONE", dir, id, { rows: own.rows as unknown as EventRow[] });
+          followCopies(own.copies);
+          if (nid) nav.openEvent(nid);
+        },
+      }, "Write its own call"));
+  };
+
+  // an item the contact finds and calls about; the person who gave the number
+  // hands it over (Crystal's Gina, Alan, Dana …; any contact through the studio)
+  const giftRow = (id: string): HTMLElement | null => {
+    const at = givers.get(Number(table[id].index))?.[0];
+    const g = giverOf(at);
+    const gift = giftOf(table[id].callerKey, g);
+    const items = Object.keys(store.table("items")).filter((k) => typeof (store.table("items")[k] as { index?: unknown }).index === "number").sort();
+    if (!g) return gift ? h("p", { class: "hint" }, "Gives an item by phone, but no map person hands it over.") : null;
+    const where = `${g.map} · NPC ${String(g.object.index)}`;
+    if (!gift) {
+      const item = comboInput("", "dl-items", items, () => {});
+      item.placeholder = "Item…";
+      const chance = numberInput(4, () => {}, 1, 255);
+      return h("div", { class: "phone-gift" },
+        h("span", { class: "field-label" }, "Gift by phone: none"),
+        h("div", { class: "row wrap" }, h("span", { class: "hint" }, "Give"), item, h("span", { class: "hint" }, "in 1 call of"), chance,
+          h("button", {
+            class: "btn small",
+            title: `Its call sometimes says it found this item; ${where} hands it over when talked to`,
+            onclick: () => {
+              const flag = store.adapter.trainers?.objectTrainer?.freeFlag(store.ctx);
+              if (typeof flag !== "number") return void toast("No free event flag left", "error");
+              if (!items.includes(item.value)) return void toast(item.value ? `No item ${item.value}` : "Pick an item first", "error");
+              addGift(id, ph.registry, g, item.value, Math.max(1, Number(chance.value) || 4), flag);
+            },
+          }, "Give an item by phone")));
+    }
+    const itemSel = comboInput(gift.item ?? "", "dl-items", items, (v) => items.includes(v) && setGiftItem(g, gift, v));
+    return h("div", { class: "phone-gift" },
+      h("span", { class: "field-label" }, gift.kind === "game" ? "Gift by phone (the game's)" : "Gift by phone"),
+      h("div", { class: "row wrap" },
+        itemSel,
+        ...(gift.kind === "studio"
+          ? [h("span", { class: "hint" }, "1 call in"), numberInput(gift.chance ?? 4, (v) => setGiftChance(id, ph.registry, gift.flag, v), 1, 255)]
+          : [h("span", { class: "hint" }, "sometimes, when it calls")]),
+        h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(g.map, "objects", g.list) }, `Handed over: ${where}`),
+        gift.kind === "studio" ? h("button", { class: "btn small danger", onclick: () => removeGift(id, ph.registry, g, gift.flag) }, "Remove gift") : null),
+      gift.kind === "game"
+        ? h("p", { class: "hint" }, `Its call sets engine flag ${gift.flag}; talking to the person then gives the item. Changing the item gives the person a copy of its script.`)
+        : null,
+      gift.callText ? textEditor(gift.callText, { rows: 3, compact: true, label: "The call", hideEnding: true }) : null,
+      gift.handText ? textEditor(gift.handText, { rows: 2, compact: true, label: "Handing it over", hideEnding: true }) : null);
+  };
+
+  const cards = ids.map((id) => {
+    const c = table[id];
+    const put = (label: string, next: Contact) => {
+      store.setRecord(ph.registry, id, label, next);
+      store.seal();
+    };
+    const times = (key: "calleeTime" | "callerTime") => h("div", { class: "row nowrap" }, ...TIMES.map(([bit, label]) => {
+      const box = h("input", { type: "checkbox", checked: (Number(c[key] ?? 0) & bit) !== 0 });
+      box.addEventListener("change", () => put(`${contactName(id)}: ${key === "calleeTime" ? "can be called" : "calls you"}`, { ...c, [key]: (Number(c[key] ?? 0) & ~bit) | (box.checked ? bit : 0) }));
+      return h("label", { class: "inline-check" }, box, label);
+    }));
+    const mapSel = selectInput(c.map ?? "", maps, (v) => put(`${contactName(id)}: map`, { ...c, map: v || undefined }), "Nowhere (no map)");
+    const who = givers.get(Number(c.index)) ?? [];
+    const voice = voiceOf.get(id);
+    // its lines no voice holds (a line two contacts share says so)
+    const own = calls(lines.get(id)!, (t) => !voiceOfText(t), (t) => {
+      const others = (owners.get(t) ?? []).filter((o) => o !== id);
+      return others.length ? `Also said by ${names(others)}: editing it changes it there too.` : undefined;
+    });
+    return h("section", { class: "card" },
+      h("h4", {}, contactName(id), h("span", { class: "hint team-choice" }, id)),
+      h("div", { class: "row two" },
+        field("Where", mapSel, "The map the person stands on: a call from there is face to face, and no call reaches the map without phone service"),
+        h("div", {}, field("Can be called", times("calleeTime")), field("Calls you", times("callerTime")))),
+      h("div", { class: "row wrap" },
+        h("span", { class: "hint" }, who.length ? "Gives the number:" : "No map person asks for this number."),
+        ...who.map((w) => h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(w.map, "objects", w.index) }, `${w.map} · NPC ${String(store.entities(store.maps[w.map], "objects")[w.index]?.index ?? w.index)}`))),
+      voice ? h("div", { class: "row wrap" },
+        h("span", { class: "hint" }, `Talks with the shared phone talk of ${voice.length} contacts.`),
+        h("button", { class: "btn small ghost", onclick: () => document.querySelector(`[data-phone-voice="${voice.join(",")}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }) }, "Show →")) : null,
+      own.length ? h("details", {}, h("summary", {}, `${voice ? "Its own lines" : "What is said on the phone"} (${count(own)})`), ...own) : null,
+      ...(["callee", "caller"] as const).map((dir) => callRow(id, dir)),
+      giftRow(id),
+      store.isRecordEdited(ph.registry, id) ? h("button", { class: "btn small danger", onclick: () => { store.revertRecord(ph.registry, id, `${contactName(id)}: the game's`); store.seal(); } }, "Back to the game's") : null,
+    );
+  });
+  return [
+    h("p", { class: "hint" }, "{STRBUF} is a slot: the call fills it just before the text, with the caller's name, a Pokémon, a place… so it holds something different in each text (said below each one). Keep it where that word belongs; {PLAYER} is the player's name."),
+    ...shared,
+    ...cards,
+  ];
 }
 
 function hmBadgesCard(hm: NonNullable<GlobalsSpec["hmBadges"]>): HTMLElement {

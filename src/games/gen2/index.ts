@@ -18,18 +18,21 @@ import { gen2EffectTemplate, gen2EffectText, GEN2_STATS, GEN2_STATUSES } from ".
 import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
 import { effectRegistration } from "../../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME2, itemEffectRegistration2 } from "../../lua/itemEffectRuntime2.ts";
-import { DEX_RUNTIME2 } from "../../lua/dexRuntime2.ts";
 import type { GameGift } from "../../project/gameEvents.ts";
 import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
 import { giftRegistration2, STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
 import { TRADE_RUNTIME2, tradeRegistration2 } from "../../lua/tradeRuntime2.ts";
-import { FIELD_RUNTIME2, hmBadgeRegistration2, slotRegistration2, townMapRegistration2 } from "../../lua/fieldRuntime2.ts";
+import { FIELD_RUNTIME2, fruitTreeRegistration2, hmBadgeRegistration2, slotRegistration2, townMapRegistration2 } from "../../lua/fieldRuntime2.ts";
 import { INTRO_RUNTIME } from "../../lua/introRuntime.ts";
 import { INTRO_TEXT_RUNTIME2, introRegistration2, introTextRegistration2 } from "../../lua/introRuntime2.ts";
 import { GEN2_EXP_STATS, GEN2_ITEM_STATUSES, gen2ItemTemplate, gen2ItemText, gen2PicksMove, gen2SpecialItem } from "./items.ts";
 import { playtestMain2 } from "../../lua/playRuntime.ts";
 import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.ts";
-import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
+import { gen2TileAnimations, OWN_PATTERNS, type TileAnimSheets } from "./tileAnim.ts";
+import { inlineContacts, inlineScripts, outlineContacts, outlineScripts, ownsScript } from "./scriptKeys.ts";
+import { gen2FlagUses } from "./flags.ts";
+import { GOLD_FLAG_NAMES } from "./flagNames.ts";
+import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PhoneLine, PhoneTime, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
 interface Roofs {
@@ -173,6 +176,27 @@ const content: ContentSpec[] = [
     generator: { what: "HM badges", order: ["badge"], runtime: FIELD_RUNTIME2, registration: hmBadgeRegistration2, writes: [], internals: true },
   },
   {
+    registry: "studio_fruit_trees", editable: true, build: () => ({ trees: [...GOLD_FRUIT_TREES] }), studioFile: "studio_fruit_trees.lua",
+    generator: { what: "fruit trees", order: [], runtime: FIELD_RUNTIME2, registration: fruitTreeRegistration2, writes: [], internals: true },
+  },
+  // Kurt's apricorn balls: the engine's own registry (patched)
+  { registry: "apricorns", editable: true, build: () => structuredClone(GOLD_APRICORNS) },
+  // Events > Flags: the mod's notes on flags (key -> { note }); a data file only the studio reads
+  { registry: "studio_flag_notes", editable: true, build: () => ({}), studioFile: "studio_flags.lua" },
+  // the Pokégear phone book: events.lua `phone` rows by their PHONE_* id
+  // (gen1recomp Phone.lua applies registry rows onto its table by `index`; no new rows)
+  {
+    registry: "phone_contacts", file: "events.lua", editable: true,
+    build: (f) => {
+      const out: Record<string, unknown> = {};
+      for (const r of asList((f as { phone?: unknown }).phone) as Record<string, unknown>[]) {
+        if (typeof r?.contact !== "string" || r.contact === "PHONE_UNUSED") continue;
+        out[r.contact] = { index: r.id, map: r.map, calleeTime: r.calleeTime, callerTime: r.callerTime, calleeKey: r.callee, callerKey: r.caller };
+      }
+      return out;
+    },
+  },
+  {
     registry: "studio_slots", editable: true, build: () => ({ reels: structuredClone(GOLD_REELS) }), studioFile: "studio_slots.lua",
     generator: { what: "slot machine reels", order: [], runtime: FIELD_RUNTIME2, registration: slotRegistration2, writes: [], internals: true },
   },
@@ -210,7 +234,7 @@ const content: ContentSpec[] = [
   // data in studio_tilesets.lua, patched in by the generated helper
   {
     registry: "studio_tilesets", editable: true, build: () => ({}), studioFile: "studio_tilesets.lua",
-    generator: { what: "tileset extensions", order: ["first", "tiles", "palettes", "blocks", "collision"], runtime: TILESET_RUNTIME2, registration: tilesetRegistration2, writes: ["tilesets"] },
+    generator: { what: "tileset extensions", order: ["first", "tiles", "palettes", "blocks", "collision", "anim", "func", "tile", "sheet", "frames"], runtime: TILESET_RUNTIME2, registration: tilesetRegistration2, writes: ["tilesets"] },
   },
   // trainer classes (gen1recomp writes the registry one level into `classes`)
   {
@@ -280,6 +304,26 @@ const GOLD_HM_BADGES: Record<string, { badge: string }> = {
   STRENGTH: { badge: "PLAIN" }, WHIRLPOOL: { badge: "GLACIER" }, WATERFALL: { badge: "RISING" },
 };
 const JOHTO_BADGES = ["ZEPHYR", "HIVE", "PLAIN", "FOG", "MINERAL", "STORM", "GLACIER", "RISING"];
+// gen1recomp src/core/gen2/Apricorns.lua FRUIT_TREES (data/items/fruit_trees.asm),
+// tree number n = entry n (FRUITTREE_*, 1-based)
+const GOLD_FRUIT_TREES = [
+  "BERRY", "BERRY", "BERRY", "BERRY", "PSNCUREBERRY", "PSNCUREBERRY", "BITTER_BERRY", "BITTER_BERRY",
+  "PRZCUREBERRY", "PRZCUREBERRY", "MYSTERYBERRY", "MYSTERYBERRY", "ICE_BERRY", "ICE_BERRY", "MINT_BERRY", "BURNT_BERRY",
+  "RED_APRICORN", "BLU_APRICORN", "BLK_APRICORN", "WHT_APRICORN", "PNK_APRICORN", "GRN_APRICORN", "YLW_APRICORN",
+  "BERRY", "PSNCUREBERRY", "BITTER_BERRY", "PRZCUREBERRY", "ICE_BERRY", "MINT_BERRY", "BURNT_BERRY",
+];
+// Kurt's apricorn balls: the engine's `apricorns` registry seeded from
+// Apricorns.BALLS (data/items/apricorn_balls.asm); `index` = Kurt's menu order,
+// `event` = its EVENT_GAVE_KURT_* flag
+const GOLD_APRICORNS: Record<string, { apricorn: string; ball: string; event: number; index: number }> = {
+  RED_APRICORN: { apricorn: "RED_APRICORN", ball: "LEVEL_BALL", event: 600, index: 1 },
+  BLU_APRICORN: { apricorn: "BLU_APRICORN", ball: "LURE_BALL", event: 601, index: 2 },
+  YLW_APRICORN: { apricorn: "YLW_APRICORN", ball: "MOON_BALL", event: 602, index: 3 },
+  GRN_APRICORN: { apricorn: "GRN_APRICORN", ball: "FRIEND_BALL", event: 603, index: 4 },
+  WHT_APRICORN: { apricorn: "WHT_APRICORN", ball: "FAST_BALL", event: 604, index: 5 },
+  BLK_APRICORN: { apricorn: "BLK_APRICORN", ball: "HEAVY_BALL", event: 605, index: 6 },
+  PNK_APRICORN: { apricorn: "PNK_APRICORN", ball: "LOVE_BALL", event: 606, index: 7 },
+};
 // src/ui/gen2/SlotMachine.lua REELS by symbol name (15 + the first 3 again)
 const GOLD_REELS = [
   ["SEVEN", "CHERRY", "STARYU", "PIKACHU", "SQUIRTLE", "SEVEN", "CHERRY", "STARYU", "PIKACHU", "SQUIRTLE", "POKEBALL", "CHERRY", "STARYU", "PIKACHU", "SQUIRTLE", "SEVEN", "CHERRY", "STARYU"],
@@ -711,10 +755,13 @@ const trainers: TrainerSpec = {
       // the game's flags, plus every flag a map names now: people's
       // visibility flags, studio trainers' and the studio's inline events'
       const taken = new Set(usedFlags);
-      JSON.stringify(Object.values(ctx.maps), (k, v: unknown) => {
+      // (and phone contacts' own calls: a gift's flag)
+      JSON.stringify([Object.values(ctx.maps), ctx.records.phone_contacts], (k, v: unknown) => {
         if ((k === "event" || k === "eventFlag") && typeof v === "number") taken.add(v);
         return v;
       });
+      // and flags the mod noted down (Events > Flags "+ New flag"), used or not yet
+      for (const k of Object.keys(ctx.records.studio_flag_notes ?? {})) taken.add(Number(k));
       for (let f = NUM_EVENTS - 1; f > Math.max(0, ...usedFlags); f--) if (!taken.has(f)) return f;
       return null;
     },
@@ -802,6 +849,9 @@ const globals: GlobalsSpec = {
     { id: "gifts", group: "Other", label: "Gift Pokémon", hint: "The Pokémon people give the player: which Pokémon and at which level. What they say about it are texts: the buttons open them." },
     { id: "trades", group: "Other", label: "In-game trades", hint: "What each trading person wants, what they give, and how it arrives: nickname, held item, original trainer." },
     { id: "slots", group: "Other", label: "Slot machines", hint: "The symbols on the Game Corner's three slot reels." },
+    { id: "fruittrees", group: "Other", label: "Fruit trees", hint: "The item each fruit tree gives once a day. A tree on the map is a person whose role is Fruit tree, with its number." },
+    { id: "apricorns", group: "Other", label: "Kurt's apricorn balls", hint: "Which ball Kurt makes from each apricorn." },
+    { id: "phone", group: "Other", label: "Phone contacts", hint: "The Pokégear phone book: where each contact stands, when calls happen, who gives the number and what is said on the phone. The game has a fixed set of contacts: a mod changes them but can't add new ones." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],
   numbers: [
@@ -811,6 +861,111 @@ const globals: GlobalsSpec = {
   ],
   defaults: { statuses: GOLD_STATUSES },
   hmBadges: { registry: "studio_field_moves", id: "badges", moves: Object.keys(GOLD_HM_BADGES), badges: JOHTO_BADGES },
+  fruitTrees: { registry: "studio_fruit_trees", id: "trees" },
+  phone: {
+    registry: "phone_contacts",
+    // The texts a call script says, in order, with the time of day they belong
+    // to (a checktime mask before an iftrue: MORN 1, DAY 2, NITE 4; the fall-
+    // through gets the rest) and what fills their {STRBUF}: the VM has one
+    // string buffer, and the text shows what the last of these rows put there
+    // (gen1recomp Vm:setStringBuffer; specials 90-92 = Specials.lua's phone
+    // name-drops). Rows are walked in order, calls return, jumps don't.
+    lines: (ctx, script) => {
+      const out = new Map<string, PhoneLine>();
+      const text = ctx.data.content.text ?? {};
+      const specials = (ctx.data.extra as { specialOrder?: string[] }).specialOrder ?? [];
+      const fills = (r: Record<string, unknown>): string | undefined => {
+        switch (r.op) {
+          case "getmonname": return "a Pokémon's name";
+          case "getitemname": case "verbosegiveitem": case "verbosegiveitemvar": case "fruittree": return "an item's name";
+          case "gettrainername": return "a trainer's name";
+          case "gettrainerclassname": return "a trainer class";
+          case "getlandmarkname": case "getcurlandmarkname": return "a place name";
+          case "getstring": return typeof r.string === "string" ? `“${r.string}”` : "a word";
+          case "getname": return "a name";
+          case "getnum": return "a number";
+          case "getmoney": case "getcoins": return "an amount";
+          case "describedecoration": return "a decoration's name";
+          case "special": {
+            const name = specials[Number(r.id)];
+            if (name === "RandomPhoneMon") return "one of the caller's own Pokémon";
+            if (name === "RandomPhoneWildMon") return "a wild Pokémon from the caller's map";
+            if (name === "RandomUnseenWildMon") return "a rare wild Pokémon from the caller's map";
+            return undefined;
+          }
+        }
+        return undefined;
+      };
+      const TIMES: [number, PhoneTime][] = [[1, "Morning"], [2, "Day"], [4, "Night"]];
+      const timeOf = (mask: number): PhoneTime | undefined => TIMES.find(([bit]) => bit === mask)?.[1];
+      const visited = new Set<string>();
+      // returns the buffer after the rows ran (undefined: nothing set yet)
+      const run = (body: unknown, cur: string | undefined, mask: number, depth: number): string | undefined => {
+        const rows = typeof body === "string" ? scriptRows[body] : body;
+        const seenKey = `${typeof body === "string" ? body : JSON.stringify(body).length}|${cur}|${mask}`;
+        if (!Array.isArray(rows) || depth > 12 || (typeof body === "string" && visited.has(seenKey))) return cur;
+        if (typeof body === "string") visited.add(seenKey);
+        let checked: number | null = null;
+        for (const r of rows as Record<string, unknown>[]) {
+          cur = fills(r) ?? cur;
+          for (const v of Object.values(r)) {
+            if (typeof v !== "string" || typeof text[v] !== "string") continue;
+            const line = out.get(v) ?? { text: v, fills: [] };
+            if (!out.has(v)) line.time = timeOf(mask);
+            else if (line.time !== timeOf(mask)) line.time = undefined;
+            if (text[v].includes("{STRBUF}")) {
+              const f = cur ?? "whatever an earlier script left there";
+              if (!line.fills.includes(f)) line.fills.push(f);
+            }
+            out.set(v, line);
+          }
+          const time = r.op === "checktime" ? Number((r.args as number[] | undefined)?.[0] ?? 0) : null;
+          if (time !== null) {
+            checked = time;
+            continue;
+          }
+          const target = r.script;
+          const branchMask = checked === null ? mask : r.op === "iftrue" ? mask & checked : r.op === "iffalse" ? mask & ~checked : mask;
+          const restMask = checked === null ? mask : r.op === "iftrue" ? mask & ~checked : r.op === "iffalse" ? mask & checked : mask;
+          checked = null;
+          if (typeof target !== "string" && !Array.isArray(target)) continue;
+          if (r.op === "sjump" || r.op === "farsjump") return run(target, cur, mask, depth + 1);
+          if (r.op === "scall" || r.op === "farscall") cur = run(target, cur, mask, depth + 1);
+          else run(target, cur, branchMask, depth + 1);
+          mask = restMask;
+        }
+        return cur;
+      };
+      run(script, undefined, 7, 0);
+      return [...out.values()];
+    },
+    // every map person whose script (followed through calls) runs askforphonenumber n
+    givers: (ctx) => {
+      const out = new Map<number, { map: string; index: number }[]>();
+      for (const [mapId, m] of Object.entries(ctx.maps)) {
+        (asList(m.objects) as { scriptKey?: unknown; trainer?: { scriptKey?: unknown } }[]).forEach((o, index) => {
+          const seen = new Set<string>();
+          const found = new Set<number>();
+          const walk = (v: unknown): void => {
+            JSON.stringify(v, (_k, x: unknown) => {
+              if (typeof x === "string" && x in scriptRows && !seen.has(x)) {
+                seen.add(x);
+                walk(scriptRows[x]);
+              } else if (x && typeof x === "object" && (x as { op?: unknown }).op === "askforphonenumber") {
+                const n = ((x as { args?: number[] }).args ?? [])[0];
+                if (typeof n === "number") found.add(n);
+              }
+              return x;
+            });
+          };
+          walk([o.scriptKey, o.trainer?.scriptKey]);
+          for (const n of found) out.set(n, [...(out.get(n) ?? []), { map: mapId, index }]);
+        });
+      }
+      return out;
+    },
+  },
+  apricorns: { registry: "apricorns" },
   // the reel sheet: symbol byte n is the 16x16 at (0, n / 4 * 16) (SlotMachine:drawReels)
   slots: {
     registry: "studio_slots", id: "reels", order: ["SEVEN", "POKEBALL", "CHERRY", "PIKACHU", "SQUIRTLE", "STARYU"],
@@ -981,6 +1136,12 @@ export const gen2: GameAdapter = {
   viewOnly: { registries: ["tilesets", "sprites"], reason: "Gen 2 tilesets and sprites can be looked at, not changed yet." },
   workspaces: ["maps", "pokemon", "moves", "items", "trainers", "text", "events", "graphics", "global"],
   events: GEN2_EVENTS,
+  flags: {
+    notes: "studio_flag_notes", numeric: true,
+    // pokegold's names; Crystal numbers its flags differently
+    name: (_ctx, key) => (gameVersion === "crystal" ? undefined : GOLD_FLAG_NAMES[Number(key)]),
+    uses: (ctx) => gen2FlagUses(ctx, scriptRows, startFlags),
+  },
   roles: "gen2",
   textSets: [{ registry: "text", label: "Script texts" }, { registry: "rom_text", label: "Game texts" }],
   scriptTexts(ctx, key) {
@@ -1072,8 +1233,11 @@ export const gen2: GameAdapter = {
     script: sceneScriptOf,
     setScript: setSceneScript,
   },
-  // new species: their Pokédex entries (the #DEX lists only pokedex.lua's, ISSUES #11)
-  saveHelpers: (edited, bases) => (Object.keys(edited.pokemon ?? {}).some((id) => edited.pokemon[id] && !bases.pokemon?.[id]) ? DEX_RUNTIME2 : ""),
+  // studio scripts and movements as map_scripts records (engine 070ca01+)
+  scripts: {
+    registry: "map_scripts", outline: outlineScripts, inline: inlineScripts, owns: ownsScript,
+    records: { registry: "phone_contacts", outline: outlineContacts, inline: inlineContacts },
+  },
 
   async load(read, version): Promise<Dataset> {
     gameVersion = version ?? "gold";
@@ -1180,6 +1344,8 @@ export const gen2: GameAdapter = {
     for (const m of Object.values(maps)) gen2.normalizeMap(m);
     // tilesets.lua also holds the animation frame sheets (animFrames,
     // waterFrames, ...): only records with a sheet and blocks are tilesets
+    const animSheets = tilesets as unknown as TileAnimSheets;
+    const tileAnim: TileAnimSheets = { waterFrames: animSheets.waterFrames, flowerFrames: animSheets.flowerFrames, flowerCgbFrames: asList(animSheets.flowerCgbFrames) as number[] };
     for (const [k, t] of Object.entries(tilesets)) if (!t || typeof t !== "object" || typeof t.image !== "string" || !t.blocks) delete tilesets[k];
     for (const t of Object.values(tilesets)) crystalTiles(t);
     const monFile = tables[content.findIndex((c) => c.registry === "pokemon")] as { growthRates?: Record<string, unknown> } | undefined;
@@ -1219,6 +1385,8 @@ export const gen2: GameAdapter = {
         sfxOrder: asList(lists.sfxOrder), musicOrder: asList(lists.musicOrder), specialOrder: asList(lists.specialOrder),
         // the game's scripts, shown read-only (and copied) in Events
         scripts,
+        // the shared water / flower frame strips the tileset animations name
+        tileAnim,
       },
     };
   },
@@ -1261,10 +1429,11 @@ export const gen2: GameAdapter = {
       singular: "NPC / object",
       color: "#3cc8e6",
       fields: [
-        { kind: "select", key: "sprite", label: "Sprite", options: (ctx) => Object.keys(ctx.data.sprites).sort(), labels: (v) => (/^\d+$/.test(v) ? `Changes during the game (${v})` : undefined) },
-        { kind: "select", key: "movement", label: "Movement", numeric: true, options: () => Object.keys(MOVEMENTS), labels: (v) => MOVEMENTS[Number(v)] },
+        { kind: "select", key: "sprite", label: "Sprite", group: "looks", options: (ctx) => Object.keys(ctx.data.sprites).sort(), labels: (v) => (/^\d+$/.test(v) ? `Changes during the game (${v})` : undefined) },
+        { kind: "select", key: "movement", label: "Movement", group: "movement", numeric: true, options: () => Object.keys(MOVEMENTS), labels: (v) => MOVEMENTS[Number(v)] },
         {
           kind: "pair",
+          group: "movement",
           fields: [
             { kind: "int", key: "radius.x", label: "Walk range ←→", min: 0, max: 15, hint: "Cells it may wander from its spot" },
             { kind: "int", key: "radius.y", label: "Walk range ↑↓", min: 0, max: 15 },
@@ -1272,13 +1441,14 @@ export const gen2: GameAdapter = {
         },
         {
           kind: "pair",
+          group: "when",
           fields: [
             { kind: "int", key: "hours.0", label: "From hour", min: -1, max: 23, hint: "-1 in both: there all day" },
             { kind: "int", key: "hours.1", label: "To hour", min: -1, max: 23 },
           ],
         },
         {
-          kind: "weekdays", label: "Days", days: WEEKDAYS,
+          kind: "weekdays", label: "Days", group: "when", days: WEEKDAYS,
           hint: "The days of the week it is there (the map's objects script). It needs an event flag: one is picked when it has none.",
           get: (map, i) => weekdaysOf(map, Number((asList(map.objects)[i] as { index?: number } | undefined)?.index ?? i), scriptRows),
           set: (map, i, days, ctx) => {
@@ -1293,9 +1463,9 @@ export const gen2: GameAdapter = {
             setWeekdays(map, Number(o.index ?? i), days, scriptRows);
           },
         },
-        { kind: "int", key: "eventFlag", label: "Event flag", min: 0, max: 65535, hint: "Hidden while this event flag is set; 65535 = always there" },
-        { kind: "info", label: "When it's there", text: (map, i) => visibilityNote(map, Number((asList(map.objects)[i] as { index?: number } | undefined)?.index ?? i), scriptRows, startFlags) },
-        { kind: "select", key: "palette", label: "Colors", numeric: true, options: () => ["0", ...OW_PALETTES.map((_, i) => String(8 + i))], labels: (v) => (v === "0" ? "The sprite's own" : OW_PALETTES[Number(v) - 8]?.toLowerCase()) },
+        { kind: "int", key: "eventFlag", label: "Event flag", group: "when", min: 0, max: 65535, hint: "Hidden while this event flag is set; 65535 = always there" },
+        { kind: "info", label: "When it's there", group: "when", text: (map, i) => visibilityNote(map, Number((asList(map.objects)[i] as { index?: number } | undefined)?.index ?? i), scriptRows, startFlags) },
+        { kind: "select", key: "palette", label: "Colors", group: "looks", numeric: true, options: () => ["0", ...OW_PALETTES.map((_, i) => String(8 + i))], labels: (v) => (v === "0" ? "The sprite's own" : OW_PALETTES[Number(v) - 8]?.toLowerCase()) },
         // the Role box edits the script, type, trainer and item ball; the rest is the cart's own bookkeeping
         { kind: "extras", label: "Other fields", hide: ["index", "script", "scriptKey", "spriteId", "type", "sight", "trainer", "itemball"] },
       ],
@@ -1324,7 +1494,10 @@ export const gen2: GameAdapter = {
         const move = Number(o.movement);
         // hidden at the start of a new game (its flag is set): it only appears through a script
         const ghost = !always && startFlags.has(Number(o.eventFlag));
-        return id ? { sprite: id, facing: FACING[move] ?? "down", ghost, moving: WALKS.has(move) } : null;
+        const r = (o.radius ?? {}) as { x?: number; y?: number };
+        // walkers and spinners turn (gen1recomp Npc.lua MOVE): up/down, left/right or every way
+        const looks: Facing[] | undefined = move === 4 ? ["up", "down"] : move === 5 ? ["left", "right"] : [2, 3, 10, 0x1e, 0x1f, 0x24].includes(move) ? ["down", "up", "left", "right"] : undefined;
+        return id ? { sprite: id, facing: FACING[move] ?? "down", ghost, moving: WALKS.has(move), range: { x: Number(r.x ?? 0), y: Number(r.y ?? 0) }, looks } : null;
       },
     },
     {
@@ -1416,6 +1589,15 @@ export const gen2: GameAdapter = {
   // palettes for the daytime, a tile's slot from its tileset's tilePalettes
   // (1-based, like the palette ids), and in towns and routes the roof slot's
   // two middle colors from roofs[map group]. Darkest first, like Gen 1's.
+  tileAnimPatterns: OWN_PATTERNS,
+  regions: [{ label: "Johto", map: "NEW_BARK_TOWN" }, { label: "Kanto", map: "PALLET_TOWN" }],
+  tileAnimations: (ctx, tileset, id) => {
+    // the game's program plus the rows a mod's extension appends (later rows win)
+    const anim = (tileset as { anim?: { period?: number; frames?: unknown[] } }).anim;
+    const rows = (ctx.records.studio_tilesets?.[id] as { anim?: unknown[] } | undefined)?.anim ?? [];
+    const merged = anim && rows.length ? { ...anim, frames: [...(anim.frames ?? []), ...rows] } : anim;
+    return gen2TileAnimations(merged, (ctx.data.extra as { tileAnim?: TileAnimSheets }).tileAnim ?? {});
+  },
   tileColors(ctx, tileset, key) {
     const p = palettes(ctx);
     const [env, group, time = "DAY"] = key.split("|");

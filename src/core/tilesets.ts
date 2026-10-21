@@ -10,7 +10,9 @@
 import type { TilesetDef } from "./types.ts";
 import type { GbcColoring } from "./gbc.ts";
 import { store } from "./store.ts";
-import { assetUrl, CACHE, type SheetRecipe } from "./assets.ts";
+import { assetUrl, CACHE, OVERRIDES, overrideUrl, type SheetRecipe } from "./assets.ts";
+
+const GENERATED = "assets/generated/";
 import { extendedSheetRel, frameRel, SPINNER_TILESETS } from "../lua/tilesetRuntime.ts";
 import { loadImage, TILE } from "../render/graphics.ts";
 
@@ -31,6 +33,9 @@ export interface TilesetExtension {
   // animated tiles: the tile's frames (shade digits), `period` 60ths of a
   // second each; the sheet holds frame 1
   animated?: AnimatedTile[];
+  // Gen 2: rows the helper appends to the tileset's `anim` program (an added
+  // tile animated with one of the engine's strip patterns, frames a mod image)
+  anim?: { func: string; tile: number; sheet: string; frames: number }[];
   // RED++ palette groups of the added tiles (see gbc.ts)
   gbc?: GbcColoring;
   // added tiles that are water / shore (surfable), appended to the tileset's
@@ -391,17 +396,36 @@ export function paintTile(rgba: Uint8ClampedArray, digits: string): void {
 // (TileRenderer defaultAnimatedTiles + the mod's own): water shifts tile 20
 // sideways, flowers cycle the cache's three frames, added tiles their own.
 // `sequence` holds 1-based frame numbers (for a shift: offset + 1).
+// Gen 2 (adapter.tileAnimations): `strip` = one image of 8x8 frames stacked
+// downwards, `scroll` = the sheet tile rotated in place (8 positions).
 export interface MapAnimation {
   tile: number;
   period: number;
   sequence: number[];
   shift?: boolean;
   urls?: string[];
+  strip?: string;
+  scroll?: { h: number; v: number };
+  // Gen 2: the strip's path (a game path can be replaced through image_overrides),
+  // and whether the frames are the mod's own
+  source?: string;
+  own?: boolean;
 }
 
 export function mapAnimations(id: string): MapAnimation[] {
   const rec = store.table("tilesets")[id] as TilesetDef | undefined;
   if (!rec) return [];
+  const own = store.adapter.tileAnimations;
+  if (own) {
+    const { host, version, mod } = store.project;
+    const overrides = store.table(OVERRIDES) as Record<string, string>;
+    const url = (path: string) => {
+      const rel = path.startsWith(GENERATED) ? path.slice(GENERATED.length) : null;
+      if (rel === null) return assetUrl(host, version, path);
+      return overrides[rel] && mod ? overrideUrl(host, version, mod, rel, overrides[rel]) : host.imageUrl(version, path);
+    };
+    return own(store.ctx, rec, id).map((a) => (a.strip ? { ...a, strip: url(a.strip) } : a));
+  }
   const byTile = new Map<number, MapAnimation>();
   const anim = rec.animation;
   if (anim === "TILEANIM_WATER" || anim === "TILEANIM_WATER_FLOWER") {

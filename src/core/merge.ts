@@ -189,5 +189,13 @@ export function diffRecord(base: unknown, next: unknown): unknown {
     const d = isPlainObject(b) && isPlainObject(n) ? diffRecord(b, n) : deepEqual(b, n) ? undefined : clone(n);
     if (d !== undefined) out[key] = d;
   }
+  // keys 1..n only would reach the engine as a Lua list, and a list replaces
+  // the whole table (gen1recomp Merge.isArray): carry one unchanged entry the
+  // base has besides them (Gold's timeFishGroups count from 0), so it merges
+  const own = Object.keys(out);
+  if (own.length && own.every((k, i, all) => /^\d+$/.test(k) && all.includes(String(i + 1)))) {
+    const anchor = Object.keys(base).find((k) => !own.includes(k));
+    if (anchor !== undefined) out[anchor] = clone(base[anchor]);
+  }
   return Object.keys(out).length ? out : undefined;
 }

@@ -6,7 +6,7 @@
 // object fields).
 
 import type { EntityRecord, MapDef } from "../core/types.ts";
-import { h, selectInput } from "./dom.ts";
+import { selectInput } from "./dom.ts";
 
 export interface RoleCtx {
   map: MapDef;
@@ -44,23 +44,20 @@ export const ROLE_LABEL: Record<string, string> = {
   hidden: "Hidden item (found once)",
   std: "Standard object (bookshelf, TV …)",
   game: "The game's script",
+  fruit: "Fruit tree (gives fruit daily)",
   none: "Nothing (doesn't react)",
 };
 
-export function roleBox(roles: RoleSet, c: RoleCtx): HTMLElement | null {
+// the role picker and the role's panels (the inspector's "What it does" card)
+export function roleBox(roles: RoleSet, c: RoleCtx): HTMLElement[] | null {
   const p = roles(c);
   if (!p) return null;
-  const wrap = h("div", { class: "field-group" }, h("h4", {}, "Role"));
-  if (p.blocked) {
-    wrap.append(p.blocked);
-    return wrap;
-  }
-  if (p.note) wrap.append(p.note);
+  if (p.blocked) return [p.blocked];
+  let head: HTMLElement;
+  if (p.note) head = p.note;
   else {
-    const sel = selectInput(p.current, p.options, (v) => p.set(v));
-    for (const o of sel.options) o.textContent = ROLE_LABEL[o.value] ?? o.value;
-    wrap.append(sel);
+    head = selectInput(p.current, p.options, (v) => p.set(v));
+    for (const o of (head as HTMLSelectElement).options) o.textContent = ROLE_LABEL[o.value] ?? o.value;
   }
-  wrap.append(...p.panels);
-  return wrap;
+  return [head, ...p.panels];
 }

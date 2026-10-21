@@ -5,6 +5,7 @@
 // A hand-written map script in the game can take over a TEXT_* id; the
 // studio cannot see those (release builds pack them into the exe).
 
+import { pickText } from "./textPick.ts";
 import { store } from "../core/store.ts";
 import type { EntityRecord, MapDef } from "../core/types.ts";
 import { h } from "./dom.ts";
@@ -98,6 +99,19 @@ function createOwnText(map: MapDef, label: string, base: string, initial: string
   });
 }
 
+// Points this entity's text id (made when it has none) at an existing text,
+// keeping the pointer's other settings (mart, nurse …)
+async function useExistingText(map: MapDef, label: string, base: string, textId: string, setTextId: (id: string) => void): Promise<void> {
+  const key = await pickText();
+  if (!key) return;
+  const id = /^TEXT_[A-Z0-9_]+$/.test(textId) && textId !== "TEXT_" ? textId : newTextId(map, label, base);
+  store.group(`Use text ${key}`, () => {
+    if (id !== textId) setTextId(id);
+    store.editRecord<Record<string, PointerEntry>>("text_pointers", label, "Text pointer", (d) => (d[id] = { ...(d[id] ?? {}), text: key }), { create: () => ({}) });
+  });
+  store.seal();
+}
+
 // Inspector section under an NPC's/sign's fields: what it says, editable in
 // place, or a button that sets everything up for a new line.
 export function npcTextSection(
@@ -110,7 +124,8 @@ export function npcTextSection(
   if (!hasTextPointers()) return null;
   const textId = typeof entity.text === "string" ? entity.text : "";
   const label = typeof map.label === "string" ? map.label : "";
-  const wrap = h("div", { class: "field-group npc-text" }, h("h4", {}, "Says"));
+  // part of the "What it does" card (Gen 1 roles that say their text)
+  const wrap = h("div", { class: "npc-text" });
   if (!label) {
     wrap.append(h("p", { class: "hint warn" }, "Give the map a Label (map properties) so its texts can be set up."));
     return wrap;
@@ -139,6 +154,7 @@ export function npcTextSection(
               },
             }, "Create text")
           : fresh("...{DONE}"),
+        h("button", { class: "btn small", title: "Show a text the game (or your mod) already has", onclick: () => void useExistingText(map, label, base, textId, setTextId) }, "Use an existing text…"),
       ),
       h("p", { class: "hint" }, "Makes a new text id and a new line of text. Existing texts are never changed."),
     );
@@ -174,6 +190,7 @@ export function npcTextSection(
       "div",
       { class: "row" },
       h("button", { class: "btn small ghost", onclick: () => nav.openText(key) }, "Open in Text →"),
+      h("button", { class: "btn small ghost", title: "Show a text the game (or your mod) already has instead", onclick: () => void useExistingText(map, label, base, textId, setTextId) }, "Use another text…"),
       h("span", { class: "hint" }, "NPCs with a hand-written script in the game may say something else."),
     ),
   );

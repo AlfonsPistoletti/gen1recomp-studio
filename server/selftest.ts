@@ -423,6 +423,25 @@ if (mods.some((m) => m.id === "bills_garden") && (await nodeHost.readText("game"
 }
 
 const { CODE_HIDDEN_OPTIONAL } = await import("../src/games/gen1/codeHidden.ts");
+// Events > Flags: the game's trainers' beaten flags, a mod's event and rule flags, and notes as a data file
+{
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const { loadLuaData } = await import("../src/lua/vm.ts");
+  const ctx = { data: project.data, maps: base, records: {
+    studio_events: { "PALLET_TOWN:talk:TEXT_X": { rows: [["check_flag", "MYMOD_A"], ["set_flag", "MYMOD_B"]] } },
+    studio_visibility: { "PALLET_TOWN:PALLET_TOWN_OAK": { flag: "MYMOD_A", whileSet: false } },
+  } } as unknown as Parameters<NonNullable<typeof adapter.flags>["uses"]>[0];
+  const uses = adapter.flags!.uses(ctx);
+  const pewter = uses.get("EVENT_BEAT_PEWTER_GYM_TRAINER_0") ?? [];
+  check("flags: a game trainer's beaten flag", pewter.some((u) => u.kind === "beaten" && u.map === "PEWTER_GYM" && u.layer === "objects"), JSON.stringify(pewter));
+  const a = uses.get("MYMOD_A") ?? [];
+  check("flags: a mod's event and rule", a.some((u) => u.kind === "check" && u.own) && a.some((u) => u.kind === "hides") && (uses.get("MYMOD_B") ?? []).some((u) => u.kind === "set"), JSON.stringify([...a, ...(uses.get("MYMOD_B") ?? [])]));
+  const notesSpec = adapter.content.find((c) => c.registry === adapter.flags!.notes)!;
+  const file = dataFile("studio_selftest", notesSpec.registry, { MYMOD_A: { note: "Oak's gone \"home\"" } }, []);
+  const back = await loadLuaData<Record<string, { note?: string }>>(file, "studio_flags.lua");
+  check("flags: a note round-trips through its data file (no helper registers it)", back.MYMOD_A?.note === "Oak's gone \"home\"" && notesSpec.studioFile === "studio_flags.lua" && !notesSpec.generator, file.slice(0, 200));
+}
+
 // the game's code hidden events: their maps, cells and texts exist in this version
 {
   const bad: string[] = [];
@@ -434,6 +453,29 @@ const { CODE_HIDDEN_OPTIONAL } = await import("../src/games/gen1/codeHidden.ts")
     for (const t of c.texts) if (typeof content.text[t] !== "string" && !CODE_HIDDEN_OPTIONAL.includes(t)) bad.push(`${c.map}: no text ${t}`);
   }
   check("code hidden events match the dataset", !bad.length, bad.join("; "));
+}
+
+// where the game shows / hides people: every map and person exists in each imported Gen 1 version
+{
+  const toggles = adapter.towns?.toggles ?? [];
+  for (const v of info.versions.filter((x) => x.available && adapterFor(x.version)?.id === "gen1")) {
+    const maps = v.version === version ? base : (await openProject(nodeHost, v.version, adapterFor(v.version)!, null)).data.maps;
+    const bad: string[] = [];
+    for (const t of toggles) {
+      if (t.versions && !t.versions.includes(v.version)) continue;
+      const m = maps[t.map];
+      if (!m) { bad.push(`${t.map}: no map`); continue; }
+      const names = new Set(((m.objects ?? []) as { name?: string }[]).map((o) => o.name));
+      for (const o of t.objects) if (!names.has(o)) bad.push(`${t.map}: no ${o}`);
+    }
+    check(`object toggles match the ${v.version} maps`, !bad.length, bad.join("; "));
+  }
+  const { VISIBILITY_RUNTIME, visibilityRegistration } = await import("../src/lua/visibilityRuntime.ts");
+  const { dataFile } = await import("../src/lua/writer.ts");
+  const f = "mods/studio_selftest/studio_content.lua";
+  const rules = dataFile("studio_selftest", "person visibility rules", { "BLUES_HOUSE:BLUESHOUSE_DAISY2": { flag: "STUDIO_SELFTEST_FLAG" } }, ["flag", "whileSet"]);
+  const ran = await runMod(new Map([[f, studioContentFile("studio_selftest", [], {}, VISIBILITY_RUNTIME + "\n" + visibilityRegistration("studio_selftest", "studio_visibility.lua"))], ["mods/studio_selftest/studio_visibility.lua", rules]]), "studio_selftest", f, null);
+  check("visibility helper registers an onEnter", ran.errors.length === 0 && ran.ops.some((o) => o.registry === "map_scripts" && o.id === "BLUES_HOUSE"), ran.errors.join("; "));
 }
 
 console.log(failures ? `\n${failures} check(s) failed` : "\nall checks passed");

@@ -8,6 +8,8 @@
 // every edit back (src/core/eventBlocks.ts). The game's own events are shown
 // read-only, with "Edit a copy" to override one.
 
+import { FEATURES } from "../features.ts";
+import { flagNoteLine } from "./flagsView.ts";
 import { fieldDefault, type ExtCommand } from "../project/extensions.ts";
 import { extFieldInput } from "./extFields.ts";
 import { clone } from "../core/merge.ts";
@@ -34,8 +36,13 @@ export interface StudioEvent {
   rows: EventRow[];
 }
 
-// "after": a Gen 2 trainer's talk after its battle (inline events only)
-export type EventKind = "talk" | "step" | "enter" | "after";
+// "after": a Gen 2 trainer's talk after its battle (inline events only);
+// "callee" / "caller": a Gen 2 phone contact's call (map id "PHONE", key the contact)
+export type EventKind = "talk" | "step" | "enter" | "after" | "callee" | "caller";
+
+// Gen 2 phone calls are written in the phone's own shape (EventSpec mode "phone")
+export const PHONE = "PHONE";
+const modeOf = (id: string): "phone" | undefined => (splitEventId(id).mapId === PHONE ? "phone" : undefined);
 
 // the game's commands plus the ones the mod and its dependencies define
 // (studio_extensions.json, category "Mods"); their rows are { verb, params... }
@@ -66,8 +73,8 @@ function events(): Record<string, StudioEvent> {
 }
 
 // rows <-> blocks in this game's script format
-const parseRows = (s: EventSpec, rows: EventRow[]): Block[] => (s.parse ? s.parse(rows, store.ctx) : parse(rows, verbs(s)));
-const compileBlocks = (s: EventSpec, blocks: Block[]): EventRow[] => (s.compile ? s.compile(blocks, store.ctx) : compile(blocks, verbs(s)));
+const parseRows = (s: EventSpec, rows: EventRow[], id = ""): Block[] => (s.parse ? s.parse(rows, store.ctx, modeOf(id)) : parse(rows, verbs(s)));
+const compileBlocks = (s: EventSpec, blocks: Block[], id = ""): EventRow[] => (s.compile ? s.compile(blocks, store.ctx, modeOf(id)) : compile(blocks, verbs(s)));
 
 // The blocks an event was last compiled from, while its rows are still those:
 // rows can't say everything the blocks did (Gen 2: an empty Else compiles to
@@ -75,7 +82,7 @@ const compileBlocks = (s: EventSpec, blocks: Block[]): EventRow[] => (s.compile 
 let lastCompiled: { id: string; rows: EventRow[]; blocks: Block[] } | null = null;
 function blocksOf(s: EventSpec, id: string, rows: EventRow[]): Block[] {
   if (lastCompiled?.id === id && JSON.stringify(lastCompiled.rows) === JSON.stringify(rows)) return clone(lastCompiled.blocks);
-  return parseRows(s, rows);
+  return parseRows(s, rows, id);
 }
 
 // writes an event (undefined: removes it), as one undo step
@@ -124,6 +131,7 @@ const nice = (v: string) => v.replace(/_/g, " ").toLowerCase().replace(/(^| )\w/
 
 export function eventTitle(id: string): string {
   const { mapId, kind, key } = splitEventId(id);
+  if (FEATURES.gen2 && mapId === PHONE) return `Phone: ${nice(key.replace(/^PHONE_/, ""))} (${kind === "callee" ? "you call" : "calls you"})`;
   if (kind === "talk") {
     const t = talker(mapId, key);
     const label = String(store.maps[mapId]?.label ?? "").toUpperCase();
@@ -154,8 +162,11 @@ export function createEvent(mapId: string, kind: EventKind, key: string, init: P
     // a person faces the player and says a new line (a new text key)
     store.group("New event", () => {
       const text = newEventText();
-      const blocks: Block[] = [...(kind === "step" || kind === "enter" || key.startsWith("sign") ? [] : [{ t: "cmd", row: ["faceplayer"] } as Block]), { t: "cmd", row: ["writetext", text] }];
-      writeInline(id, "New event", { rows: init.rows ?? compileBlocks(s, blocks) });
+      const blocks: Block[] = [
+        // a trainer's after-battle talk: nothing right after the battle, only when talked to again (as the game's)
+        ...(FEATURES.gen2 && kind === "after" ? [{ t: "cmd", row: ["#raw", { op: "endifjustbattled" }] } as Block] : []),
+        ...(kind === "step" || kind === "enter" || kind === "callee" || kind === "caller" || key.startsWith("sign") ? [] : [{ t: "cmd", row: ["faceplayer"] } as Block]), { t: "cmd", row: ["writetext", text] }];
+      writeInline(id, "New event", { rows: init.rows ?? compileBlocks(s, blocks, id) });
     });
     return id;
   }
@@ -184,6 +195,12 @@ function loadGame(onReady: () => void): GameScripts | null | undefined {
       onReady();
     });
   return undefined;
+}
+
+// Events > Flags: the game's events once read (null: no checkout), loading them on first ask
+export const gameEventsLoaded = (): GameScripts | null | undefined => gameCache;
+export function ensureGameEvents(onReady: () => void): void {
+  if (gameCache === undefined) loadGame(onReady);
 }
 
 export function gameTalkEvent(mapId: string, textId: string): EventRow[] | false | undefined {
@@ -233,8 +250,8 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
     },
     current: () => current,
     pick: (id) => open(id),
-    // map edits too: removing an NPC can leave its talk event without one
-    refreshOn: (reason, _id, registry) => (reason === "content" && registry === spec()?.registry) || reason === "edit",
+    // map edits too: removing an NPC can leave its talk event without one; a phone contact holds its call
+    refreshOn: (reason, _id, registry) => (reason === "content" && (registry === spec()?.registry || registry === store.adapter.globals?.phone?.registry)) || reason === "edit",
   });
 
   const main = h("div", { class: "ws-scroll" });
@@ -275,7 +292,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
           start = { x: t.e.x + dx, y: t.e.y + dy, facing: back };
         }
       }
-      nav.playEvent(info.mapId, parseRows(s, rows), start);
+      nav.playEvent(info.mapId, parseRows(s, rows, current), start);
     },
   }, "▶ Preview");
   center.append(h("div", { class: "panel-head" }, title, h("div", { class: "row nowrap" }, play, del)), main);
@@ -290,6 +307,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
   };
   nav.openEvent = (id) => {
     nav.setWorkspace("events");
+    nav.showEvents("events");
     open(id);
   };
 
@@ -301,6 +319,12 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       list.render();
       render(true);
     });
+    // an event removed elsewhere (a phone call put back to the game's, a person
+    // deleted on the map): nothing selected any more
+    if (s && current && !current.startsWith("game:") && !events()[current]) {
+      current = null;
+      list.render();
+    }
     if (!s || !current) {
       clear(main);
       clear(side);
@@ -345,7 +369,7 @@ export function mountEventWorkspace(left: HTMLElement, center: HTMLElement, righ
       gameCache = undefined;
       if (current && !current.startsWith("game:") && !events()[current]) current = null;
       render(true);
-    } else if (reason === "content" && s && (registry === s.registry || registry === "text" || registry === "items" || registry === "pokemon")) {
+    } else if (reason === "content" && s && (registry === s.registry || registry === "text" || registry === "items" || registry === "pokemon" || registry === store.adapter.globals?.phone?.registry)) {
       if (registry === s.registry && id && current && id !== current) return;
       if (registry === s.registry && current && !current.startsWith("game:") && !events()[current]) current = null;
       schedule();
@@ -461,7 +485,8 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
   if (info.game) {
     const rows = gameRowsOf(s, id);
     const t = s.inline ? inlineTarget(info.mapId, info.kind, info.key) : talker(info.mapId, info.key);
-    const what = info.kind === "step" ? `the player steps on trigger ${t ? t.index + 1 : "?"} on ${info.mapId}`
+    const what = FEATURES.gen2 && info.mapId === PHONE ? (info.kind === "callee" ? `the player calls ${eventTitle(id).replace(/^Phone: | \(.*$/g, "")} on the Pokégear` : `${eventTitle(id).replace(/^Phone: | \(.*$/g, "")} calls the player`)
+      : info.kind === "step" ? `the player steps on trigger ${t ? t.index + 1 : "?"} on ${info.mapId}`
       : info.kind === "after" ? `the player talks to trainer NPC ${t ? String(t.e.index) : "?"} on ${info.mapId} (after its battle)`
       : t ? `the player talks to ${isSignLayer(t.layer) ? "sign" : "NPC"} ${isSignLayer(t.layer) ? t.index + 1 : (t.e.index ?? t.index + 1)} on ${info.mapId}` : `${info.key} on ${info.mapId}`;
     out.push(
@@ -495,7 +520,7 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
         ),
       ),
     );
-    if (rows) out.push(h("section", { class: "card" }, h("h4", {}, "Commands"), blockList(s, info.mapId, parseRows(s, rows), "", null, selected, select)));
+    if (rows) out.push(h("section", { class: "card" }, h("h4", {}, "Commands"), blockList(s, info.mapId, parseRows(s, rows, id), "", null, selected, select)));
     else out.push(h("p", { class: "hint" }, "This event is code in the game (often a cutscene or a special case), so it can't be shown as commands."));
     return out;
   }
@@ -516,7 +541,15 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
 
   // trigger
   const trigger = h("section", { class: "card" }, h("h4", {}, "Runs when"));
-  if (info.kind === "talk") {
+  if (FEATURES.gen2 && info.mapId === PHONE) {
+    const who = eventTitle(id).replace(/^Phone: | \(.*$/g, "");
+    trigger.append(
+      h("div", { class: "row" },
+        h("span", {}, info.kind === "callee" ? `The player calls ${who} on the Pokégear` : `${who} calls the player`),
+        h("button", { class: "btn small ghost", onclick: () => nav.openGlobal("phone") }, "Phone contacts →")),
+      h("p", { class: "hint" }, "The phone rings, shows the caller and hangs up by itself: no text box to open or close. Fill the name slot before a text that says {STRBUF}."),
+    );
+  } else if (info.kind === "talk") {
     const t = talker(info.mapId, info.key);
     const game = gameTalkEvent(info.mapId, info.key);
     trigger.append(
@@ -583,7 +616,7 @@ function eventForm(s: EventSpec, id: string, selected: () => string | null, sele
   currentMap = info.mapId;
   currentEvent = id;
   const commit = (label: string) => editEv(label, (d) => {
-    d.rows = compileBlocks(s, root);
+    d.rows = compileBlocks(s, root, id);
     lastCompiled = { id, rows: clone(d.rows), blocks: clone(root) };
   });
   out.push(h("section", { class: "card event-card" }, h("h4", {}, "Commands"), blockList(s, info.mapId, root, "", commit, selected, select)));
@@ -988,6 +1021,13 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "number":
         input = numberInput(Number(value ?? p.default ?? 0), (v) => set(Math.max(p.min ?? -1e9, Math.min(p.max ?? 1e9, v))), p.min, p.max);
         break;
+      case "word": {
+        // Gold's buffer holds a short name: 16 letters fit every text box line
+        const w = h("input", { type: "text", value: String(value ?? p.default ?? ""), maxLength: 16, spellcheck: false });
+        w.addEventListener("change", () => set(w.value));
+        input = w;
+        break;
+      }
       case "goldObject": {
         // Gold's object numbers: 0 the player, a person its index + 1
         const map = store.maps[mapId];
@@ -1003,9 +1043,11 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "flagNumber": {
         // Gen 2 event flags are numbers; a free one is past every flag the game uses
         const free = () => store.adapter.trainers?.objectTrainer?.freeFlag(store.ctx) ?? null;
-        input = h("div", { class: "row nowrap" },
-          numberInput(Number(value ?? 0), (v) => set(Math.max(0, Math.min(2047, v))), 0, 2047),
-          h("button", { class: "btn small ghost", disabled: ro, title: "A flag no game event and no other studio event uses", onclick: () => { const f = free(); if (f !== null) set(f); } }, "A free flag"));
+        input = h("div", {},
+          h("div", { class: "row nowrap" },
+            numberInput(Number(value ?? 0), (v) => set(Math.max(0, Math.min(2047, v))), 0, 2047),
+            h("button", { class: "btn small ghost", disabled: ro, title: "A flag no game event and no other studio event uses", onclick: () => { const f = free(); if (f !== null) set(f); } }, "A free flag")),
+          flagNoteLine(String(value ?? 0)));
         break;
       }
       case "ext":
@@ -1013,7 +1055,9 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
         break;
       case "path": {
         // walks from where the walker stands at this point of the event
-        const walker = args.who ?? args.npc;
+        let walker = args.who ?? args.npc;
+        // Gold names people by object number: 0 the player, a person its index + 1
+        if (spec()?.inline && typeof walker === "number") walker = walker === 0 ? "player" : walker - 1;
         const at = positionsAt(owner);
         const start = walker === "player" ? at.player : typeof walker === "number" ? (at.npcs.get(walker) ?? null) : null;
         input = pathWidget(mapId, start, Array.isArray(value) ? value.map(String) : [], ro, (path) => set(path));
@@ -1088,7 +1132,7 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
           inp.value = v;
           set(v);
         });
-        input = inp;
+        input = h("div", {}, inp, flagNoteLine(String(value ?? "")));
         break;
       }
       case "item":
@@ -1107,6 +1151,14 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "trainer":
         input = combo(Object.keys(store.table("trainers")).sort(), value, set);
         break;
+      case "choice": {
+        const opts = p.options ?? [];
+        const sel = selectInput(String(value ?? opts[0]?.value ?? ""), opts.map((o) => String(o.value)), (v) => set(typeof opts[0]?.value === "number" ? Number(v) : v));
+        for (const o of sel.options) o.textContent = opts.find((x) => String(x.value) === o.value)?.label ?? o.value;
+        sel.disabled = ro;
+        input = sel;
+        break;
+      }
       case "screen": {
         const list = spec()?.screens ?? [];
         const sel = selectInput(String(value ?? ""), list.map((x) => x.id), set);
@@ -1269,7 +1321,7 @@ function combo(options: string[], value: unknown, set: (v: string) => void): HTM
 
 // flags used by the studio's events, Oak's speech and the game's own
 export function knownFlags(): string[] {
-  const out = new Set<string>(introFlags());
+  const out = new Set<string>([...introFlags(), ...Object.keys(store.adapter.flags ? store.table(store.adapter.flags.notes) : {})]);
   const walk = (rows: EventRow[] | false | undefined) => {
     for (const r of rows || []) if ((r[0] === "check_flag" || r[0] === "set_flag" || r[0] === "clear_flag") && typeof r[1] === "string") out.add(r[1]);
   };
@@ -1290,7 +1342,7 @@ function helpPanel(s: EventSpec, id: string, selected: string | null): HTMLEleme
   const info = splitEventId(id);
   const rows = info.game ? gameRowsOf(s, id) || [] : events()[id]?.rows ?? [];
   // paths look like 2.t.0 (then), 2.e.1 (else), 3.b1.0 (choice branch 2)
-  let list = info.game ? parseRows(s, rows) : blocksOf(s, id, rows);
+  let list = info.game ? parseRows(s, rows, id) : blocksOf(s, id, rows);
   let b: Block | undefined;
   for (const part of selected.split(".")) {
     if (/^\d+$/.test(part)) b = list[Number(part)];
@@ -1319,7 +1371,7 @@ export function eventOutline(id: string): HTMLElement | null {
   const info = splitEventId(id);
   const rows = info.game ? gameRowsOf(s, id) : events()[id]?.rows;
   if (!rows) return null;
-  const blocks = info.game ? parseRows(s, rows) : blocksOf(s, id, rows);
+  const blocks = info.game ? parseRows(s, rows, id) : blocksOf(s, id, rows);
   return h("div", { class: "event-outline" }, blockList(s, info.mapId, blocks, "", null, () => null, () => {}));
 }
 

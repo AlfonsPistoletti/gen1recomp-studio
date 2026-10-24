@@ -142,7 +142,8 @@ function grouped(): [string, Change[]][] {
   }
   const order = Object.keys(NAMES);
   const rank = (r: string) => (order.includes(r) ? order.indexOf(r) : order.length);
-  return [...groups].sort(([a], [b]) => rank(a) - rank(b));
+  // a group whose records changed in no way the list shows (Gen 2 map colors equal to the game's) isn't listed
+  return [...groups].filter(([, changes]) => changes.length > 0).sort(([a], [b]) => rank(a) - rank(b));
 }
 
 const mapIdOfLabel = (label: string): string | undefined =>
@@ -192,7 +193,7 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     case "studio_events":
       return removed ? null : () => nav.openEvent(id);
     case "studio_held_effects":
-      return store.table("items")[id] ? () => nav.openItem(id) : null;
+      return store.table("items")[id] ? () => nav.openItem(id) : removed ? null : removeUnused(registry, id);
     case "studio_flag_notes":
       return () => nav.openFlag(id);
     case "studio_visibility": {
@@ -248,11 +249,15 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
 }
 
 // a custom effect nothing uses any more: its row removes it
+// (Gen 2 keeps an item's effect under the item's own id: it is used while that item exists)
 const unusedEffect = (registry: string, id: string, record: unknown): boolean =>
+  // own held effects of an item that no longer exists
+  (record !== null && registry === store.adapter.items?.heldRules?.registry && store.table("items")[id] === undefined) ||
   record !== null && (registry === "studio_effects" || registry === "studio_item_effects")
+  && !(registry === "studio_item_effects" && store.adapter.items?.byItem && store.table("items")[id] !== undefined)
   && !Object.values(store.table(registry === "studio_effects" ? "moves" : "items")).some((r) => (r as { effect?: unknown }).effect === id);
 const removeUnused = (registry: string, id: string) => () => {
-  store.setRecord(registry, id, "Remove unused custom effect", undefined);
+  store.setRecord(registry, id, registry === store.adapter.items?.heldRules?.registry ? "Remove held effects of a deleted item" : "Remove unused custom effect", undefined);
   store.seal();
 };
 
@@ -350,7 +355,7 @@ export function mountChangesMenu(): HTMLElement {
             {
               class: "menu-row",
               disabled: !open,
-              title: unusedEffect(registry, id, record) ? "Not used by any move or item: click to remove it" : open ? "Open" : "Nothing to open",
+              title: unusedEffect(registry, id, record) ? (registry === store.adapter.items?.heldRules?.registry ? "Its item was deleted: click to remove these held effects" : "Not used by any move or item: click to remove it") : open ? "Open" : "Nothing to open",
               onclick: () => {
                 close();
                 open?.();

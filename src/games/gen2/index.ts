@@ -182,6 +182,18 @@ const content: ContentSpec[] = [
   },
   // Kurt's apricorn balls: the engine's own registry (patched)
   { registry: "apricorns", editable: true, build: () => structuredClone(GOLD_APRICORNS) },
+  // the shops (engine 535a5ec0+): marts.lua `lists` by the script's mart number, and the bargain shop;
+  // a patch replaces a whole list, as the engine merges it
+  {
+    registry: "marts", file: "marts.lua", editable: true,
+    build: (f) => {
+      const file = f as { lists?: unknown; bargain?: unknown };
+      const out: Record<string, unknown> = {};
+      (asList(file.lists) as unknown[]).forEach((l, n) => (out[String(n)] = asList(l)));
+      if (file.bargain) out.bargain = asList(file.bargain);
+      return out;
+    },
+  },
   // Events > Flags: the mod's notes on flags (key -> { note }); a data file only the studio reads
   { registry: "studio_flag_notes", editable: true, build: () => ({}), studioFile: "studio_flags.lua" },
   // the Pokégear phone book: events.lua `phone` rows by their PHONE_* id
@@ -595,14 +607,12 @@ const items: ItemSpec = {
   // POKE_FLUTE / TOWN_MAP, which the Pokégear replaced)
   internal: (id, item) => (item?.name === "TERU-SAMA" || /^ITEM_[0-9A-F]{2}$/.test(id) ? "An unused item slot of the game (named TERU-SAMA)." : null),
   picksMove: gen2PicksMove,
-  marts: () => [],
-  // Gold's items are numbered 1-250; 251-254 are free (0 = none, 255 ends a list)
-  newIndex: (ctx) => {
-    const used = new Set(Object.values(recordsOf(ctx, "items")).map((r) => r.index));
-    for (let n = 251; n <= 254; n++) if (!used.has(n)) return n;
-    return undefined;
-  },
-  noIndex: "Gold's free item numbers (251-254) are used up: this item has no number, so item balls, hidden items and give-item commands can't hand it out. It works in shops, the bag, as a held item and in trainer AI.",
+  // the shops by the script's mart number, named after the clerks that open them
+  marts: (ctx) => Object.keys(recordsOf(ctx, "marts")).filter((k) => /^\d+$/.test(k)).sort((a, b) => Number(a) - Number(b)).map((k) => {
+    const clerks = martClerks.get(Number(k)) ?? [];
+    const where = [...new Set(clerks.map((c) => c.mapId))];
+    return { registry: "marts", map: k, text: "", label: `Shop ${k}${where.length ? `: ${where.join(", ")}` : ""}`, mapId: where[0] };
+  }),
   // pocketId order (constants/item_constants.asm)
   pockets: ["ITEM", "KEY_ITEM", "BALL", "TM_HM"],
   description: { lines: 2, lineMax: 18 },
@@ -627,15 +637,17 @@ const items: ItemSpec = {
     const out: ItemUse[] = [];
     const rec = (reg: string) => (ctx.records[reg] ?? {}) as Record<string, Record<string, unknown>>;
     const mapName = (m: string) => String(ctx.maps[m]?.label ?? m);
-    // the game's shops (stock read-only, ISSUES #6), at the clerks that open them
-    const lists = (ctx.data.extra as { marts?: string[][] }).marts ?? [];
-    lists.forEach((list, n) => {
-      if (!list.includes(id)) return;
+    // the shops (the marts registry), at the clerks that open them
+    for (const [k, list] of Object.entries(rec("marts"))) {
+      const n = Number(k);
+      if (!Number.isInteger(n) || !Array.isArray(list) || !list.includes(id)) continue;
       const clerks = martClerks.get(n) ?? [];
       if (!clerks.length) out.push({ label: `Shop ${n}` });
       // a clerk opening two marts (stock before/after an event) shows once
       for (const c of clerks) if (!out.some((u) => u.map?.id === c.mapId && u.map.index === c.index)) out.push({ label: `Shop: ${mapName(c.mapId)}`, map: { id: c.mapId, layer: "objects", index: c.index } });
-    });
+    }
+    const bargain = rec("marts").bargain as unknown;
+    if (Array.isArray(bargain) && bargain.some((r) => (r as { item?: unknown })?.item === id)) out.push({ label: "Bargain shop" });
     // trainers: the class's battle items (AI) and held items in its teams
     for (const [cls, r] of Object.entries(rec("trainers"))) {
       const name = String(r.name ?? cls);
@@ -862,7 +874,8 @@ const globals: GlobalsSpec = {
     { id: "slots", group: "Other", label: "Slot machines", hint: "The symbols on the Game Corner's three slot reels." },
     { id: "fruittrees", group: "Other", label: "Fruit trees", hint: "The item each fruit tree gives once a day. A tree on the map is a person whose role is Fruit tree, with its number." },
     { id: "apricorns", group: "Other", label: "Kurt's apricorn balls", hint: "Which ball Kurt makes from each apricorn." },
-    { id: "phone", group: "Other", label: "Phone contacts", hint: "The Pokégear phone book: where each contact stands, when calls happen, who gives the number and what is said on the phone. The game has a fixed set of contacts: a mod changes them but can't add new ones." },
+    { id: "phone", group: "Other", label: "Phone contacts", hint: "The Pokégear phone book: where each contact stands, when calls happen, who gives the number and what is said on the phone. A mod can change them and add its own." },
+    { id: "shops", group: "Other", label: "Shops", hint: "What each shop sells, by the game's shop number (clerks opening the same number share it), and the bargain shop's prices." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],
   numbers: [
@@ -873,6 +886,7 @@ const globals: GlobalsSpec = {
   defaults: { statuses: GOLD_STATUSES },
   hmBadges: { registry: "studio_field_moves", id: "badges", moves: Object.keys(GOLD_HM_BADGES), badges: JOHTO_BADGES },
   fruitTrees: { registry: "studio_fruit_trees", id: "trees" },
+  shops: { registry: "marts", clerks: (n) => martClerks.get(n) ?? [] },
   phone: {
     registry: "phone_contacts",
     // The texts a call script says, in order, with the time of day they belong
@@ -1147,6 +1161,16 @@ export const gen2: GameAdapter = {
   viewOnly: { registries: ["tilesets", "sprites"], reason: "Gen 2 tilesets and sprites can be looked at, not changed yet." },
   workspaces: ["maps", "pokemon", "moves", "items", "trainers", "text", "events", "graphics", "global"],
   events: GEN2_EVENTS,
+  // gen1recomp Schemas.gen2Index: past the game's numbers (species and moves 251, items 250), up to
+  // 65535, never the Egg (species 253) or 255 (moves, items: it ends a list)
+  scriptIndex: (registry, records) => {
+    const floor = registry === "pokemon" || registry === "moves" ? 251 : registry === "items" ? 250 : null;
+    if (floor === null) return undefined;
+    const used = new Set(Object.values(records).map((r) => (r as { index?: unknown } | null)?.index));
+    used.add(registry === "pokemon" ? 253 : 255);
+    for (let n = floor + 1; n <= 65535; n++) if (!used.has(n)) return n;
+    return undefined;
+  },
   flags: {
     notes: "studio_flag_notes", numeric: true,
     // pokegold's names; Crystal numbers its flags differently

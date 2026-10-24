@@ -263,6 +263,9 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     rec.dex = Math.max(0, ...Object.values(all).map((m) => Number(m.dex) || 0)) + 1;
     delete rec.index;
     delete rec.source;
+    // Gen 2: its own script number (starters, gifts and events give species by it)
+    const index = store.adapter.scriptIndex?.("pokemon", all);
+    if (index !== undefined) rec.index = index;
     if (typeof rec.cry !== "string") rec.cry = res.source;
     // a mod may not point at the game's own art (modkit MK301): reuse it
     // through the asset-transforms recipe, else start with placeholders

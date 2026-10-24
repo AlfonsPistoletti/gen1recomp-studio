@@ -217,10 +217,9 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     rec.name = res.name;
     delete rec.index;
     delete rec.source;
-    // Gen 2: a free number (scripts and item balls name items by it)
-    const index = s.newIndex?.(store.ctx);
+    // Gen 2: its own script number (scripts, item balls and shops name items by it)
+    const index = store.adapter.scriptIndex?.("items", all);
     if (index !== undefined) rec.index = index;
-    else if (s.noIndex) toast(s.noIndex, "info");
     store.group(`New item ${res.id}`, () => {
       // Gen 2: the effect is the record under the item's own id
       const ownTemplate = s.byItem ? s.template(res.source, src) : null;
@@ -271,6 +270,8 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     store.group(`Delete ${id}`, () => {
       store.setRecord(s.registry, id, `Delete ${id}`, undefined);
       if (s.ballRegistry && balls()[id]) store.setRecord(s.ballRegistry, id, "Delete ball", undefined);
+      // Gen 2: its own held effects go with it
+      if (s.heldRules && store.table(s.heldRules.registry)[id] !== undefined) store.setRecord(s.heldRules.registry, id, "Delete held effects", undefined);
       for (const m of s.marts(store.ctx)) if (martStock(m).includes(id)) setStock(m, martStock(m).filter((x) => x !== id));
       dropUnusedEffects();
     });
@@ -954,11 +955,17 @@ function ballCard(s: ItemSpec, id: string): HTMLElement {
 // ------------------------------------------------------------------ shops
 
 function martStock(m: MartRef): string[] {
+  // Gen 2: the record is the list
+  if (!m.text) {
+    const list = store.table(m.registry)[m.map];
+    return Array.isArray(list) ? (list as string[]) : [];
+  }
   const entry = (store.table(m.registry)[m.map] as Record<string, { mart?: string[] }> | undefined)?.[m.text];
   return Array.isArray(entry?.mart) ? entry.mart : [];
 }
 
 function setStock(m: MartRef, stock: string[]): void {
+  if (!m.text) return store.setRecord(m.registry, m.map, "Shop stock", stock);
   store.editRecord<Record<string, Rec>>(m.registry, m.map, "Shop stock", (d) => {
     d[m.text] = { ...d[m.text], mart: stock };
   });
@@ -1008,7 +1015,7 @@ function usesOf(id: string): Use[] {
     if (a.item === id) out.push({ label: `Trainer AI: ${cls}`, open: () => nav.openTrainer(cls) });
   }
   const s = spec();
-  for (const m of s?.marts(store.ctx) ?? []) if (martStock(m).includes(id)) out.push({ label: `Shop: ${m.label}`, open: () => (m.mapId ? nav.openMap(m.mapId) : undefined) });
+  for (const m of s?.marts(store.ctx) ?? []) if (m.text && martStock(m).includes(id)) out.push({ label: `Shop: ${m.label}`, open: () => (m.mapId ? nav.openMap(m.mapId) : undefined) });
   const towns = store.adapter.towns;
   if (towns) for (const cid of countersGiving(towns, id)) out.push({ label: `Prize: ${counterLabel(cid)}`, open: () => showCounter(cid) });
   for (const u of s?.uses?.(store.ctx, id) ?? []) {

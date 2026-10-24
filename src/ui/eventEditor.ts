@@ -1021,6 +1021,24 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
       case "number":
         input = numberInput(Number(value ?? p.default ?? 0), (v) => set(Math.max(p.min ?? -1e9, Math.min(p.max ?? 1e9, v))), p.min, p.max);
         break;
+      case "phone": {
+        // Gen 2: a contact by its number, named
+        if (!FEATURES.gen2) {
+          input = h("span", {});
+          break;
+        }
+        const ph = store.adapter.globals?.phone;
+        const book = ph ? (store.table(ph.registry) as Record<string, { index?: number; name?: string }>) : {};
+        const byIndex = Object.entries(book).filter(([, c]) => typeof c?.index === "number").sort((a, b) => Number(a[1].index) - Number(b[1].index));
+        const sel = selectInput(String(value ?? p.default ?? ""), byIndex.map(([, c]) => String(c.index)), (v) => set(Number(v)));
+        for (const o of sel.options) {
+          const hit = byIndex.find(([, c]) => String(c.index) === o.value);
+          if (hit) o.textContent = `${o.value} · ${hit[1].name ?? hit[0].replace(/^PHONE_/, "").replace(/_/g, " ")}`;
+        }
+        sel.disabled = ro;
+        input = sel;
+        break;
+      }
       case "word": {
         // Gold's buffer holds a short name: 16 letters fit every text box line
         const w = h("input", { type: "text", value: String(value ?? p.default ?? ""), maxLength: 16, spellcheck: false });

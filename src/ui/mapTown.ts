@@ -159,11 +159,16 @@ export const gen1Roles: RoleSet = (c) => {
 // the clerk's stock: same list the Items workspace's "Sold at" edits
 function stockEditor(s: TownSpec, label: string, textId: string): HTMLElement {
   const stock = (pointerEntry(label, textId)?.mart as string[] | undefined) ?? [];
-  const items = store.table("items") as Record<string, { name?: string }>;
-  const setStock = (what: string, next: string[]) => {
+  return stockList(stock, (what, next) => {
     editPointer(s, label, textId, what, (e) => (e.mart = next));
     store.seal();
-  };
+  });
+}
+
+// A shop's stock: each item (opens it), up / remove, and an item box to add one. Both generations
+// (Gen 1: a text pointer's mart list, Gen 2: a marts record).
+export function stockList(stock: string[], setStock: (what: string, next: string[]) => void): HTMLElement {
+  const items = store.table("items") as Record<string, { name?: string }>;
   const ids = Object.keys(items).sort();
   const rows = stock.map((id, i) =>
     h(

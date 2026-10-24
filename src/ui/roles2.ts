@@ -20,6 +20,7 @@ import type { EntityRecord, MapDef } from "../core/types.ts";
 import { comboInput, field, h, numberInput, selectInput, toast } from "./dom.ts";
 import { createEvent, eventId, eventOutline } from "./eventEditor.ts";
 import { makeTrainer, objectTrainerSection, removeTrainer } from "./mapTrainer.ts";
+import { stockList } from "./mapTown.ts";
 import { nav } from "./nav.ts";
 import type { RoleCtx, RoleSet } from "./roles.ts";
 import { textEditor } from "./textField.ts";
@@ -263,7 +264,9 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
       return [field("What it is", sel, "The game's own script for it")];
     }
     case "mart": {
-      const lists = extra().marts ?? [];
+      const reg = store.adapter.globals?.shops?.registry ?? "marts";
+      const table = store.table(reg) as Record<string, unknown>;
+      const lists = Object.keys(table).filter((k) => /^\d+$/.test(k)).map((k) => (Array.isArray(table[k]) ? (table[k] as string[]) : []));
       const row = scriptOf(e)?.find((r) => r.op === "pokemart");
       const args = (row?.args as number[] | undefined) ?? [0, 0, 0];
       const id = Number(args[1] ?? 0) + Number(args[2] ?? 0) * 256;
@@ -271,10 +274,17 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
         x.scriptKey = (scriptOf(x) ?? []).map((r) => (r.op === "pokemart" ? { ...r, args: [0, Number(v) % 256, Math.floor(Number(v) / 256)] } : r));
       }));
       for (const o of sel.options) o.textContent = `Shop ${o.value}: ${(lists[Number(o.value)] ?? []).slice(0, 3).map((i) => String(items()[i]?.name ?? i)).join(", ")}…`;
+      // the same mart number opened by other clerks sells the same
+      const others = (store.adapter.globals?.shops?.clerks(id) ?? []).filter((c) => !(c.mapId === store.map?.id && c.index === store.selection?.index));
       return [
-        field("Sells", sel, "One of the game's shops: a mod can't change Gold's stock yet (ISSUES #6)."),
-        h("p", { class: "hint" }, (lists[id] ?? []).map((i) => String(items()[i]?.name ?? i)).join(", ")),
-      ];
+        field("Sells", sel, "The game's shop number this clerk opens: its stock is edited below."),
+        stockList(lists[id] ?? [], (what, next) => {
+          store.setRecord(reg, String(id), what, next);
+          store.seal();
+        }),
+        others.length ? h("p", { class: "hint" }, `Also sold by ${others.map((c) => `${c.mapId} NPC ${String(store.entities(store.maps[c.mapId], "objects")[c.index]?.index ?? c.index)}`).join(", ")}: the stock is shared.`) : null,
+        store.isRecordEdited(reg, String(id)) ? h("button", { class: "btn small danger", onclick: () => { store.revertRecord(reg, String(id), `Shop ${id}: the game's stock`); store.seal(); } }, "Back to the game's stock") : null,
+      ].filter((x): x is HTMLElement => !!x);
     }
     case "fruit": {
       const ft = store.adapter.globals?.fruitTrees;

@@ -625,6 +625,68 @@ for (const [registry, records] of Object.entries(edited)) {
   check("flags: a new game's flags and Gold's names", [...uses.values()].flat().some((u) => u.kind === "start") && adapter.flags!.name!(ctx, "628") === "EVENT_JOEY_READY_FOR_REMATCH", String(adapter.flags!.name!(ctx, "628")));
 }
 
+// own held effects: the helper registers in the studio VM, and its hooks act on a
+// fake battle as the rules say (damage, crit, accuracy, game-effect answers, end of turn)
+{
+  const { HELD_EFFECT_RUNTIME2, heldEffectRegistration2 } = await import("../src/lua/heldEffectRuntime2.ts");
+  const { dataFile, studioContentFile: contentFile } = await import("../src/lua/writer.ts");
+  const { LuaFactory } = await import("wasmoon");
+  const rules = { LEFTOVERS: { usedUp: true, rules: [
+    { kind: "boost", percent: 50, on: "type", type: "FIRE" },
+    { kind: "guard", percent: 50, on: "physical" },
+    { kind: "crit", stages: 2 },
+    { kind: "evade", chance: 100 },
+    { kind: "first", chance: 50 },
+    { kind: "heal", percent: 25, below: 0 },
+    { kind: "cure", status: "sleep" },
+  ] } };
+  const f = "mods/studio_selftest/studio_content.lua";
+  const data = dataFile("studio_selftest", "own held item effects", rules, ["rules", "kind"]);
+  const ran = await runMod(new Map([[f, contentFile("studio_selftest", [], {}, HELD_EFFECT_RUNTIME2 + "\n" + heldEffectRegistration2("studio_selftest", "studio_held_effects.lua"))], ["mods/studio_selftest/studio_held_effects.lua", data]]), "studio_selftest", f, null);
+  check("held effects: the helper loads in the studio VM", ran.errors.length === 0, ran.errors.join("; "));
+  // the hooks on a fake battle
+  const lua = await new LuaFactory().createEngine();
+  try {
+    const out: string = await lua.doString(`
+      local hooks = {}
+      mod = { hooks = { wrap = function(_, name, fn) hooks[name] = fn end } }
+      ${HELD_EFFECT_RUNTIME2}
+      studioHeldEffects(${"(function() " + data.replace(/^--.*$/gm, "") + " end)()"})
+      local events = {}
+      local holder = { item = "LEFTOVERS", hp = 10, maxHp = 100, status = "sleep" }
+      local foe = { item = nil, hp = 50, maxHp = 50 }
+      local battle = { turn = 1, player = holder, enemy = foe, random = function(n) return 0 end,
+        itemDef = function(_, id) return { name = "LEFTOVERS" } end,
+        battlerName = function(_, m) return m == holder and "HOLDER" or "FOE" end,
+        sideOf = function(_, m) return m == holder and "player" or "enemy" end,
+        volatile = function(_, m) m.v = m.v or {} return m.v end,
+        emit = function(_, e) events[#events + 1] = e end,
+        heal = function(_, m, n) local b = m.hp m.hp = math.min(m.maxHp, m.hp + n) return m.hp - b end,
+        changeStage = function() return true end }
+      local r = {}
+      local d = hooks["battle.damage"](function() return 100, { effectiveness = 10 } end, { battle = battle, user = holder, target = foe, move = { type = "FIRE" } })
+      r[#r + 1] = "fire=" .. d
+      d = hooks["battle.damage"](function() return 100, { effectiveness = 10 } end, { battle = battle, user = foe, target = holder, move = { type = "NORMAL" } })
+      r[#r + 1] = "hit=" .. d
+      local level
+      hooks["battle.crit"](function(c) level = c.criticalLevel return false end, { battle = battle, attacker = holder, criticalLevel = 0 })
+      r[#r + 1] = "crit=" .. level
+      local hit = hooks["battle.accuracy"](function() return true end, { battle = battle, user = foe, target = holder, random = function(n) return 0 end })
+      r[#r + 1] = "hit=" .. tostring(hit)
+      local e, p = hooks["held_item.trigger"](function(c) return c.effect, c.parameter end, { battle = battle, mon = holder, trigger = "priority", effect = "HELD_LEFTOVERS", parameter = 0 })
+      r[#r + 1] = e .. "/" .. p
+      e = hooks["held_item.trigger"](function(c) return c.effect, c.parameter end, { battle = battle, mon = holder, trigger = "residual", effect = "HELD_LEFTOVERS", parameter = 0 })
+      hooks["held_item.trigger"](function(c) return c.effect, c.parameter end, { battle = battle, mon = holder, trigger = "residual", effect = "HELD_LEFTOVERS", parameter = 0 })
+      r[#r + 1] = "hp=" .. holder.hp .. " status=" .. tostring(holder.status) .. " item=" .. tostring(holder.item) .. " residual=" .. tostring(e) .. " events=" .. #events
+      return table.concat(r, " ")`);
+    // the item is used up (like a Berry): its first end-of-turn effect (the heal) spends it, so the
+  // sleep cure after it never runs, and nothing else is said
+  check("held effects: hooks act as the rules say", out === "fire=150 hit=50 crit=2 hit=false HELD_QUICK_CLAW/256 hp=35 status=sleep item=nil residual=nil events=1", out);
+  } finally {
+    lua.global.close();
+  }
+}
+
 // fruit trees: the restated list matches the trees on the maps, and the helper loads
 {
   const { fruitTreeRegistration2 } = await import("../src/lua/fieldRuntime2.ts");

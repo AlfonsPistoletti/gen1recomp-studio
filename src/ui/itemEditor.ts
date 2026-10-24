@@ -8,6 +8,8 @@ import { store } from "../core/store.ts";
 import type { BallRecord, ItemEffectSpec, ItemEffectStep, ItemSpec, MartRef } from "../games/types.ts";
 import { describeItemEffect } from "../games/gen1/items.ts";
 import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
+import { heldRulesSection } from "./heldRules.ts";
+import { FEATURES } from "../features.ts";
 import { nav } from "./nav.ts";
 import { idRow } from "./renameId.ts";
 import { promptNewRecord } from "./newRecord.ts";
@@ -317,9 +319,9 @@ export function mountItemWorkspace(left: HTMLElement, center: HTMLElement, right
     if (reason === "project") {
       if (!current || !items()[current]) current = ordered()[0] ?? null;
       render(true);
-    } else if (reason === "content" && s && [s.registry, s.effectRegistry, s.ballRegistry, "text_pointers", "pokemon", "ai_classes", "moves", store.adapter.towns?.prizeRegistry].includes(registry)) {
+    } else if (reason === "content" && s && [s.registry, s.effectRegistry, s.ballRegistry, s.heldRules?.registry, "text_pointers", "pokemon", "ai_classes", "moves", store.adapter.towns?.prizeRegistry].includes(registry)) {
       schedule();
-    } else if (reason === "reveal" && s && (registry === s.registry || registry === s.ballRegistry) && id) {
+    } else if (reason === "reveal" && s && (registry === s.registry || registry === s.ballRegistry || registry === s.heldRules?.registry) && id) {
       nav.openItem(id);
     }
   });
@@ -450,6 +452,7 @@ function heldCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
         ? field(amount.label, numberInput(Number(r.heldParameter ?? 0), (v) => edit(id, amount.label, (d) => (d.heldParameter = Math.max(0, Math.min(amount.max, v)))), 0, amount.max), amount.hint)
         : h("span", {}),
     ),
+    FEATURES.gen2 && s.heldRules ? heldRulesSection(s.heldRules.registry, id) : null,
   );
 }
 

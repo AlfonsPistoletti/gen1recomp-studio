@@ -21,6 +21,7 @@ const NAMES: Record<string, [string, string]> = {
   battle_anims: ["Move animations", "move animation"],
   items: ["Items", "item"],
   studio_item_effects: ["Custom item effects", "custom item effect"],
+  studio_held_effects: ["Own held effects", "own held effect"],
   balls: ["Ball catch numbers", "ball"],
   studio_events: ["Events", "event"],
   studio_visibility: ["Visibility rules", "visibility rule"],
@@ -190,6 +191,8 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
     }
     case "studio_events":
       return removed ? null : () => nav.openEvent(id);
+    case "studio_held_effects":
+      return store.table("items")[id] ? () => nav.openItem(id) : null;
     case "studio_flag_notes":
       return () => nav.openFlag(id);
     case "studio_visibility": {

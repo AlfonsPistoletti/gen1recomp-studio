@@ -229,6 +229,8 @@ export interface ItemSpec {
   // what the item does when held (heldEffect), and what its number
   // (heldParameter) means for an effect: unset amount = the engine ignores it
   heldEffects?: { ids: string[]; info(effect: string): { note?: string; amount?: { label: string; hint: string; max: number } } };
+  // Gen 2: own held effects on top of the game's (studio_held_effects: item id -> { rules })
+  heldRules?: { registry: string };
   // a TM/HM's kind, move and number (unset: the item's `machine` record);
   // machineEdit false: shown, not changed
   machineOf?(item: Record<string, unknown>): { kind?: string; move?: string; number?: number } | undefined;

@@ -523,8 +523,8 @@ export class MapView {
     const ctx = this.ctx;
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--canvas-bg") || "#15171c";
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    // transparent: the viewport's dotted paper (CSS, fixed) shows around the map
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     const map = store.map;
     if (!map) return;
     const z = this.zoom * dpr;

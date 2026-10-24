@@ -12,6 +12,7 @@
   --bad: #ff5c6c;
   --warn: #ffb547;
   --canvas-bg: #101217;
+  --paper-dot: #1b1f27; /* barely above --canvas-bg: a very faint pattern */
   --radius: 6px;
   color-scheme: dark;
   font-family: Inter, "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -338,7 +339,10 @@ body.resizing.rows, body.resizing.rows * { cursor: row-resize !important; }
 #viewport {
   position: relative;
   overflow: hidden;
-  background: var(--canvas-bg);
+  /* dotted paper behind the transparent map canvas; it stays put while the map pans and zooms */
+  background-color: var(--canvas-bg);
+  background-image: radial-gradient(circle at 1px 1px, var(--paper-dot) 1px, transparent 1.5px);
+  background-size: 16px 16px;
   min-height: 0;
 }
 
@@ -415,6 +419,12 @@ body.resizing.rows, body.resizing.rows * { cursor: row-resize !important; }
 .inspector details.advanced[open] > summary { margin-bottom: 6px; }
 /* Global > Phone contacts: one call's lines, the greetings by time of day side by side */
 .phone-call { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+/* Items > When held: own effects, one sentence per rule */
+.held-rules { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.held-rule { align-items: center; gap: 6px; padding: 4px 0; border-top: 1px dashed var(--line-2); }
+.held-rule input[type="number"] { width: 64px; }
+.held-message { flex-basis: 100%; display: flex; flex-direction: column; gap: 4px; }
+.held-message textarea { flex: 1 1 220px; resize: vertical; }
 /* Events > Flags: one group of a flag's uses */
 .flag-uses { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
 .phone-times { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }

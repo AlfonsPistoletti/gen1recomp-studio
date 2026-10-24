@@ -18,6 +18,7 @@ import { gen2EffectTemplate, gen2EffectText, GEN2_STATS, GEN2_STATUSES } from ".
 import { EFFECT_RUNTIME2 } from "../../lua/effectRuntime2.ts";
 import { effectRegistration } from "../../lua/effectRuntime.ts";
 import { ITEM_EFFECT_RUNTIME2, itemEffectRegistration2 } from "../../lua/itemEffectRuntime2.ts";
+import { HELD_EFFECT_RUNTIME2, heldEffectRegistration2 } from "../../lua/heldEffectRuntime2.ts";
 import type { GameGift } from "../../project/gameEvents.ts";
 import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
 import { giftRegistration2, STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
@@ -215,6 +216,15 @@ const content: ContentSpec[] = [
   {
     registry: "studio_starters", editable: true, build: () => ({}), studioFile: "studio_starters.lua",
     generator: { what: "starter Pokémon", order: ["species", "level"], runtime: STARTER_RUNTIME2, registration: starterRegistration2, writes: [] },
+  },
+  // own held effects, keyed by item: rules the generated helper runs in the battle hooks
+  {
+    registry: "studio_held_effects", editable: true, build: () => ({}), studioFile: "studio_held_effects.lua",
+    generator: {
+      what: "own held item effects",
+      order: ["rules", "kind", "chance", "percent", "on", "type", "below", "stat", "stages", "status", "usedUp", "text"],
+      runtime: HELD_EFFECT_RUNTIME2, registration: heldEffectRegistration2, writes: [],
+    },
   },
   // custom item effects, keyed by the item they belong to (Gold's
   // item_effects are), registered by the generated helper
@@ -607,6 +617,7 @@ const items: ItemSpec = {
     "HELD_WATER_BOOST", "HELD_GRASS_BOOST", "HELD_ELECTRIC_BOOST", "HELD_PSYCHIC_BOOST", "HELD_ICE_BOOST",
     "HELD_DRAGON_BOOST", "HELD_DARK_BOOST",
   ], info: heldInfo },
+  heldRules: { registry: "studio_held_effects" },
   machineOf: (r) =>
     typeof r.teaches === "string" && typeof r.tmLabel === "string"
       ? { kind: r.tmLabel.slice(0, 2), move: r.teaches, number: Number(r.tmLabel.slice(2)) }

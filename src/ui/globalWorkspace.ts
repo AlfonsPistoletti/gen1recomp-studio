@@ -5,7 +5,8 @@
 // so a value set back to vanilla is dropped instead of saved.
 
 import { clone, deepEqual } from "../core/merge.ts";
-import { writeInline } from "../core/inlineEvents.ts";
+import { syncEventTexts, writeInline } from "../core/inlineEvents.ts";
+import { stockList } from "./mapTown.ts";
 import { addGift, copyCall, followCopies, giftOf, giverOf, removeGift, setGiftChance, setGiftItem } from "./phoneGift.ts";
 import { createEvent } from "./eventEditor.ts";
 import { store } from "../core/store.ts";
@@ -101,6 +102,7 @@ export function globalSectionOf(registry: string, id: string): string | null {
   if (s.fruitTrees && registry === s.fruitTrees.registry) return "fruittrees";
   if (s.apricorns && registry === s.apricorns.registry) return "apricorns";
   if (s.phone && registry === s.phone.registry) return "phone";
+  if (s.shops && registry === s.shops.registry) return "shops";
   return s.numbers.find((n) => n.registry === registry && n.id === id)?.section ?? null;
 }
 
@@ -137,7 +139,8 @@ export function globalLabelOf(registry: string, id: string): string | null {
   if (section === "fieldmoves") return "HM badges";
   if (section === "fruittrees") return "Fruit trees";
   if (section === "apricorns") return `Kurt's ball for ${id}`;
-  if (section === "phone") return `Phone: ${contactName(id)}`;
+  if (FEATURES.gen2 && section === "phone") return `Phone: ${contactName(id)}`;
+  if (FEATURES.gen2 && section === "shops") return id === "bargain" ? "Bargain shop" : `Shop ${id}`;
   const labels = s.numbers.filter((n) => n.registry === registry && n.id === id).map((n) => n.label);
   return labels.length === 1 ? labels[0] : (s.sections.find((x) => x.id === section)?.label ?? null);
 }
@@ -165,6 +168,7 @@ function sectionChanged(id: string): boolean {
   if (id === "fruittrees" && s.fruitTrees && store.isRecordEdited(s.fruitTrees.registry, s.fruitTrees.id)) return true;
   if (id === "apricorns" && s.apricorns && Object.keys(store.table(s.apricorns.registry)).some((k) => store.isRecordEdited(s.apricorns!.registry, k))) return true;
   if (id === "phone" && s.phone && Object.keys(store.table(s.phone.registry)).some((k) => store.isRecordEdited(s.phone!.registry, k))) return true;
+  if (id === "shops" && s.shops && Object.keys(store.table(s.shops.registry)).some((k) => store.isRecordEdited(s.shops!.registry, k))) return true;
   if (id === "sounds" && soundsEdited()) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
   const towns = store.adapter.towns;
@@ -257,7 +261,7 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
     if (reason === "project" || reason === "saved") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
-    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || registry === s.trades?.registry || registry === s.slots?.registry || registry === s.hmBadges?.registry || registry === s.fruitTrees?.registry || registry === s.apricorns?.registry || registry === s.phone?.registry || registry === "statuses" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
+    if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || registry === s.trades?.registry || registry === s.slots?.registry || registry === s.hmBadges?.registry || registry === s.fruitTrees?.registry || registry === s.apricorns?.registry || registry === s.phone?.registry || registry === s.shops?.registry || registry === "statuses" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
     if (reason === "reveal" && s && ((registry === TRADES_REGISTRY && _id === TRADES_ID) || sharedListSection(registry ?? "", _id ?? "") || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === s.start?.registry)) nav.setWorkspace("global");
   });
 }
@@ -689,6 +693,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "fruittrees" && s.fruitTrees) out.push(fruitTreesCard(s.fruitTrees));
   if (id === "apricorns" && s.apricorns) out.push(apricornsCard(s.apricorns.registry));
   if (FEATURES.gen2 && id === "phone" && s.phone) out.push(...phoneCards(s.phone));
+  if (FEATURES.gen2 && id === "shops" && s.shops) out.push(...shopCards(s.shops));
   if (id === "trades") out.push(...tradeCards());
   const timed = FEATURES.gen2 ? store.adapter.timedEncounters : undefined;
   if (timed && id === "fishing") out.push(...fishGroupCards(timed));
@@ -780,7 +785,7 @@ function fruitTreesCard(ft: NonNullable<GlobalsSpec["fruitTrees"]>): HTMLElement
     ...rows,
     h("div", { class: "row" },
       h("button", { class: "btn small", onclick: () => set(`New fruit tree ${list.length + 1}`, [...list, "BERRY"]) }, "+ Tree"),
-      h("span", { class: "hint" }, "A new tree gets the next number: give a map person the Fruit tree role with it. Every tree refills once a day.")),
+      h("span", { class: "hint" }, "A new tree gets the next number: give a map entity the Fruit tree role with it. Every tree refills once a day.")),
   );
 }
 
@@ -800,6 +805,97 @@ function apricornsCard(reg: string): HTMLElement {
   );
 }
 
+// Gen 2: a contact of the mod's own (engine 535a5ec0+): a name, where it stands, and both calls copied
+// from a contact it talks like (its lines become its own texts; the name slot says its name). The
+// next free number above the game's book; a person offers it with the "Ask for phone number" command.
+function newContactCard(ph: NonNullable<GlobalsSpec["phone"]>, table: Record<string, { index?: number; calleeKey?: unknown; callerKey?: unknown }>): HTMLElement {
+  const name = h("input", { type: "text", placeholder: "Name (as the Pokégear lists it)", maxLength: 10, spellcheck: false });
+  const voices = Object.keys(table).filter((id) => typeof table[id].callerKey === "string" && typeof table[id].calleeKey === "string").sort();
+  const like = selectInput(voices.includes("PHONE_YOUNGSTER_JOEY") ? "PHONE_YOUNGSTER_JOEY" : voices[0] ?? "", voices, () => {});
+  for (const o of like.options) o.textContent = contactName(o.value);
+  const maps = Object.keys(store.maps).sort();
+  const where = selectInput("", maps, () => {}, "Nowhere (no map)");
+  const create = () => {
+    const shown = name.value.trim().toUpperCase();
+    if (!shown) return void toast("Give the contact a name first", "error");
+    const used = new Set(Object.values(table).map((c) => c?.index));
+    // past both books: a Gen 2 mod runs on Gold (contacts 0-36) and Crystal (0-37) alike
+    let index = Math.max(38, ...Object.values(table).map((c) => Number(c?.index ?? 0) + 1));
+    while (used.has(index)) index++;
+    if (index > 255) return void toast("The phone book holds 255 contacts", "error");
+    let id = `PHONE_${shown.replace(/[^A-Z0-9]+/g, "_")}`;
+    while (table[id]) id += "_2";
+    const source = table[like.value];
+    const callee = typeof source?.calleeKey === "string" ? copyCall(source.calleeKey) : null;
+    const caller = typeof source?.callerKey === "string" ? copyCall(source.callerKey) : null;
+    // its own name in the name slot, where the copied call named its trainer
+    const named = (rows: unknown): unknown => (Array.isArray(rows)
+      ? rows.map((r) => (r && typeof r === "object" && (r as { op?: unknown }).op === "gettrainername" ? { op: "getstring", buffer: 0, string: shown }
+        : r && typeof r === "object" ? Object.fromEntries(Object.entries(r).map(([k, v]) => [k, Array.isArray(v) ? named(v) : v])) : r))
+      : rows);
+    store.group(`New contact ${shown}`, () => {
+      store.setRecord(ph.registry, id, `New contact ${shown}`, {
+        index, name: shown, ...(where.value ? { map: where.value } : {}),
+        calleeTime: callee ? 7 : 0, callerTime: caller ? 7 : 0,
+        ...(callee ? { calleeKey: named(callee.rows) } : {}), ...(caller ? { callerKey: named(caller.rows) } : {}),
+      });
+      syncEventTexts();
+      if (callee) followCopies(callee.copies);
+      if (caller) followCopies(caller.copies);
+    });
+    store.seal();
+  };
+  return h("section", { class: "card" },
+    h("h4", {}, "New contact"),
+    h("div", { class: "row wrap" }, name, h("span", { class: "hint" }, "talks like"), like, h("span", { class: "hint" }, "stands on"), where,
+      h("button", { class: "btn small primary-ish", onclick: create }, "+ New contact")),
+    h("p", { class: "hint" }, "Its calls start as copies of the chosen contact's, with lines of its own to change. A person gives the number with the event command \"Ask for phone number\"."));
+}
+
+// Gen 2: every shop by its number (the clerks opening it, its stock) and the bargain shop's prices
+function shopCards(sh: NonNullable<GlobalsSpec["shops"]>): HTMLElement[] {
+  const table = store.table(sh.registry) as Record<string, unknown>;
+  const items = store.table("items") as Record<string, { name?: string; price?: number }>;
+  const back = (id: string) => (store.isRecordEdited(sh.registry, id)
+    ? h("button", { class: "btn small danger", onclick: () => { store.revertRecord(sh.registry, id, `${id === "bargain" ? "Bargain shop" : `Shop ${id}`}: the game's stock`); store.seal(); } }, "Back to the game's stock")
+    : null);
+  const shops = Object.keys(table).filter((k) => /^\d+$/.test(k)).sort((a, b) => Number(a) - Number(b)).map((id) => {
+    const clerks = sh.clerks(Number(id));
+    return h("section", { class: "card" },
+      h("h4", {}, `Shop ${id}`),
+      h("div", { class: "row wrap" },
+        h("span", { class: "hint" }, clerks.length ? "Opened by:" : "No map person opens this shop."),
+        ...clerks.map((c) => h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(c.mapId, "objects", c.index) }, `${c.mapId} · NPC ${String(store.entities(store.maps[c.mapId], "objects")[c.index]?.index ?? c.index)}`))),
+      stockList(Array.isArray(table[id]) ? (table[id] as string[]) : [], (what, next) => {
+        store.setRecord(sh.registry, id, what, next);
+        store.seal();
+      }),
+      back(id));
+  });
+  // the bargain shop: its own prices
+  type Row = { item: string; price: number };
+  const rows = (Array.isArray(table.bargain) ? table.bargain : []) as Row[];
+  const setRows = (label: string, next: Row[]) => {
+    store.setRecord(sh.registry, "bargain", label, next);
+    store.seal();
+  };
+  const ids = Object.keys(items).sort();
+  const add = comboInput("", "dl-items", ids, (v) => {
+    if (ids.includes(v) && !rows.some((r) => r.item === v)) setRows("Bargain item", [...rows, { item: v, price: Number(items[v]?.price ?? 100) }]);
+  });
+  add.placeholder = "Add an item…";
+  const bargain = table.bargain === undefined ? null : h("section", { class: "card" },
+    h("h4", {}, "Bargain shop"),
+    h("p", { class: "hint" }, "Sells at its own prices (Goldenrod's underground)."),
+    ...rows.map((r, i) => h("div", { class: "row nowrap" },
+      h("button", { class: "linkish", onclick: () => nav.openItem(r.item) }, String(items[r.item]?.name ?? r.item)),
+      numberInput(r.price, (v) => setRows("Bargain price", rows.map((x, j) => (j === i ? { ...x, price: Math.max(0, Math.min(65535, v)) } : x))), 0, 65535),
+      h("button", { class: "btn small ghost", title: "Remove", onclick: () => setRows("Bargain item", rows.filter((_, j) => j !== i)) }, "✕"))),
+    add,
+    back("bargain"));
+  return [...shops, ...(bargain ? [bargain] : [])];
+}
+
 // a PHONE_* id in words: "PHONE_YOUNGSTER_JOEY" -> "Youngster Joey"
 export const contactName = (id: string) => id.replace(/^PHONE_/, "").toLowerCase().replace(/_/g, " ").replace(/(^| )\w/g, (c) => c.toUpperCase());
 
@@ -809,7 +905,7 @@ export const contactName = (id: string) => id.replace(/^PHONE_/, "").toLowerCase
 // contact with its settings and the lines no voice holds. Lines are grouped by
 // call (you call / they call), greetings by time of day side by side.
 function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
-  type Contact = { index?: number; map?: string; calleeTime?: number; callerTime?: number; calleeKey?: unknown; callerKey?: unknown };
+  type Contact = { index?: number; name?: string; map?: string; calleeTime?: number; callerTime?: number; calleeKey?: unknown; callerKey?: unknown };
   type Lines = { callee: PhoneLine[]; caller: PhoneLine[] };
   const table = store.table(ph.registry) as Record<string, Contact>;
   const givers = ph.givers(store.ctx);
@@ -913,7 +1009,10 @@ function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
       return h("div", { class: "row wrap" },
         h("span", { class: "hint" }, `${what}: its own call.`),
         h("button", { class: "btn small primary-ish", onclick: () => nav.openEvent(evId) }, "Edit call →"),
-        h("button", { class: "btn small danger", onclick: () => writeInline(evId, `${contactName(id)}: the game's call`, undefined) }, "Back to the game's call"));
+        // a contact of the mod's own has no game call to go back to
+        store.baseTable(ph.registry)[id] !== undefined
+          ? h("button", { class: "btn small danger", onclick: () => writeInline(evId, `${contactName(id)}: the game's call`, undefined) }, "Back to the game's call")
+          : null);
     }
     const rows = typeof key === "string" && key ? store.adapter.events?.gameRows?.(store.ctx, key) : null;
     if (!rows?.length) return null;
@@ -997,7 +1096,7 @@ function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
       return others.length ? `Also said by ${names(others)}: editing it changes it there too.` : undefined;
     });
     return h("section", { class: "card" },
-      h("h4", {}, contactName(id), h("span", { class: "hint team-choice" }, id)),
+      h("h4", {}, c.name ?? contactName(id), h("span", { class: "hint team-choice" }, id)),
       h("div", { class: "row two" },
         field("Where", mapSel, "The map the person stands on: a call from there is face to face, and no call reaches the map without phone service"),
         h("div", {}, field("Can be called", times("calleeTime")), field("Calls you", times("callerTime")))),
@@ -1010,10 +1109,18 @@ function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
       own.length ? h("details", {}, h("summary", {}, `${voice ? "Its own lines" : "What is said on the phone"} (${count(own)})`), ...own) : null,
       ...(["callee", "caller"] as const).map((dir) => callRow(id, dir)),
       giftRow(id),
-      store.isRecordEdited(ph.registry, id) ? h("button", { class: "btn small danger", onclick: () => { store.revertRecord(ph.registry, id, `${contactName(id)}: the game's`); store.seal(); } }, "Back to the game's") : null,
+      store.baseTable(ph.registry)[id] === undefined
+        ? h("button", { class: "btn small danger", onclick: () => {
+            if (!confirm(`Delete the contact ${c.name ?? contactName(id)}? People asking for its number would offer nothing.`)) return;
+            store.setRecord(ph.registry, id, `Delete contact ${id}`, undefined);
+            syncEventTexts();
+            store.seal();
+          } }, "Delete contact")
+        : store.isRecordEdited(ph.registry, id) ? h("button", { class: "btn small danger", onclick: () => { store.revertRecord(ph.registry, id, `${contactName(id)}: the game's`); store.seal(); } }, "Back to the game's") : null,
     );
   });
   return [
+    newContactCard(ph, table),
     h("p", { class: "hint" }, "{STRBUF} is a slot: the call fills it just before the text, with the caller's name, a Pokémon, a place… so it holds something different in each text (said below each one). Keep it where that word belongs; {PLAYER} is the player's name."),
     ...shared,
     ...cards,

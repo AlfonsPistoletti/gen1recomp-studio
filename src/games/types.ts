@@ -181,9 +181,9 @@ export interface BallRecord {
 
 // A shop clerk whose stock the Items workspace can edit.
 export interface MartRef {
-  registry: string; // text_pointers
-  map: string; // the registry record (map label)
-  text: string; // the TEXT_* key inside it
+  registry: string; // text_pointers (Gen 2: marts)
+  map: string; // the registry record (map label; Gen 2: the mart number "0".."33")
+  text: string; // the TEXT_* key inside it ("": the record itself is the stock list)
   label: string; // shown to the user
   mapId?: string;
 }
@@ -219,9 +219,6 @@ export interface ItemSpec {
   // false: no "+ New Item" / "+ TM/HM"
   newItems?: boolean;
   // the number a new item gets (Gen 2: a free byte; undefined: none left, and
-  // `noIndex` says what the item then can't do)
-  newIndex?(ctx: GameContext): number | undefined;
-  noIndex?: string;
   // bag pockets (replaces the Key item switch)
   pockets?: string[];
   // the bag's description: lines joined with <NEXT>
@@ -468,6 +465,9 @@ export interface GlobalsSpec {
   // script asks for a contact's number (askforphonenumber <index>)
   // `lines`: the texts a call script (a key or inline rows) says, in order
   phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; lines(ctx: GameContext, script: unknown): PhoneLine[] };
+  // Gen 2: the shops (the engine's `marts` registry, engine 535a5ec0+): ids "0".."33" = the script's mart
+  // number -> item list, "bargain" -> { item, price } rows; `clerks`: the map people opening mart n
+  shops?: { registry: string; clerks(n: number): { mapId: string; index: number }[] };
   // type effectiveness rows ("ATK>DEF" -> { multiplier } x10) and type
   // records ({ category }) in one registry
   typeChart?: { registry: string; multipliers: { value: number; label: string }[]; categories?: string[] };
@@ -769,6 +769,7 @@ export type EventParamType =
   | "screen" // one of EventSpec.screens
   | "choice" // one of the param's own `options`
   | "word" // a few letters typed as they are (Gold getstring)
+  | "phone" // Gen 2: a phone contact, by its number (the phone_contacts record's index)
   | "ext"; // a mod command's parameter (studio extensions): `ext` says its field type
 
 export interface EventParam {
@@ -972,6 +973,9 @@ export interface GameAdapter {
   // reads the mod's own (`owns`) back inline (src/games/gen2/scriptKeys.ts)
   // Events > Flags: the event flags the game and the mod use (Gen 1 names, Gen 2 numbers as strings)
   flags?: FlagSpec;
+  // Gen 2: the script number (`index`) a new pokemon / moves / items record gets: scripts name species,
+  // moves and items by it, so the studio writes it itself (engine 535a5ec0+ numbers them past the game's)
+  scriptIndex?(registry: string, records: Record<string, unknown>): number | undefined;
   scripts?: {
     registry: string;
     outline(maps: Record<string, MapDef>): { maps: Record<string, MapDef>; registrations: { id: string; value: unknown }[] };

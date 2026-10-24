@@ -353,6 +353,32 @@ const commands: EventCommand[] = [
     },
   },
 
+  // ---- Phone: a trainer asks to swap numbers, as the game's trainers do (their after-battle talk):
+  // already in the Pokégear -> "number accepted"; else the question, then full / declined / registered
+  {
+    id: "ask_phone", verb: "#askphone", label: "Ask for phone number", category: "Phone",
+    help: "The person asks to register their number in the Pokégear (the game's own lines and answers). Ends the event, as in the game: put it last.",
+    params: [{ key: "contact", label: "Contact", type: "phone", default: 15 }, { key: "name", label: "Name shown", type: "word", default: "JOEY" }],
+    describe: (a) => `Ask to register phone number ${s(a.contact)} (${s(a.name)})`,
+    rows: (a, ctx) => {
+      const std = (name: string) => ({ op: "jumpstd", std: name, script: ((ctx.data.extra as { stdScripts?: Record<string, string> }).stdScripts ?? {})[name] ?? "" });
+      const n = Number(a.contact ?? 0);
+      return [
+        { op: "checkcellnum", phone: n },
+        { op: "iftrue", script: [std("NumberAcceptedMScript")] },
+        { op: "scall", script: [std("AskNumber1MScript")] },
+        { op: "askforphonenumber", args: [n] },
+        { op: "ifequal", value: 1, script: [std("PhoneFullMScript")] },
+        { op: "ifequal", value: 2, script: [std("NumberDeclinedMScript")] },
+        { op: "getstring", buffer: 0, string: String(a.name ?? "") },
+        { op: "scall", script: [std("RegisteredNumberMScript")] },
+        std("NumberAcceptedMScript"),
+      ];
+    },
+    match: (rows, at) => (ops(rows, at, ["checkcellnum", "iftrue", "scall", "askforphonenumber", "ifequal", "ifequal", "getstring", "scall", "jumpstd"])
+      ? { args: { contact: rows[at].phone, name: rows[at + 6].string }, length: 9 } : null),
+  },
+
   // ---- Screens
   {
     id: "show_pic", verb: "#pokepic", label: "Show a Pokémon's picture", category: "Screens", help: "Shows a Pokémon's front picture until the player presses A.",
@@ -399,7 +425,7 @@ const commands: EventCommand[] = [
 export const GEN2_EVENTS: EventSpec = {
   registry: "",
   inline: true,
-  categories: ["Message", "Name slot", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Movement", "Screen & sound", "Screens"],
+  categories: ["Message", "Name slot", "Phone", "Flags", "Scenes", "Conditions", "Items & money", "Pokémon", "Battle", "People", "Movement", "Screen & sound", "Screens"],
   commands,
   screens: SCREENS,
   choiceVerb: "",

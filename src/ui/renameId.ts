@@ -140,6 +140,9 @@ export function renameId(registry: string, from: string, to: string): boolean {
 // The Id row of an editor: plain for vanilla records; for the mod's own, an
 // editable id, plus a one-click rename when the name suggests another id.
 export function idRow(registry: string, id: string, name: string, onRenamed: (to: string) => void, extra: HTMLElement[] = []): HTMLElement {
+  // Gen 2: the number scripts name it by (read-only: it can't change once saved)
+  const index = (store.table(registry)[id] as { index?: unknown } | undefined)?.index;
+  if (store.adapter.scriptIndex && typeof index === "number") extra = [...extra, h("span", { class: "hint", title: "Scripts, item balls and shops name it by this number. It can't change once saved." }, `script number ${index}`)];
   if (!canRename(registry, id)) return h("div", { class: "kv" }, h("span", {}, "Id"), h("code", {}, id), ...extra);
   const input = h("input", { type: "text", value: id, spellcheck: false, class: "mono id-input" });
   const go = (to: string) => {

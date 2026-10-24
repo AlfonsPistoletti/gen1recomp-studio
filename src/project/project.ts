@@ -207,6 +207,22 @@ export async function openProject(host: Host, version: string, adapter: GameAdap
     const rec = adapter.scripts.records;
     if (rec && studio[rec.registry]) rec.inline(studio[rec.registry], own);
   }
+  // Gen 2: the mod's own species / moves / items without a script number get one now (the engine
+  // would number them at load, where the studio's scripts can't know it); the next save writes it
+  if (adapter.scriptIndex) {
+    for (const registry of ["pokemon", "moves", "items"]) {
+      const table = data.content[registry];
+      if (!table) continue;
+      const live: Record<string, unknown> = { ...table, ...(studio[registry] ?? {}) };
+      for (const [id, rec] of Object.entries(live)) {
+        if (!rec || typeof rec !== "object" || typeof (rec as { index?: unknown }).index === "number") continue;
+        const index = adapter.scriptIndex(registry, live);
+        if (index === undefined) continue;
+        live[id] = { ...(rec as Record<string, unknown>), index };
+        (studio[registry] ??= {})[id] = live[id];
+      }
+    }
+  }
   const tilesetImages: Record<string, string> = {};
   for (const [id, ts] of Object.entries(data.tilesets)) tilesetImages[id] = ts.image ? host.imageUrl(version, ts.image) : "";
   // records the studio keeps as plain data files in the mod (custom effects)

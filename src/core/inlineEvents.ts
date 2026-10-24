@@ -171,7 +171,10 @@ export function writeInline(id: string, label: string, ev: InlineEvent | undefin
     if (!rec) return;
     const field = `${kind}Key`;
     const base = (store.baseTable(phone)[key] as Record<string, unknown> | undefined)?.[field];
-    store.setRecord(phone, key, label, { ...rec, [field]: ev ? clone(ev.rows) : base });
+    // no call left (a contact of the mod's own): it can't ring or be called that way any more
+    // (the engine refuses a call time without a script key)
+    const off = !ev && base === undefined ? { [`${kind}Time`]: 0 } : {};
+    store.setRecord(phone, key, label, { ...rec, [field]: ev ? clone(ev.rows) : base, ...off });
     syncEventTexts();
     store.seal();
     return;

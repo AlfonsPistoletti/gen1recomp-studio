@@ -80,7 +80,7 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
     if (store.midStroke(reason)) afterBrush();
     else if (["project", "map", "edit", "selection", "tool", "scene"].includes(reason)) schedule();
     const towns = store.adapter?.towns;
-    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === "studio_roofs" || registry === "palettes" || registry === "encounters" || registry === "field" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items")) schedule();
+    if (reason === "content" && (registry === "text" || registry === "text_pointers" || registry === "map_songs" || registry === "studio_roofs" || registry === "palettes" || registry === "encounters" || registry === "field" || registry === store.adapter?.events?.registry || registry === towns?.fieldRegistry || registry === towns?.prizeRegistry || registry === "items" || registry === store.adapter?.globals?.shops?.registry || registry === store.adapter?.globals?.phone?.registry)) schedule();
   });
   onFocusLeave(body, schedule);
 }

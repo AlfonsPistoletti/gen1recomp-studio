@@ -89,9 +89,15 @@ export function outlineContacts(table: Record<string, unknown>): { table: Record
   const out: Record<string, unknown> = {};
   const registrations: ScriptRegistration[] = [];
   for (const [id, rec] of Object.entries(table)) {
-    const r = rec as Rec | undefined;
-    if (!r || !CALLS.some(([f]) => Array.isArray(r[f]))) {
-      out[id] = rec;
+    let r = rec as Rec | undefined;
+    // a call time with no call to run (a mod's own contact whose call was removed): the engine
+    // refuses the whole mod for it, so that way of calling is switched off
+    for (const [f] of CALLS) {
+      const time = f === "calleeKey" ? "calleeTime" : "callerTime";
+      if (r && r[f] === undefined && Number(r[time] ?? 0) > 0) r = { ...r, [time]: 0 };
+    }
+    if (!r || !CALLS.some(([f]) => Array.isArray(r![f]))) {
+      out[id] = r;
       continue;
     }
     const copy = structuredClone(r);

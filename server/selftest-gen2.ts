@@ -687,6 +687,39 @@ for (const [registry, records] of Object.entries(edited)) {
   }
 }
 
+// shops (engine 535a5ec0+): the 34 shelves and the bargain shop load, and a changed shelf is written
+// as a patch of its whole list (the engine replaces it)
+{
+  const marts = content.marts as Record<string, unknown>;
+  check("shops load: 34 shelves and the bargain shop", Object.keys(marts).filter((k) => /^\d+$/.test(k)).length === 34 && Array.isArray(marts.bargain), Object.keys(marts).join(","));
+  const shelf = [...(marts["0"] as string[]), "ULTRA_BALL"];
+  const bargain = [{ item: "NUGGET", price: 1 }];
+  const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, marts: { "0": shelf, bargain } });
+  const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
+  const lines = src.split("\n").filter((l) => l.includes("marts:")).join(" | ");
+  check("a changed shelf and the bargain prices replace the whole list (override, as the engine takes it)", /marts:override\("0", \{ "POTION", "ANTIDOTE", "PARLYZ_HEAL", "AWAKENING", "ULTRA_BALL" \}\)/.test(src) && /marts:override\("bargain", \{\s*\{ item = "NUGGET", price = 1 \}/.test(src), lines);
+}
+
+// new phone contacts (engine 535a5ec0+): registered with a number past the book and its calls as
+// map_scripts keys; "Ask for phone number" writes the game's rows and reads them back
+{
+  const book = content.phone_contacts as Record<string, Rec>;
+  const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
+  const top = Math.max(...Object.values(book).map((c) => Number(c.index ?? 0)));
+  const call = [{ op: "writetext", text: "STUDIO_EVENT_1" }, { op: "end" }];
+  const fresh = { index: top + 1, name: "TESTER", calleeTime: 7, callerTime: 7, calleeKey: call, callerKey: call };
+  const recs = adapter.scripts!.records!;
+  const outlined = recs.outline({ ...book, PHONE_TESTER: fresh });
+  const saved = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, phone_contacts: outlined.table });
+  const src = studioContentFile("studio_selftest", [...saved.calls, ...outlined.registrations.map((r) => ({ registry: "map_scripts", op: "register" as const, id: r.id, value: r.value }))], fieldOrders(adapter));
+  check("a new contact registers with its number and call keys", src.includes('phone_contacts:register("PHONE_TESTER"') && src.includes(`index = ${top + 1}`) && src.includes('calleeKey = "STUDIO_PHONE_TESTER_CALLEE"') && src.includes('map_scripts:register("STUDIO_PHONE_TESTER_CALLER"'), src.split("\n").filter((l) => l.includes("TESTER")).join(" | "));
+  const ev = adapter.events!;
+  const ask = ev.compile!([{ t: "cmd", row: ["#askphone", 15, "JOEY"] }], ctx, undefined);
+  const flat = JSON.stringify(ask);
+  const back = JSON.stringify(ev.parse!(ask, ctx));
+  check("Ask for phone number: the game's rows, read back as the command", flat.includes('"op":"askforphonenumber","args":[15]') && flat.includes('"std":"PhoneFullMScript"') && flat.includes('"std":"RegisteredNumberMScript"') && back.includes('["#askphone",15,"JOEY"]'), back.slice(0, 200));
+}
+
 // fruit trees: the restated list matches the trees on the maps, and the helper loads
 {
   const { fruitTreeRegistration2 } = await import("../src/lua/fieldRuntime2.ts");
@@ -771,9 +804,11 @@ for (const [registry, records] of Object.entries(edited)) {
   delete move.source;
   const mx = adapter.moves!.moveExtras!("TACKLE", "STUDIO_BASH", ctx);
   check("new move borrows the animation", mx.length === 1 && (mx[0].value as Rec).STUDIO_BASH === (content.battle_anims.moves as Rec).TACKLE, JSON.stringify(mx.map((x) => x.id)));
-  const items = adapter.items!;
-  const index = items.newIndex!(ctx);
-  check("new item gets number 251", index === 251, String(index));
+  // script numbers past the game's (engine 535a5ec0+): items from 251, species skip the Egg's 253
+  const index = adapter.scriptIndex!("items", content.items);
+  const mon = adapter.scriptIndex!("pokemon", { ...content.pokemon, A: { index: 252 } });
+  const mv = adapter.scriptIndex!("moves", content.moves);
+  check("new item 251, species after 252 skips the Egg (254), move 252", index === 251 && mon === 254 && mv === 252, `${index} ${mon} ${mv}`);
   const item: Rec = { ...(clone(content.items.POTION) as Rec), id: "STUDIO_TONIC", name: "TONIC", index };
   delete item.source;
   const edits: Record<string, Rec> = { moves: { STUDIO_BASH: move }, items: { STUDIO_TONIC: item }, battle_anims: { moves: mx[0].value as Rec } };

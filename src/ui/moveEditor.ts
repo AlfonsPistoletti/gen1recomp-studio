@@ -159,6 +159,9 @@ export function mountMoveWorkspace(left: HTMLElement, center: HTMLElement, right
     rec.name = res.name;
     delete rec.index;
     delete rec.source;
+    // Gen 2: its own script number
+    const index = store.adapter.scriptIndex?.("moves", all);
+    if (index !== undefined) rec.index = index;
     store.group(`New move ${res.id}`, () => {
       store.setRecord(s.registry, res.id, `New move ${res.id}`, rec);
       if (s.animRegistry) store.setRecord(s.animRegistry, res.id, "Move animation", { __ref: `${s.animRegistry}:${animOf(res.source)}` });

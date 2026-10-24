@@ -429,6 +429,7 @@ export const GEN2_EVENTS: EventSpec = {
   commands,
   screens: SCREENS,
   choiceVerb: "",
+  choiceLimits: { options: 5, letters: 16 },
   stopVerb: "end",
   compile: (blocks, ctx, mode) => (mode === "phone" ? compilePhone(blocks, ctx) : compile(blocks, ctx)),
   preset: (rows) => presetOf(rows as unknown as Row[]),
@@ -599,6 +600,20 @@ function emit(list: Block[], tail: Row[], ctx: GameContext): Row[] {
     const b = list[i];
     if (b.t === "cmd") out.push(...rowsOf(b.row, ctx));
     else if (b.t === "stop") return [...out, ...END];
+    else if (b.t === "choice") {
+      const rest = emit(list.slice(i + 1), tail, ctx);
+      const n = b.labels.length;
+      const width = Math.min(19, Math.max(...b.labels.map((l) => l.length)) + 3);
+      out.push(
+        // the game's menu headers: the box ends on row 11, two rows per option, at the left edge
+        { op: "loadmenu", menu: { top: 11 - (2 * n + 1), left: 0, bottom: 11, right: width, flags: 64, dataFlags: 128, cursor: 1, items: [...b.labels] } },
+        { op: "verticalmenu" },
+        { op: "closewindow" },
+      );
+      // one branch per option but the last: verticalmenu answers 1..n, and 0 for B
+      b.branches.slice(0, -1).forEach((br, k) => out.push({ op: "ifequal", value: k + 1, script: emit(br, rest, ctx) }));
+      return [...out, ...emit(b.branches[n - 1] ?? [], rest, ctx)];
+    }
     else if (b.t === "if") {
       const rest = emit(list.slice(i + 1), tail, ctx);
       if (b.cond) out.push(...rowsOf(b.cond, ctx));
@@ -655,6 +670,37 @@ function parseList(rows: Row[], tail: Row[], ctx: GameContext): Block[] {
       continue;
     }
     if (r.op === "closetext" && (!next || next.op === "end")) continue;
+    // a menu: loadmenu (its options), verticalmenu, closewindow, ifequal 1..n-1, then the last option
+    // (also B) falling through; what follows the menu ends every branch (copied there by compile)
+    const menu = r.menu as { items?: unknown } | undefined;
+    if (r.op === "loadmenu" && Array.isArray(menu?.items) && next?.op === "verticalmenu" && rows[i + 2]?.op === "closewindow") {
+      const labels = (menu!.items as unknown[]).map(String);
+      let j = i + 3;
+      const arms: Row[][] = [];
+      while (arms.length < labels.length - 1 && rows[j]?.op === "ifequal" && rows[j].value === arms.length + 1 && Array.isArray(rows[j].script)) arms.push(rows[j++].script as Row[]);
+      if (arms.length === labels.length - 1 && labels.length >= 2) {
+        const after = rows.slice(j);
+        // an arm ends with what follows the menu + tail, or stops the event (END)
+        const goes = arms.map((a) => endsWith(a, tail));
+        if (arms.every((a, n) => goes[n] || endsWith(a, END))) {
+          const bodies = arms.map((a, n) => (goes[n] ? a.slice(0, a.length - tail.length) : a));
+          // what follows the menu ends every going arm (a text's waitbutton stays with it)
+          let k = 0;
+          // (an arm with nothing left is one that stopped when tail is END itself: left out here)
+          while (k < after.length && bodies.every((a, n) => !goes[n] || !a.length || (k < a.length && same(a[a.length - 1 - k], after[after.length - 1 - k])))) k++;
+          while (k > 0 && after[after.length - k].op === "waitbutton") k--;
+          const shared = after.slice(after.length - k);
+          const inner = [...shared, ...tail];
+          const stops = (n: number) => !goes[n] || (k > 0 && !bodies[n].length);
+          const branches = [
+            ...bodies.map((a, n): Block[] => (!stops(n) ? parseList(a.slice(0, a.length - k), inner, ctx) : [...parseList(arms[n].slice(0, -END.length), END, ctx), { t: "stop" }])),
+            parseList(after.slice(0, after.length - k), inner, ctx),
+          ];
+          out.push({ t: "choice", labels, branches });
+          return [...out, ...parseList(shared, tail, ctx)];
+        }
+      }
+    }
     // a condition: [writetext q, yesorno] or a check, then iftrue/iffalse
     let cond: EventRow | null = null;
     let j = i;

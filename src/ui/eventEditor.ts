@@ -712,7 +712,8 @@ function addMenu(s: EventSpec, mapId: string, list: Block[], at: number, commit:
   const sel = h("select", { class: "add-command" }, h("option", { value: "" }, text));
   const flow = h("optgroup", { label: "Flow" }, h("option", { value: "#if" }, "If … (condition)"), h("option", { value: "#ifelse" }, "If … Else …"),
     // Gen 2 inline events: no menu with more than YES/NO, no follow
-    ...(s.inline ? [] : [h("option", { value: "#choice" }, "Choice (menu)"), h("option", { value: "#follow" }, "NPC leads, player follows")]),
+    // Gen 2: Choice where the game's menu box takes it (choiceLimits); no follow
+    ...(s.inline ? (s.choiceLimits ? [h("option", { value: "#choice" }, "Choice (menu)")] : []) : [h("option", { value: "#choice" }, "Choice (menu)"), h("option", { value: "#follow" }, "NPC leads, player follows")]),
     h("option", { value: "#stop" }, "Stop the event"));
   sel.append(flow);
   for (const cat of s.categories) {
@@ -909,14 +910,16 @@ function blockEditor(s: EventSpec, mapId: string, b: Block, commit: Commit): HTM
   } else if (b.t === "choice") {
     const labels = h("input", { type: "text", value: b.labels.join(", "), disabled: ro, spellcheck: false });
     labels.addEventListener("change", () => {
-      const next = labels.value.split(",").map((x) => x.trim().toUpperCase()).filter(Boolean).slice(0, 6);
+      const limits = spec()?.choiceLimits ?? { options: 6, letters: 99 };
+      const next = labels.value.split(",").map((x) => x.trim().toUpperCase().slice(0, limits.letters)).filter(Boolean).slice(0, limits.options);
       if (next.length < 2) return toast("A choice needs at least 2 options", "error");
       b.labels = next;
       while (b.branches.length < next.length) b.branches.push([]);
       b.branches.length = next.length;
       done("Choice options");
     });
-    box.append(field("Options", labels, "Separated by commas, 2 to 6. The last one is also what B picks."));
+    const lim = spec()?.choiceLimits;
+    box.append(field("Options", labels, `Separated by commas, 2 to ${lim?.options ?? 6}${lim ? ` of up to ${lim.letters} letters` : ""}. The last one is also what B picks.`));
   } else if (b.t === "follow") {
     const map = store.maps[mapId];
     const npcs = map ? store.entities(map, "objects") : [];

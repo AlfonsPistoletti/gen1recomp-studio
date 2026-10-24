@@ -817,6 +817,9 @@ export interface EventSpec {
   commands: EventCommand[];
   // the helper's command for "the player picked option N" (choices of 3+)
   choiceVerb: string;
+  // the Choice block's limits when they differ from Gen 1's (6 options): Gold's menu box fits
+  // 5 options of 16 letters (Gen 2 events offer Choice only with these)
+  choiceLimits?: { options: number; letters: number };
   stopVerb: string; // jump
   // Gen 2: no registry; an event is the script list stored inline as a map
   // person's / sign's / step trigger's `scriptKey` (src/core/inlineEvents.ts).

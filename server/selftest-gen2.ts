@@ -14,6 +14,7 @@ const { runMod } = await import("../src/lua/vm.ts");
 const { studioContentFile } = await import("../src/lua/writer.ts");
 const { contentCalls, fieldOrders, isDeep, openProject } = await import("../src/project/project.ts");
 const { nodeHost } = await import("./nodeHost.ts");
+type Block = import("../src/core/eventBlocks.ts").Block;
 
 let failures = 0;
 function check(name: string, ok: boolean, detail = ""): void {
@@ -718,6 +719,12 @@ for (const [registry, records] of Object.entries(edited)) {
   const flat = JSON.stringify(ask);
   const back = JSON.stringify(ev.parse!(ask, ctx));
   check("Ask for phone number: the game's rows, read back as the command", flat.includes('"op":"askforphonenumber","args":[15]') && flat.includes('"std":"PhoneFullMScript"') && flat.includes('"std":"RegisteredNumberMScript"') && back.includes('["#askphone",15,"JOEY"]'), back.slice(0, 200));
+  // a Choice: the game's menu rows, one ifequal per option but the last (also B), read back as the block
+  const choice: Block[] = [{ t: "choice", labels: ["HEAL", "LEAVE", "NOTHING"], branches: [[{ t: "cmd", row: ["writetext", "T1"] }], [{ t: "stop" }], [{ t: "cmd", row: ["writetext", "T2"] }]] }, { t: "cmd", row: ["writetext", "T3"] }];
+  const menu = ev.compile!(choice, ctx, undefined);
+  const menuFlat = JSON.stringify(menu);
+  const menuBack = ev.parse!(menu, ctx);
+  check("a Choice: loadmenu of 3, two branches, read back the same", menuFlat.includes('"top":4') && menuFlat.includes('"items":["HEAL","LEAVE","NOTHING"]') && menuFlat.includes('"op":"ifequal","value":2') && !menuFlat.includes('"value":3') && JSON.stringify(menuBack) === JSON.stringify(choice), JSON.stringify(menuBack).slice(0, 300));
 }
 
 // fruit trees: the restated list matches the trees on the maps, and the helper loads

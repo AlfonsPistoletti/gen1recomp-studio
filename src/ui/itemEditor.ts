@@ -796,7 +796,7 @@ function effectCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
         },
       }, "+ Step"),
       h("button", {
-        class: "btn small ghost",
+        class: "btn small danger",
         title: "Use the built-in behaviour again",
         onclick: () =>
           store.group("Item effect", () => {

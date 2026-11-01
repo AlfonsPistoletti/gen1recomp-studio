@@ -203,7 +203,7 @@ function listCard(reg: string): HTMLElement {
           },
         }, "Delete")
       : store.isRecordEdited(reg, id)
-        ? h("button", { class: "btn small ghost danger", onclick: () => { stopAll(); store.revertRecord(reg, id, `${id}: the game's`); } }, "Back to the game's")
+        ? h("button", { class: "btn small danger", onclick: () => { stopAll(); store.revertRecord(reg, id, `${id}: the game's`); } }, "Back to the game's")
         : null;
     const row = h("div", { class: "sound-row" },
       h("span", { class: "sound-name" }, label(id), isOwn ? h("span", { class: "tag new" }, "new") : def ? h("span", { class: "tag" }, "replaced") : null),

@@ -6,6 +6,8 @@ import type { ImageSpec } from "../types.ts";
 
 export const GEN2_IMAGES: ImageSpec = {
   // footprints: per species in the Pokémon editor (src/ui/footprints.ts)
+  // the town roofs: World.applyRoofOverlay loads them through Assets.resolve (overrides work)
+  except: ["tilesets/roofs/"],
   skip: ["sprites/", "tilesets/", "battle/front/", "battle/back/", "battle/trainers/", "audio/", "pokedex/footprints.png"],
   groups: [
     ["battle/player_back.png", "The player"],
@@ -19,6 +21,7 @@ export const GEN2_IMAGES: ImageSpec = {
     ["trainer_card/", "Trainer card"],
     ["pokegear/", "Pokégear"],
     ["pokedex/", "Pokédex"],
+    ["tilesets/roofs/", "Town roofs"],
     ["pack/", "Bag"],
     ["pc/", "PC"],
     ["menu/", "Menus"],
@@ -37,6 +40,7 @@ export const GEN2_IMAGES: ImageSpec = {
     "battle/dude_back.png": "The Dude's back in the catching tutorial.",
     "intro/cal.png": "The player in Oak's speech.",
     "intro/oak.png": "Professor Oak in his speech.",
+    "tilesets/roofs/": "A town's roof tiles (3×3, 24×24), pasted over the Johto tilesets' tiles $0A–$12 on every map of the towns and routes that use it.",
     "fonts/font.png": "The text font: keep every glyph in its cell, the game cuts the sheet into 8×8 letters.",
     "fonts/font_extra.png": "Extra glyphs of the font, cut into 8×8 cells.",
     "fonts/frames.png": "The text box frames (one per frame option).",

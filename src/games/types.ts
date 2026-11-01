@@ -883,6 +883,8 @@ export interface ConnectionRef {
 export interface ImageSpec {
   // folders left out (prefixes of paths below assets/generated)
   skip: string[];
+  // inside a skipped folder, still listed (Gold's town roofs under tilesets/)
+  except?: string[];
   // [path prefix or exact path, group label], first match wins
   groups: [string, string][];
   // path -> what the image is for

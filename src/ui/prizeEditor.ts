@@ -135,6 +135,6 @@ export function prizeEditor(src: PrizeSource): HTMLElement {
     count && src.prizes.length < count.max
       ? h("button", { class: "btn small ghost", onclick: () => src.edit("Add prize", (list) => list.push({ item: "POKE_BALL", cost: 50 })) }, "+ Prize")
       : null,
-    src.revert ? h("button", { class: "btn small ghost", onclick: () => src.revert!.run() }, src.revert.label) : null,
+    src.revert ? h("button", { class: "btn small danger", onclick: () => src.revert!.run() }, src.revert.label) : null,
   );
 }

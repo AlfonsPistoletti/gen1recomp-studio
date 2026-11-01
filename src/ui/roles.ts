@@ -41,6 +41,7 @@ export const ROLE_LABEL: Record<string, string> = {
   nurse: "Nurse (heals)",
   pc: "PC",
   prizes: "Prize counter",
+  coins: "Coin seller",
   hidden: "Hidden item (found once)",
   std: "Standard object (bookshelf, TV …)",
   game: "The game's script",

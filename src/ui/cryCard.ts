@@ -98,7 +98,7 @@ export function cryCard(id: string): HTMLElement {
       h("button", { class: "btn small", onclick: () => file.click() }, "Import sound…"),
       borrow,
       base && JSON.stringify(base) !== JSON.stringify(def)
-        ? h("button", { class: "btn small ghost", onclick: () => set("Revert cry", clone(base)) }, "Back to the game's cry")
+        ? h("button", { class: "btn small danger", onclick: () => set("Revert cry", clone(base)) }, "Back to the game's cry")
         : null,
       file,
     ),

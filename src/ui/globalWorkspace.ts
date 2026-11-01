@@ -26,7 +26,7 @@ import { textEditor } from "./textField.ts";
 import { INTRO, introCards, introEdited, revertIntro } from "./introEditor.ts";
 import { gameGifts, type GameGift } from "../project/gameEvents.ts";
 import { FEATURES } from "../features.ts";
-import { goldCounters, goldPrizeEditor } from "./prizes2.ts";
+import { coinSellerEditor, goldCounters, goldPrizeEditor, goldSellers } from "./prizes2.ts";
 import { fishGroupCards, treeSetCards } from "./timedEncounterPanel.ts";
 
 const SECTION_KEY = "studio.globalSection";
@@ -171,7 +171,7 @@ function sectionChanged(id: string): boolean {
   if (id === "phone" && s.phone && Object.keys(store.table(s.phone.registry)).some((k) => store.isRecordEdited(s.phone!.registry, k))) return true;
   if (id === "shops" && s.shops && Object.keys(store.table(s.shops.registry)).some((k) => store.isRecordEdited(s.shops!.registry, k))) return true;
   if (id === "sounds" && soundsEdited()) return true;
-  if (FEATURES.gen2 && id === "prizes" && store.adapter.roles === "gen2" && goldCounters().some((c) => !c.game)) return true;
+  if (FEATURES.gen2 && id === "prizes" && store.adapter.roles === "gen2" && (goldCounters().some((c) => !c.game) || goldSellers().some((c) => !c.game))) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
@@ -861,8 +861,7 @@ function newContactCard(ph: NonNullable<GlobalsSpec["phone"]>, table: Record<str
 // Gold: every person or sign on the maps that is a prize counter (its script; prizes2.ts)
 function goldPrizeCards(): HTMLElement[] {
   const list = goldCounters();
-  if (!list.length) return [h("p", { class: "hint" }, "No prize counters on the maps.")];
-  return list.map((c) => {
+  const cards = list.map((c) => {
     const map = store.maps[c.mapId];
     const name = String(map?.id ?? c.mapId).replace(/_/g, " ");
     return h(
@@ -872,6 +871,13 @@ function goldPrizeCards(): HTMLElement[] {
       goldPrizeEditor(c.mapId, c.layer, c.index) ?? h("span", {}),
     );
   });
+  // and the coin sellers (coins for money)
+  return [...cards, ...goldSellers().map((c) => h(
+    "section",
+    { class: "card" },
+    h("div", { class: "row" }, h("h4", {}, `${c.mapId.replace(/_/g, " ")} \u00b7 coin seller (person ${c.index + 1})`), h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(c.mapId, c.layer, c.index) }, "Show on map")),
+    coinSellerEditor(c.mapId, c.layer, c.index) ?? h("span", {}),
+  ))];
 }
 
 function shopCards(sh: NonNullable<GlobalsSpec["shops"]>): HTMLElement[] {

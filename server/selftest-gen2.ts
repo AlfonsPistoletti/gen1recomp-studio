@@ -606,6 +606,20 @@ for (const [registry, records] of Object.entries(edited)) {
   const back = clone(out.maps) as Record<string, import("../src/core/types.ts").MapDef>;
   sk.inlineScripts(back, regs);
   check("and reads back inline", deepEqual(back[id], m));
+  // coin sellers: the game's (jumpstd GameCornerCoinVendorScript) and one written by the studio
+  const sellers: string[] = [];
+  for (const [mid, map] of Object.entries(base)) {
+    for (const o of ((map as unknown as Rec).objects as Rec[] | undefined) ?? []) {
+      const rows = typeof o.scriptKey === "string" ? gameScriptRows(scripts, o.scriptKey) : null;
+      const c = rows && pz.sellerOf(rows as never, scripts, (k) => gameScriptRows(scripts, k) as never);
+      if (c) sellers.push(`${mid}:${c.offers.map((x) => `${x.coins}=${x.price}`).join(",")}:${Object.values(c.texts).filter(Boolean).length}`);
+    }
+  }
+  check("coin sellers: the game's are read (packs and their 7 texts)", sellers.length === 2 && sellers.every((x) => x.endsWith(":50=1000,500=10000:7")), sellers.join(" | "));
+  const seller = { offers: [{ coins: 50, price: 1000 }, { coins: 9999, price: 150000 }, { coins: 5, price: 0 }], texts: { hello: "H", noCase: "N", which: "W", full: "F", poor: "P", here: "R", bye: "B" } };
+  const srows = pz.sellerRows(seller, ctx);
+  const sflat = JSON.stringify(srows);
+  check("coin sellers: written the game's way and read back", deepEqual(pz.sellerOf(srows), seller) && pz.isSeller(srows) && !pz.isCounter(srows) && sflat.includes('"items":["  50 :   ¥1000","9999 : ¥150000","   5 :      ¥0","CANCEL"]') && sflat.includes('{"op":"checkcoins","args":[0,0]}'), JSON.stringify(pz.sellerOf(srows)) + sflat.slice(0, 300));
 }
 
 // the phone book: Joey is contact 15 on Route 30, Route 30's NPC 2 gives his

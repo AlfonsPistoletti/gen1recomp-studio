@@ -16,7 +16,7 @@ import type { EntityRecord, MapDef } from "../core/types.ts";
 import type { EntityLayer, FieldSpec, GameAdapter } from "../games/types.ts";
 import { Armchair, Cog, Coins, DoorOpen, Landmark, Monitor, PlaneLanding, Signpost, Sparkles, Zap, type IconNode } from "lucide";
 import { animationFrames, atlasRect, blockAtlas, clearColorCaches, BLOCK, CELL, loadImage, markerIcon, spriteFrame, TILE, type BlockAtlas } from "./graphics.ts";
-import { assetUrl, OVERRIDES } from "../core/assets.ts";
+import { assetUrl, OVERRIDES, overrideUrl } from "../core/assets.ts";
 
 interface CachedMap {
   map: MapDef;
@@ -319,11 +319,16 @@ export class MapView {
     if (!over) return base;
     const ts = liveTileset(tilesetId);
     const per = ts ? perRow(ts) : 16;
-    const key = `${base}|${over.image}|${over.first}`;
+    // a roof the mod replaced (Graphics > Images) shows as the game will draw it
+    const { host, version, mod } = store.project;
+    const rel = over.image.startsWith("assets/generated/") ? over.image.slice("assets/generated/".length) : null;
+    const replaced = rel !== null ? (store.table(OVERRIDES) as Record<string, string>)[rel] : undefined;
+    const roofUrl = replaced && mod && rel ? overrideUrl(host, version, mod, rel, replaced) : assetUrl(host, version, over.image);
+    const key = `${base}|${roofUrl}|${over.first}`;
     let p = this.overlaid.get(key);
     if (!p) {
       p = (async () => {
-        const [sheet, roof] = await Promise.all([loadImage(base), loadImage(assetUrl(store.project.host, store.project.version, over.image))]);
+        const [sheet, roof] = await Promise.all([loadImage(base), loadImage(roofUrl)]);
         if (!sheet || !roof) return base;
         const c = document.createElement("canvas");
         c.width = sheet.width;

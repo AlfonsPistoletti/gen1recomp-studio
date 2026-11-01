@@ -435,7 +435,7 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     h("p", { class: "hint" }, "Select tool (V): click to select, drag to move. Double-click a warp to follow it, a neighbouring map to open it."),
     isNew || changedParts(map, true).length
       ? h("button", {
-          class: "btn danger small",
+          class: "btn small danger",
           // layout plus what belongs to the map elsewhere (events, music, ...)
           onclick: () => resetMapDialog(map, isNew, () => revertMap(map.id, store.base[map.id]), () => store.deleteMap(map.id)),
         }, isNew ? "Delete map" : "Revert map to base")

@@ -893,7 +893,7 @@ const globals: GlobalsSpec = {
     { id: "fruittrees", group: "Other", label: "Fruit trees", hint: "The item each fruit tree gives once a day. A tree on the map is a person whose role is Fruit tree, with its number." },
     { id: "apricorns", group: "Other", label: "Kurt's apricorn balls", hint: "Which ball Kurt makes from each apricorn." },
     { id: "phone", group: "Other", label: "Phone contacts", hint: "The Pokégear phone book: where each contact stands, when calls happen, who gives the number and what is said on the phone. A mod can change them and add its own." },
-    { id: "prizes", group: "Other", label: "Game Corner prizes", hint: "What each prize counter trades for coins: up to four prizes, items or Pokémon. Any person can be made a counter (Maps, select it, Role)." },
+    { id: "prizes", group: "Other", label: "Game Corner prizes", hint: "What each prize counter trades for coins (up to four prizes, items or Pokémon) and what the coin sellers ask for coins. Any person can be made either (Maps, select it, Role)." },
     { id: "shops", group: "Other", label: "Shops", hint: "What each shop sells, by the game's shop number (clerks opening the same number share it), and the bargain shop's prices." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],

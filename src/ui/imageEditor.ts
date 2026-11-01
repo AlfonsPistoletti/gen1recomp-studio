@@ -19,6 +19,10 @@ const GENERATED = "assets/generated/";
 const listed = new Map<string, Promise<string[]>>();
 
 // the cache's images below assets/generated, minus the spec's skipped folders
+// an image's hint: its own, else its folder's (a key ending in /)
+const hintOf = (s: ImageSpec, rel: string): string | undefined =>
+  s.hints[rel] ?? Object.entries(s.hints).find(([k]) => k.endsWith("/") && rel.startsWith(k))?.[1];
+
 export function cacheImages(spec: ImageSpec): Promise<string[]> {
   const version = store.project.version;
   let p = listed.get(version);
@@ -30,7 +34,8 @@ export function cacheImages(spec: ImageSpec): Promise<string[]> {
         if (depth > 5) return;
         for (const e of await host.list(`cache:${version}`, `${GENERATED}${dir}`.replace(/\/$/, ""))) {
           const rel = `${dir}${e.name}`;
-          if (spec.skip.some((s) => `${rel}/`.startsWith(s) || rel.startsWith(s))) continue;
+          const kept = spec.except?.some((x) => x.startsWith(`${rel}/`) || rel.startsWith(x));
+          if (!kept && spec.skip.some((s) => `${rel}/`.startsWith(s) || rel.startsWith(s))) continue;
           if (e.dir) await walk(`${rel}/`, depth + 1);
           else if (e.name.toLowerCase().endsWith(".png")) out.push(rel);
         }
@@ -81,7 +86,7 @@ export function mountImageWorkspace(left: HTMLElement, center: HTMLElement, righ
           id: rel,
           label: rel.split("/").pop()!.replace(/\.png$/, ""),
           meta: group,
-          search: `${rel} ${group} ${s.hints[rel] ?? ""}`,
+          search: `${rel} ${group} ${hintOf(s, rel) ?? ""}`,
           edited: records()[rel] !== undefined,
         }));
     },
@@ -191,7 +196,7 @@ export function mountImageWorkspace(left: HTMLElement, center: HTMLElement, righ
     side.append(
       h("div", { class: "card" },
         h("h4", {}, groupOf(s, rel)),
-        h("p", { class: "hint" }, s.hints[rel] ?? `Shown somewhere in the game as ${rel}.`),
+        h("p", { class: "hint" }, hintOf(s, rel) ?? `Shown somewhere in the game as ${rel}.`),
         h("p", { class: "hint" }, `Your picture should be ${w}×${hgt}: the game cuts some images into pieces by position (fonts, sheets), so keep the layout.`),
         h("div", { class: "row wrap" },
           h("button", { class: "btn small", onclick: () => void replace(rel, w, hgt, clear0) }, mine ? "Replace again…" : "Replace…"),

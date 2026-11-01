@@ -18,7 +18,7 @@
 
 import { studioMovementSteps } from "./scriptKeys.ts";
 import type { Block } from "../../core/eventBlocks.ts";
-import { isCounter } from "./prizes.ts";
+import { isCounter, isSeller } from "./prizes.ts";
 import type { EventCommand, EventRow, EventSpec, GameContext } from "../types.ts";
 
 type Row = Record<string, unknown> & { op: string };
@@ -580,7 +580,7 @@ function describeRaw(r: Row, ctx: GameContext): { text: string; help: string } {
 // a script one of the Roles writes (src/ui/roles2.ts): one line of text, a
 // std script (nurse, bookshelf …), a shop
 export function presetOf(rows: Row[]): boolean {
-  if (isCounter(rows)) return true;
+  if (isCounter(rows) || isSeller(rows)) return true;
   if (rows.length === 1 && ["jumptextfaceplayer", "jumptext", "jumpstd", "fruittree"].includes(rows[0].op)) return true;
   return rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op));
 }

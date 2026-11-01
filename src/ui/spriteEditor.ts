@@ -297,7 +297,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
         h("span", { class: "muted" }, `${g.who}, ${label.toLowerCase()}`),
         h("button", { class: `btn small ${sid === id ? "primary-ish" : "ghost"}`, disabled: !liveSprite(sid), onclick: () => open(sid) }, sid.replace(/^SPRITE_/, "")),
         edited ? h("span", { class: "tag edited" }, "your art") : null,
-        edited ? h("button", { class: "btn small ghost", onclick: () => store.revertRecord(SPRITES, sid, `Revert ${sid}`) }, "Back to the game's") : null,
+        edited ? h("button", { class: "btn small danger", onclick: () => store.revertRecord(SPRITES, sid, `Revert ${sid}`) }, "Back to the game's") : null,
       );
     }));
     return h("div", { class: "card" }, h("h4", {}, "Player"),
@@ -326,7 +326,7 @@ export function mountSpriteWorkspace(left: HTMLElement, center: HTMLElement, rig
       field("Palette", sel, "The colors it has on every map, by the time of day; a map person with colors of its own (its Colors field) keeps those."),
       changed
         ? h("button", {
-            class: "btn small",
+            class: "btn small danger",
             onclick: () => {
               store.editRecord<SpriteDef>(SPRITES, id, "The game's colors", (d) => {
                 d.palette = base!.palette;

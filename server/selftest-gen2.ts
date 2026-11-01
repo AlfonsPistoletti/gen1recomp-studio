@@ -570,6 +570,44 @@ for (const [registry, records] of Object.entries(edited)) {
   check("an older walk row (steps) still reads", deepEqual(walk.unpack!({ op: "applymovement", object: 2, movement: "studio:13.71", steps: [13, 71] }, ctx), { who: 2, path: ["up"], speed: 0x0c }));
 }
 
+// Game Corner prizes: Gold's four counters are clerks' scripts; one written by
+// the studio loops back to its menu through a labelled block saved as a key
+{
+  const sk = await import("../src/games/gen2/scriptKeys.ts");
+  const pz = await import("../src/games/gen2/prizes.ts");
+  const { gameScriptRows } = await import("../src/games/gen2/events.ts");
+  const ctx = { data: project.data, maps: base, records: {} };
+  const scripts = (project.data.extra as { scripts?: Record<string, unknown> }).scripts ?? {};
+  const found: string[] = [];
+  for (const [id, map] of Object.entries(base)) {
+    for (const o of [...(((map as unknown as Rec).objects as Rec[] | undefined) ?? []), ...(((map as unknown as Rec).bgEvents as Rec[] | undefined) ?? [])]) {
+      const rows = typeof o.scriptKey === "string" ? gameScriptRows(scripts, o.scriptKey) : null;
+      const c = rows && pz.counterOf(rows as never, ctx);
+      if (c && Object.values(c.texts).filter(Boolean).length !== 8) found.push(`${id}: texts ${JSON.stringify(c.texts)}`);
+      if (c) found.push(`${id}:${c.prizes.map((p) => `${p.item ?? `${p.species}@${p.level}`}=${p.cost}`).join(",")}`);
+    }
+  }
+  const tm = found.find((f) => f.startsWith("GOLDENROD_GAME_CORNER:TM_"));
+  const mons = found.find((f) => f.startsWith("GOLDENROD_GAME_CORNER:ABRA"));
+  check("Gold's four prize counters are read from their scripts", found.length === 4 && tm === "GOLDENROD_GAME_CORNER:TM_THUNDER=5500,TM_BLIZZARD=5500,TM_FIRE_BLAST=5500" && !!mons?.includes("DRATINI@10=2100"), found.join(" | "));
+  const texts = { hello: "T_HELLO", which: "T_WHICH", confirm: "T_OK", here: "T_HERE", poor: "T_POOR", full: "T_FULL", bye: "T_BYE", noCase: "T_CASE" };
+  const counter = { prizes: [{ item: "TM_THUNDER", cost: 5500 }, { species: "DRATINI", level: 15, cost: 2100 }], texts };
+  const rows = pz.counterRows(counter, ctx);
+  check("a counter written by the studio reads back the same", deepEqual(pz.counterOf(rows, ctx), counter) && pz.isCounter(rows), JSON.stringify(pz.counterOf(rows, ctx)));
+  const id = "GOLDENROD_GAME_CORNER";
+  const m = clone(base[id]) as Rec;
+  const objs = m.objects as Rec[];
+  objs[1] = { ...objs[1], scriptKey: rows };
+  const out = sk.outlineScripts({ [id]: m } as never);
+  const key = `STUDIO_${id}_OBJ${String(objs[1].index)}`;
+  const regs = Object.fromEntries(out.registrations.map((r) => [r.id, r.value]));
+  const flat = JSON.stringify(regs);
+  check("its menu is a key of its own the prizes jump back to", Array.isArray(regs[`${key}_MENU`]) && !flat.includes("studio:label") && !flat.includes('"label"') && flat.includes(`"script":"${key}_MENU"`), Object.keys(regs).join(","));
+  const back = clone(out.maps) as Record<string, import("../src/core/types.ts").MapDef>;
+  sk.inlineScripts(back, regs);
+  check("and reads back inline", deepEqual(back[id], m));
+}
+
 // the phone book: Joey is contact 15 on Route 30, Route 30's NPC 2 gives his
 // number, and moving him saves as a patch of the map only
 {
@@ -624,6 +662,40 @@ for (const [registry, records] of Object.entries(edited)) {
   const beaten = [...uses.values()].flat().filter((u) => u.kind === "beaten" && u.map === "ROUTE_30");
   check("flags: Route 30's trainers' beaten flags", beaten.length >= 2, JSON.stringify(beaten));
   check("flags: a new game's flags and Gold's names", [...uses.values()].flat().some((u) => u.kind === "start") && adapter.flags!.name!(ctx, "628") === "EVENT_JOEY_READY_FOR_REMATCH", String(adapter.flags!.name!(ctx, "628")));
+  // engine flags: Falkner's gym sets the Zephyr Badge (E26); the command reads back as itself
+  const badge = uses.get("E26") ?? [];
+  check("flags: engine flag E26 (Zephyr Badge) set in Violet's gym", adapter.flags!.name!(ctx, "E26") === "ENGINE_ZEPHYRBADGE" && badge.some((u) => u.kind === "set" && u.map === "VIOLET_GYM"), JSON.stringify(badge.slice(0, 3)));
+  const ev = adapter.events!;
+  const rows = ev.compile!([{ t: "if", cond: ["checkflag", 26], not: false, then: [{ t: "cmd", row: ["setflag", 64] }], else: null }], ctx, undefined);
+  check("flags: engine flag commands round-trip", JSON.stringify(rows).includes('"op":"checkflag","flag":26') && JSON.stringify(ev.parse!(rows, ctx)).includes('["setflag",64]'), JSON.stringify(ev.parse!(rows, ctx)).slice(0, 200));
+}
+
+// happiness evolutions at an own number: the helper registers STUDIO_HAPPINESS_<n> with the
+// game's check at that number (Everstone, time of day)
+{
+  const { happinessRegistration2 } = await import("../src/lua/evolutionRuntime2.ts");
+  const { dataFile, studioContentFile: contentFile } = await import("../src/lua/writer.ts");
+  const { LuaFactory } = await import("wasmoon");
+  const data = dataFile("studio_selftest", "happiness evolutions", { STUDIO_HAPPINESS_160: { happiness: 160 } }, ["happiness"]);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, contentFile("studio_selftest", [], {}, happinessRegistration2("studio_selftest", "studio_happiness.lua"))], ["mods/studio_selftest/studio_happiness.lua", data]]), "studio_selftest", f, null);
+  check("happiness: the helper registers its method", ran.errors.length === 0 && ran.ops.some((o) => o.registry === "evolution_methods" && o.id === "STUDIO_HAPPINESS_160"), ran.errors.join("; "));
+  const lua = await new LuaFactory().createEngine();
+  try {
+    const reg = happinessRegistration2("x", "y.lua").replace(/require\([^)]*\)/, "(function() " + data.replace(/^--.*$/gm, "") + " end)()");
+    const out: string = await lua.doString(`
+      local methods = {}
+      mod = { content = { evolution_methods = { register = function(_, id, r) methods[id] = r end } } }
+      ${reg}
+      local c = methods.STUDIO_HAPPINESS_160.check
+      local function ok(...) return tostring((c(...))) end
+      return table.concat({ ok({}, { happiness = 159 }, {}), ok({}, { happiness = 160 }, {}), ok({}, { happiness = 200, item = "EVERSTONE" }, {}),
+        ok({ time = "NITE" }, { happiness = 200 }, { timeOfDay = "DAY" }), ok({ time = "NITE" }, { happiness = 200 }, { timeOfDay = "NITE" }) }, " ")
+    `);
+    check("happiness: 160 needed, Everstone stops it, night only at night", out === "false true false false true", out);
+  } finally {
+    lua.global.close();
+  }
 }
 
 // own held effects: the helper registers in the studio VM, and its hooks act on a

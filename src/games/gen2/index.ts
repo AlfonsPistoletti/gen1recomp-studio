@@ -23,6 +23,7 @@ import type { GameGift } from "../../project/gameEvents.ts";
 import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
 import { giftRegistration2, STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
 import { TRADE_RUNTIME2, tradeRegistration2 } from "../../lua/tradeRuntime2.ts";
+import { EVOLUTION_RUNTIME2, happinessRegistration2 } from "../../lua/evolutionRuntime2.ts";
 import { FIELD_RUNTIME2, fruitTreeRegistration2, hmBadgeRegistration2, slotRegistration2, townMapRegistration2 } from "../../lua/fieldRuntime2.ts";
 import { INTRO_RUNTIME } from "../../lua/introRuntime.ts";
 import { INTRO_TEXT_RUNTIME2, introRegistration2, introTextRegistration2 } from "../../lua/introRuntime2.ts";
@@ -32,7 +33,7 @@ import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.
 import { gen2TileAnimations, OWN_PATTERNS, type TileAnimSheets } from "./tileAnim.ts";
 import { inlineContacts, inlineScripts, outlineContacts, outlineScripts, ownsScript } from "./scriptKeys.ts";
 import { gen2FlagUses } from "./flags.ts";
-import { GOLD_FLAG_NAMES } from "./flagNames.ts";
+import { GOLD_ENGINE_FLAG_NAMES, GOLD_FLAG_NAMES } from "./flagNames.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PhoneLine, PhoneTime, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
@@ -179,6 +180,11 @@ const content: ContentSpec[] = [
   {
     registry: "studio_fruit_trees", editable: true, build: () => ({ trees: [...GOLD_FRUIT_TREES] }), studioFile: "studio_fruit_trees.lua",
     generator: { what: "fruit trees", order: [], runtime: FIELD_RUNTIME2, registration: fruitTreeRegistration2, writes: [], internals: true },
+  },
+  // happiness evolutions at another number than 220: method id -> { happiness }
+  {
+    registry: "studio_happiness", editable: true, build: () => ({}), studioFile: "studio_happiness.lua",
+    generator: { what: "happiness evolutions", order: ["happiness"], runtime: EVOLUTION_RUNTIME2, registration: happinessRegistration2, writes: ["evolution_methods"] },
   },
   // Kurt's apricorn balls: the engine's own registry (patched)
   { registry: "apricorns", editable: true, build: () => structuredClone(GOLD_APRICORNS) },
@@ -455,7 +461,7 @@ const pokemon: PokemonSpec = {
     { id: "EVOLVE_LEVEL", label: "Level", level: true },
     { id: "EVOLVE_ITEM", label: "Item", item: true },
     { id: "EVOLVE_TRADE", label: "Trade", item: "optional" },
-    { id: "EVOLVE_HAPPINESS", label: "Happiness", time: ["ANYTIME", "MORNDAY", "NITE"] },
+    { id: "EVOLVE_HAPPINESS", label: "Happiness", time: ["ANYTIME", "MORNDAY", "NITE"], threshold: { registry: "studio_happiness", prefix: "STUDIO_HAPPINESS_", game: 220 } },
     {
       id: "EVOLVE_STAT", label: "Level + stats", level: true,
       comparison: [{ id: "ATK_LT_DEF", label: "Atk < Def" }, { id: "ATK_GT_DEF", label: "Atk > Def" }, { id: "ATK_EQ_DEF", label: "Atk = Def" }],
@@ -875,6 +881,7 @@ const globals: GlobalsSpec = {
     { id: "fruittrees", group: "Other", label: "Fruit trees", hint: "The item each fruit tree gives once a day. A tree on the map is a person whose role is Fruit tree, with its number." },
     { id: "apricorns", group: "Other", label: "Kurt's apricorn balls", hint: "Which ball Kurt makes from each apricorn." },
     { id: "phone", group: "Other", label: "Phone contacts", hint: "The Pokégear phone book: where each contact stands, when calls happen, who gives the number and what is said on the phone. A mod can change them and add its own." },
+    { id: "prizes", group: "Other", label: "Game Corner prizes", hint: "What each prize counter trades for coins: up to four prizes, items or Pokémon. Any person can be made a counter (Maps, select it, Role)." },
     { id: "shops", group: "Other", label: "Shops", hint: "What each shop sells, by the game's shop number (clerks opening the same number share it), and the bargain shop's prices." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],
@@ -1174,7 +1181,7 @@ export const gen2: GameAdapter = {
   flags: {
     notes: "studio_flag_notes", numeric: true,
     // pokegold's names; Crystal numbers its flags differently
-    name: (_ctx, key) => (gameVersion === "crystal" ? undefined : GOLD_FLAG_NAMES[Number(key)]),
+    name: (_ctx, key) => (gameVersion === "crystal" ? undefined : key.startsWith("E") ? GOLD_ENGINE_FLAG_NAMES[Number(key.slice(1))] : GOLD_FLAG_NAMES[Number(key)]),
     uses: (ctx) => gen2FlagUses(ctx, scriptRows, startFlags),
   },
   roles: "gen2",

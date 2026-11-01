@@ -22,6 +22,7 @@ const NAMES: Record<string, [string, string]> = {
   items: ["Items", "item"],
   studio_item_effects: ["Custom item effects", "custom item effect"],
   studio_held_effects: ["Own held effects", "own held effect"],
+  studio_happiness: ["Happiness to evolve", "happiness number"],
   balls: ["Ball catch numbers", "ball"],
   studio_events: ["Events", "event"],
   studio_visibility: ["Visibility rules", "visibility rule"],
@@ -196,6 +197,11 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       return store.table("items")[id] ? () => nav.openItem(id) : removed ? null : removeUnused(registry, id);
     case "studio_flag_notes":
       return () => nav.openFlag(id);
+    case "studio_happiness": {
+      // the first species that evolves at this number
+      const user = Object.entries(store.table("pokemon")).find(([, m]) => ((m as { evolutions?: { method?: string }[] }).evolutions ?? []).some((e) => e.method === id))?.[0];
+      return user ? () => nav.openPokemon(user) : removed ? null : removeUnused(registry, id);
+    }
     case "studio_visibility": {
       // "<MAP>:<OBJECT>": the person on its map
       const [mapId, name] = [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)];

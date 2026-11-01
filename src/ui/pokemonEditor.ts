@@ -2,6 +2,7 @@
 // (center), Pokédex entry and cry (right). Edits go to the "pokemon" registry (and
 // the dex text to "text"); a save writes only the changed fields.
 
+import { FEATURES } from "../features.ts";
 import { addAsset, assetUrl, derivedPath, isCachePath } from "../core/assets.ts";
 import { clone } from "../core/merge.ts";
 import { canDerive } from "../core/reuse.ts";
@@ -718,6 +719,24 @@ function monPairField(t: { registry: string; id: string }, id: string): HTMLElem
   );
 }
 
+// the evolution method a row names (an own happiness number: the happiness method)
+const methodOf = (spec: PokemonSpec, id: string | undefined) =>
+  spec.evolutionMethods.find((m) => m.id === id || (!!id && !!m.threshold && id.startsWith(m.threshold.prefix)));
+
+// one own-threshold record per number some species evolves at, none for unused ones
+function syncThresholds(spec: PokemonSpec): void {
+  for (const m of spec.evolutionMethods) {
+    const th = FEATURES.gen2 ? m.threshold : undefined;
+    if (!th) continue;
+    const used = new Set<string>();
+    for (const r of Object.values(species())) for (const e of ((r as Rec).evolutions as Evolution[] | undefined) ?? []) if (e.method?.startsWith(th.prefix)) used.add(e.method);
+    const have = store.table(th.registry);
+    for (const k of used) if (!have[k]) store.setRecord(th.registry, k, "Happiness to evolve", { happiness: Number(k.slice(th.prefix.length)) });
+    for (const k of Object.keys(have)) if (!used.has(k)) store.setRecord(th.registry, k, "Happiness to evolve", undefined);
+  }
+  store.seal();
+}
+
 function evolutionsCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   const ctx = store.ctx;
   const into = keys(spec).into;
@@ -725,15 +744,19 @@ function evolutionsCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
   const speciesIds = dexOrder();
   const items = spec.itemNames(ctx);
   const editEvo = (i: number, label: string, mutate: (e: Evolution) => void) =>
-    edit(id, label, (d) => {
-      const list = [...((d.evolutions as Evolution[]) ?? [])];
-      list[i] = { ...list[i] };
-      mutate(list[i]);
-      d.evolutions = list;
+    store.group(label, () => {
+      edit(id, label, (d) => {
+        const list = [...((d.evolutions as Evolution[]) ?? [])];
+        list[i] = { ...list[i] };
+        mutate(list[i]);
+        d.evolutions = list;
+      });
+      syncThresholds(spec);
     });
   const rows = evos.map((e, i) => {
-    const method = spec.evolutionMethods.find((m) => m.id === e.method);
-    const methodSelect = selectInput(String(e.method ?? ""), spec.evolutionMethods.map((m) => m.id), (v) =>
+    // an own happiness number is the happiness method too
+    const method = methodOf(spec, e.method);
+    const methodSelect = selectInput(String(method?.id ?? e.method ?? ""), spec.evolutionMethods.map((m) => m.id), (v) =>
       editEvo(i, "Evolution method", (x) => {
         x.method = v;
         const m = spec.evolutionMethods.find((mm) => mm.id === v);
@@ -758,6 +781,16 @@ function evolutionsCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
         ? selectInput(String(e.item ?? ""), items, (v) => editEvo(i, "Trade item", (x) => (v ? (x.item = v) : delete x.item)), "no held item")
         : comboInput(String(e.item ?? ""), "dl-items", items, (v) => editEvo(i, "Evolution item", (x) => (x.item = v))));
     }
+    const th = FEATURES.gen2 ? method?.threshold : undefined;
+    if (th) {
+      const n = e.method?.startsWith(th.prefix) ? Number(e.method.slice(th.prefix.length)) : th.game;
+      const box = numberInput(n, (v) => editEvo(i, "Happiness to evolve", (x) => {
+        const k = clampInt(v, 1, 255);
+        x.method = k === th.game ? method!.id : `${th.prefix}${k}`;
+      }), 1, 255);
+      box.title = `Happiness it needs (1-255; the game's is ${th.game})`;
+      params.push(h("span", { class: "muted" }, "at"), box);
+    }
     if (method?.time) {
       const sel = selectInput(String(e.time ?? method.time[0]), method.time, (v) => editEvo(i, "Evolution time", (x) => (x.time = v)));
       for (const o of sel.options) o.textContent = ({ ANYTIME: "any time", MORNDAY: "morning/day", NITE: "night" } as Record<string, string>)[o.value] ?? o.value;
@@ -773,7 +806,7 @@ function evolutionsCard(id: string, r: Rec, spec: PokemonSpec): HTMLElement {
     const target = comboInput(targetId, "dl-species", speciesIds, (v) => editEvo(i, "Evolves into", (x) => (x[into] = v)));
     target.classList.add("evo-target");
     const goto = targetId && species()[targetId] ? h("button", { class: "btn small ghost", title: `Open ${targetId}`, onclick: () => nav.openPokemon(targetId) }, "→") : null;
-    const remove = h("button", { class: "btn small ghost", title: "Remove", onclick: () => edit(id, "Remove evolution", (d) => (d.evolutions = evos.filter((_, j) => j !== i))) }, "✕");
+    const remove = h("button", { class: "btn small ghost", title: "Remove", onclick: () => store.group("Remove evolution", () => { edit(id, "Remove evolution", (d) => (d.evolutions = evos.filter((_, j) => j !== i))); syncThresholds(spec); }) }, "✕");
     return h("div", { class: "evo-row" }, methodSelect, ...(params.length ? params : [h("span", { class: "muted" }, "—")]), h("span", { class: "muted" }, "→"), target, goto, remove);
   });
   const first = spec.evolutionMethods[0];

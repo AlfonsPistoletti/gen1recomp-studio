@@ -26,6 +26,7 @@ import { textEditor } from "./textField.ts";
 import { INTRO, introCards, introEdited, revertIntro } from "./introEditor.ts";
 import { gameGifts, type GameGift } from "../project/gameEvents.ts";
 import { FEATURES } from "../features.ts";
+import { goldCounters, goldPrizeEditor } from "./prizes2.ts";
 import { fishGroupCards, treeSetCards } from "./timedEncounterPanel.ts";
 
 const SECTION_KEY = "studio.globalSection";
@@ -170,6 +171,7 @@ function sectionChanged(id: string): boolean {
   if (id === "phone" && s.phone && Object.keys(store.table(s.phone.registry)).some((k) => store.isRecordEdited(s.phone!.registry, k))) return true;
   if (id === "shops" && s.shops && Object.keys(store.table(s.shops.registry)).some((k) => store.isRecordEdited(s.shops!.registry, k))) return true;
   if (id === "sounds" && soundsEdited()) return true;
+  if (FEATURES.gen2 && id === "prizes" && store.adapter.roles === "gen2" && goldCounters().some((c) => !c.game)) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
@@ -259,6 +261,8 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
       });
     }
     if (reason === "project" || reason === "saved") schedule();
+    // Gold's prize counters are scripts on the maps
+    if (FEATURES.gen2 && reason === "edit" && section === "prizes" && store.adapter?.roles === "gen2") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
     if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || registry === s.trades?.registry || registry === s.slots?.registry || registry === s.hmBadges?.registry || registry === s.fruitTrees?.registry || registry === s.apricorns?.registry || registry === s.phone?.registry || registry === s.shops?.registry || registry === "statuses" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
@@ -694,6 +698,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "apricorns" && s.apricorns) out.push(apricornsCard(s.apricorns.registry));
   if (FEATURES.gen2 && id === "phone" && s.phone) out.push(...phoneCards(s.phone));
   if (FEATURES.gen2 && id === "shops" && s.shops) out.push(...shopCards(s.shops));
+  if (FEATURES.gen2 && id === "prizes" && store.adapter.roles === "gen2") out.push(...goldPrizeCards());
   if (id === "trades") out.push(...tradeCards());
   const timed = FEATURES.gen2 ? store.adapter.timedEncounters : undefined;
   if (timed && id === "fishing") out.push(...fishGroupCards(timed));
@@ -853,6 +858,22 @@ function newContactCard(ph: NonNullable<GlobalsSpec["phone"]>, table: Record<str
 }
 
 // Gen 2: every shop by its number (the clerks opening it, its stock) and the bargain shop's prices
+// Gold: every person or sign on the maps that is a prize counter (its script; prizes2.ts)
+function goldPrizeCards(): HTMLElement[] {
+  const list = goldCounters();
+  if (!list.length) return [h("p", { class: "hint" }, "No prize counters on the maps.")];
+  return list.map((c) => {
+    const map = store.maps[c.mapId];
+    const name = String(map?.id ?? c.mapId).replace(/_/g, " ");
+    return h(
+      "section",
+      { class: "card" },
+      h("div", { class: "row" }, h("h4", {}, `${name} · ${c.layer === "objects" ? "person" : "sign"} ${c.index + 1}`), h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(c.mapId, c.layer, c.index) }, "Show on map")),
+      goldPrizeEditor(c.mapId, c.layer, c.index) ?? h("span", {}),
+    );
+  });
+}
+
 function shopCards(sh: NonNullable<GlobalsSpec["shops"]>): HTMLElement[] {
   const table = store.table(sh.registry) as Record<string, unknown>;
   const items = store.table("items") as Record<string, { name?: string; price?: number }>;

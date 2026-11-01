@@ -539,7 +539,12 @@ export interface PokemonSpec {
   keys?: { levelMoves?: string; startMoves?: string | null; evolveInto?: string; picSize?: string };
   // evolution methods and which extra fields each one uses (item "optional":
   // a trade with or without a held item; time/comparison: the choices)
-  evolutionMethods: { id: string; label: string; level?: boolean; item?: boolean | "optional"; time?: string[]; comparison?: { id: string; label: string }[] }[];
+  evolutionMethods: {
+    id: string; label: string; level?: boolean; item?: boolean | "optional"; time?: string[]; comparison?: { id: string; label: string }[];
+    // Gold happiness: the game's number (`game`), any other one is a method of the mod's own,
+    // <prefix><n>, with a `registry` record { happiness: n } its helper registers
+    threshold?: { registry: string; prefix: string; game: number };
+  }[];
   // Gen 1's importer writes level 1 for evolutions without a level: keep that shape
   evolutionLevelAlways?: boolean;
   // breeding block (Gen 2): egg groups in nibble order (index + 1), written
@@ -748,6 +753,7 @@ export type EventParamType =
   | "text" // a line of text, or a text key ("_SomeText")
   | "flag"
   | "flagNumber" // Gen 2: an event flag by number (0-2047)
+  | "engineFlag" // Gen 2: an engine flag by number (badges, Pokégear cards …; Flags view key "E<n>")
   | "goldObject" // Gen 2: the player (0) or a person of the event's map (its index + 1)
   | "item"
   | "species"

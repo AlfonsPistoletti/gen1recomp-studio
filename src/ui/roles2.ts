@@ -5,6 +5,7 @@
 //   event    any other inline list (the Events workspace edits it)
 //   nurse    [jumpstd PokecenterNurseScript] (the game's std script, by key)
 //   mart     faceplayer, opentext, pokemart <one of the game's marts>, closetext
+//   prizes   a Game Corner prize counter (prizes2.ts, src/games/gen2/prizes.ts)
 //   std      a sign running a std script (bookshelf, TV, trash can …)
 //   trainer  object.trainer (mapTrainer.ts)
 //   item     object type 1 with itemball = { item, quantity }, eventFlag = taken
@@ -26,6 +27,9 @@ import type { RoleCtx, RoleSet } from "./roles.ts";
 import { textEditor } from "./textField.ts";
 import { pickText } from "./textPick.ts";
 import { contactName } from "./globalWorkspace.ts";
+import { gameScriptRows } from "../games/gen2/events.ts";
+import { isCounter } from "../games/gen2/prizes.ts";
+import { goldPrizeEditor, makeCounter } from "./prizes2.ts";
 
 type Row = Record<string, unknown> & { op: string };
 type Rec = Record<string, unknown>;
@@ -60,6 +64,7 @@ function rowsRole(rows: Row[]): string {
   if (rows.length === 1 && (rows[0].op === "jumptextfaceplayer" || rows[0].op === "jumptext")) return "";
   if (rows.length === 1 && rows[0].op === "jumpstd") return rows[0].std === "PokecenterNurseScript" ? "nurse" : "std";
   if (rows.length === 1 && rows[0].op === "fruittree") return "fruit";
+  if (isCounter(rows)) return "prizes";
   if (rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op))) return "mart";
   return "event";
 }
@@ -67,6 +72,9 @@ function rowsRole(rows: Row[]): string {
 // the role of a game script key ("game": it does more than a simple role)
 function keyRole(key: string): string {
   const rows = keyRows(key);
+  // a prize counter branches into scripts of its own: read with those in
+  const full = gameScriptRows(extra().scripts ?? {}, key) as Row[] | null;
+  if (full && isCounter(full)) return "prizes";
   const role = rows ? rowsRole(rows) : "event";
   return role === "event" ? "game" : role;
 }
@@ -149,7 +157,7 @@ function setRole(c: RoleCtx, from: string, next: string): void {
       }
       // the role the game's own script plays: its key again, not a copy
       const game = gameScript(c);
-      if (game && keyRole(game) === next && ["", "nurse", "std", "mart", "fruit"].includes(next)) e.scriptKey = game;
+      if (game && keyRole(game) === next && ["", "nurse", "std", "mart", "fruit", "prizes"].includes(next)) e.scriptKey = game;
       if (e.scriptKey === undefined) delete e.scriptKey;
     });
     else if (from === "item") c.editEntity("Role: trainer", (e) => {
@@ -158,6 +166,8 @@ function setRole(c: RoleCtx, from: string, next: string): void {
       e.sprite = personSprite(c);
     });
     if (next === "trainer") makeTrainer(c.editEntity);
+    const game = gameScript(c);
+    if (next === "prizes" && !(game && keyRole(game) === "prizes")) makeCounter((rows) => c.editEntity("Role: prize counter", (e) => (e.scriptKey = rows)));
     syncEventTexts();
   });
   store.seal();
@@ -297,6 +307,13 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
         h("div", { class: "row" }, h("button", { class: "btn small ghost", onclick: () => nav.openGlobal("fruittrees") }, "Edit what the trees give →")),
       ];
     }
+    case "prizes": {
+      const editor = goldPrizeEditor(c.map.id, c.layer, c.index);
+      return [
+        ...(editor ? [editor] : []),
+        h("p", { class: "hint" }, "Coins for prizes, in the game's prize menu (up to four). Its texts are the mod's own once a prize changes (Text workspace)."),
+      ];
+    }
     case "game": {
       const id = `game:${eventId(c.map.id, "talk", talkKey(c))}`;
       return [
@@ -318,7 +335,7 @@ export const gen2Roles: RoleSet = (c) => {
   const npc = c.kind === "npc";
   const options = [
     "", "event",
-    ...(npc ? ["trainer", "item", "mart", "nurse", ...(store.adapter.globals?.fruitTrees ? ["fruit"] : [])] : ["hidden", "std"]),
+    ...(npc ? ["trainer", "item", "mart", "prizes", "nurse", ...(store.adapter.globals?.fruitTrees ? ["fruit"] : [])] : ["hidden", "std", "prizes"]),
     // only when the game's script does more than one of the roles above
     ...((gameScript(c) && keyRole(gameScript(c)!) === "game") || current === "game" ? ["game"] : []),
     ...(current === "none" ? ["none"] : []),

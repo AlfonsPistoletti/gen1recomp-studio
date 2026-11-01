@@ -18,21 +18,22 @@
 
 import { studioMovementSteps } from "./scriptKeys.ts";
 import type { Block } from "../../core/eventBlocks.ts";
+import { isCounter } from "./prizes.ts";
 import type { EventCommand, EventRow, EventSpec, GameContext } from "../types.ts";
 
 type Row = Record<string, unknown> & { op: string };
 type Args = Record<string, unknown>;
 
-const recordsOf = (ctx: GameContext, registry: string) =>
+export const recordsOf = (ctx: GameContext, registry: string) =>
   (ctx.records[registry] ?? ctx.data.content[registry] ?? {}) as Record<string, { index?: number; name?: string }>;
 // items and species are numbers in Gold's rows (their records' `index`)
-const numberOf = (ctx: GameContext, registry: string, id: unknown) => recordsOf(ctx, registry)[String(id)]?.index ?? 0;
-const idOf = (ctx: GameContext, registry: string, n: unknown) =>
+export const numberOf = (ctx: GameContext, registry: string, id: unknown) => recordsOf(ctx, registry)[String(id)]?.index ?? 0;
+export const idOf = (ctx: GameContext, registry: string, n: unknown) =>
   Object.entries(recordsOf(ctx, registry)).find(([, r]) => r?.index === n)?.[0] ?? String(n);
 
 // sounds, songs and specials are their place in the game's name lists
-const orders = (ctx: GameContext) => ctx.data.extra as { sfxOrder?: string[]; musicOrder?: string[]; specialOrder?: string[] };
-const placeIn = (list: string[] | undefined, name: unknown) => Math.max(0, (list ?? []).indexOf(String(name)));
+export const orders = (ctx: GameContext) => ctx.data.extra as { sfxOrder?: string[]; musicOrder?: string[]; specialOrder?: string[] };
+export const placeIn = (list: string[] | undefined, name: unknown) => Math.max(0, (list ?? []).indexOf(String(name)));
 // money operands: an account byte, then the amount in 3 bytes, big-endian
 const moneyArgs = (n: unknown) => {
   const v = Math.max(0, Math.min(999999, Number(n) || 0));
@@ -85,6 +86,9 @@ const commands: EventCommand[] = [
   // ---- Flags (event flags are numbers in Gold, 0-2047)
   { id: "set_flag", verb: "setevent", label: "Set flag", category: "Flags", help: "Turns an event flag on. Flags remember that something happened (saved with the game).", params: [{ key: "event", label: "Flag", type: "flagNumber" }], describe: (a) => `Set flag ${s(a.event)}` },
   { id: "clear_flag", verb: "clearevent", label: "Clear flag", category: "Flags", help: "Turns an event flag off.", params: [{ key: "event", label: "Flag", type: "flagNumber" }], describe: (a) => `Clear flag ${s(a.event)}` },
+  // engine flags: the game's own switches (badges, Pokégear cards, fly points, the Pokédex)
+  { id: "set_engine_flag", verb: "setflag", label: "Set engine flag", category: "Flags", help: "Turns one of the game's own switches on: a badge, a Pokégear card, a fly point, the Pokédex …", params: [{ key: "flag", label: "Engine flag", type: "engineFlag", default: 11 }], describe: (a) => `Set engine flag E${s(a.flag)}` },
+  { id: "clear_engine_flag", verb: "clearflag", label: "Clear engine flag", category: "Flags", help: "Turns one of the game's own switches off.", params: [{ key: "flag", label: "Engine flag", type: "engineFlag", default: 11 }], describe: (a) => `Clear engine flag E${s(a.flag)}` },
 
   // ---- Scenes: a map's story stage (step triggers run only in theirs; entering
   // runs the scene's event); a map's own scene changes its blocks on the next load
@@ -139,6 +143,7 @@ const commands: EventCommand[] = [
     // HAVE_LESS = 2, as for money
     branch: { op: "ifnotequal", not: "ifequal", value: 2 },
   },
+  { id: "check_engine_flag", verb: "checkflag", label: "Engine flag is set", category: "Conditions", help: "True when one of the game's own switches is on (a badge, a Pokégear card …).", params: [{ key: "flag", label: "Engine flag", type: "engineFlag", default: 11 }], condition: "engine flag E{flag} is set", describe: (a) => `engine flag E${s(a.flag)} is set` },
   { id: "check_flag", verb: "checkevent", label: "Flag is set", category: "Conditions", help: "True when the event flag is on.", params: [{ key: "event", label: "Flag", type: "flagNumber" }], condition: "flag {event} is set", describe: (a) => `flag ${s(a.event)} is set` },
   {
     id: "check_item", verb: "checkitem", label: "Has item", category: "Conditions", help: "True when the bag holds at least one.",
@@ -545,6 +550,7 @@ function describeRaw(r: Row, ctx: GameContext): { text: string; help: string } {
 // a script one of the Roles writes (src/ui/roles2.ts): one line of text, a
 // std script (nurse, bookshelf …), a shop
 export function presetOf(rows: Row[]): boolean {
+  if (isCounter(rows)) return true;
   if (rows.length === 1 && ["jumptextfaceplayer", "jumptext", "jumpstd", "fruittree"].includes(rows[0].op)) return true;
   return rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op));
 }

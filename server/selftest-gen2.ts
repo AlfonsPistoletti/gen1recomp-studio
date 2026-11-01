@@ -23,12 +23,16 @@ function check(name: string, ok: boolean, detail = ""): void {
 }
 
 const info = await nodeHost.info();
-const version = info.versions.find((v) => v.available && adapterFor(v.version)?.id === "gen2")?.version;
+// npm run selftest:gen2 -- crystal (default: the first imported Gen 2 game)
+const wanted = process.argv[2];
+const version = info.versions.find((v) => v.available && adapterFor(v.version)?.id === "gen2" && (!wanted || v.version === wanted))?.version;
 if (!version) {
   console.log("FAIL no Gen 2 dataset imported (or the Gen 2 feature is off)");
   process.exit(1);
 }
 const adapter = adapterFor(version)!;
+// Crystal differs from Gold/Silver in places (script keys, flag numbers, its own prizes and trades)
+const isCrystal = version === "crystal";
 
 const t0 = Date.now();
 const project = await openProject(nodeHost, version, adapter, null);
@@ -211,7 +215,7 @@ for (const [registry, records] of Object.entries(edited)) {
   const crystal = { ...ts, imageWidth: 128, imageHeight: 128, tileAttrs: { 1: { palette: 1, vramBank: 0 } } };
   const cext = newExtension(crystal, true);
   check("Crystal tiles are added from slot 0xE0", cext.first === 0xe0 && cext.sheet === 256, JSON.stringify(cext));
-  check("Gold tiles are added below the sheet", newExtension(ts, true).first === first && newExtension(ts, true).sheet === undefined);
+  if (!isCrystal) check("Gold tiles are added below the sheet", newExtension(ts, true).first === first && newExtension(ts, true).sheet === undefined);
   const lua = recipe("studio_selftest", [], [{ source: "tilesets/johto.png", out: "studio/tilesets/x.png", per: 16, first: 0xe0, tiles: ["0".repeat(64)] }]);
   check("recipe places Crystal tiles inside the sheet", lua.includes("first = 224,") && lua.includes("local first = s.first or"));
   const cdata = dataFile("studio_selftest", "tileset extensions", { TILESET_JOHTO: { ...cext, tiles: ["0".repeat(64)], palettes: [3], blocks: [[0xe0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], collision: [[0, 0, 0, 0]] } });
@@ -271,7 +275,8 @@ for (const [registry, records] of Object.entries(edited)) {
   // the game's own events: New Bark's teacher (three flag checks) reads in
   // with its branches as nested lists, and as If blocks
   const { GEN2_EVENTS } = await import("../src/games/gen2/events.ts");
-  const teacher = GEN2_EVENTS.gameRows!(ctx, "48:406f") as unknown as Record<string, unknown>[] | null;
+  const teacherKey = ((base.NEW_BARK_TOWN as unknown as Rec).objects as Rec[]).find((o) => o.sprite === "SPRITE_TEACHER")?.scriptKey;
+  const teacher = GEN2_EVENTS.gameRows!(ctx, String(teacherKey)) as unknown as Record<string, unknown>[] | null;
   check("a game script reads in with its branches", !!teacher && teacher.some((r) => r.op === "iftrue" && Array.isArray(r.script)), JSON.stringify(teacher).slice(0, 200));
   const tb = gparse((teacher ?? []) as never, ctx) as { t: string }[];
   check("a game script shows as If blocks", tb.filter((b) => b.t === "if").length >= 1 && !JSON.stringify(tb).includes('"#raw",{"op":"iftrue"'), JSON.stringify(tb).slice(0, 300));
@@ -305,7 +310,7 @@ for (const [registry, records] of Object.entries(edited)) {
     }
     check("new event commands round-trip", !bad.length, bad.join("; "));
     const walk = GEN2_EVENTS.commands.find((x) => x.id === "walk")!;
-    check("a game movement reads as a path", deepEqual(walk.unpack!({ op: "applymovement", object: 10, movement: "4a:4868" }, ctx), { who: 10, path: ["left"], speed: 0x0c }));
+    if (!isCrystal) check("a game movement reads as a path", deepEqual(walk.unpack!({ op: "applymovement", object: 10, movement: "4a:4868" }, ctx), { who: 10, path: ["left"], speed: 0x0c }));
   }
   // screens: the picture's three rows and a screen special read back; every listed special exists
   {
@@ -481,12 +486,12 @@ for (const [registry, records] of Object.entries(edited)) {
   const { tradeRegistration2 } = await import("../src/lua/tradeRuntime2.ts");
   const { dataFile } = await import("../src/lua/writer.ts");
   const list = (content.studio_trades as Record<string, unknown>).trades as Record<string, unknown>[];
-  check("six trades load", list?.length === 6 && typeof list[0].give === "string", String(list?.length));
+  check(`${isCrystal ? "seven" : "six"} trades load`, list?.length === (isCrystal ? 7 : 6) && typeof list[0].give === "string", String(list?.length));
   const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
   const offers = adapter.globals!.trades!.offers(ctx);
   check("every trade is offered by someone", [1, 2, 3, 4, 5, 6].every((n) => (offers.get(n) ?? []).length > 0), JSON.stringify([...offers].map(([n, o]) => [n, o.map((x) => x.map)])));
   const line = adapter.globals!.trades!.offerLine(ctx, list[0]);
-  check("a trade's offer line names its Pokémon", line.includes("DROWZEE") && line.includes("MACHOP") && !line.includes("{"), line);
+  check("a trade's offer line names its Pokémon", line.includes(isCrystal ? "ABRA" : "DROWZEE") && line.includes("MACHOP") && !line.includes("{"), line);
   const code = tradeRegistration2("studio_selftest", "studio_trades.lua");
   check("trade helper has no backticks", !code.includes("`"));
   const edited = list.map((t, i) => (i === 0 ? { ...t, get: "PIKACHU", nickname: "SPARKY" } : t));
@@ -589,7 +594,8 @@ for (const [registry, records] of Object.entries(edited)) {
   }
   const tm = found.find((f) => f.startsWith("GOLDENROD_GAME_CORNER:TM_"));
   const mons = found.find((f) => f.startsWith("GOLDENROD_GAME_CORNER:ABRA"));
-  check("Gold's four prize counters are read from their scripts", found.length === 4 && tm === "GOLDENROD_GAME_CORNER:TM_THUNDER=5500,TM_BLIZZARD=5500,TM_FIRE_BLAST=5500" && !!mons?.includes("DRATINI@10=2100"), found.join(" | "));
+  const lastMon = isCrystal ? "WOBBUFFET@15=1500" : "DRATINI@10=2100";
+  check("Gold's four prize counters are read from their scripts", found.length === 4 && tm === "GOLDENROD_GAME_CORNER:TM_THUNDER=5500,TM_BLIZZARD=5500,TM_FIRE_BLAST=5500" && !!mons?.includes(lastMon), found.join(" | "));
   const texts = { hello: "T_HELLO", which: "T_WHICH", confirm: "T_OK", here: "T_HERE", poor: "T_POOR", full: "T_FULL", bye: "T_BYE", noCase: "T_CASE" };
   const counter = { prizes: [{ item: "TM_THUNDER", cost: 5500 }, { species: "DRATINI", level: 15, cost: 2100 }], texts };
   const rows = pz.counterRows(counter, ctx);
@@ -631,15 +637,22 @@ for (const [registry, records] of Object.entries(edited)) {
   const givers = adapter.globals!.phone!.givers(ctx);
   check("phone contacts load (Joey = 15 on ROUTE_30)", joey?.index === 15 && joey.map === "ROUTE_30" && !("PHONE_UNUSED" in book), JSON.stringify(joey));
   // what fills {STRBUF} in Joey's call: his name in the greeting, his own mon in the chat
-  const phoneLines = (k: unknown) => new Map(adapter.globals!.phone!.lines(ctx, k).map((l) => [l.text, l]));
-  const bufs = phoneLines(joey?.callerKey);
+  const phoneLines = (k: unknown, who?: number) => new Map(adapter.globals!.phone!.lines(ctx, k, who).map((l) => [l.text, l]));
+  const bufs = phoneLines(joey?.callerKey, 15);
   const fill = (t: string) => bufs.get(t)?.fills.join() ?? "";
+  if (isCrystal) {
+    // the shared call script reads the caller (readvar VAR_CALLERID): one greeting per time of day, Joey's
+    const greet = [...bufs.values()].filter((l) => l.time);
+    check("phone (Crystal): only the caller's own greetings", greet.length === 3 && ["Morning", "Day", "Night"].every((t) => greet.some((l) => l.time === t && l.fills.join() === "a trainer's name")), JSON.stringify(greet));
+    check("phone (Crystal): Wade's greetings are his own", ![...phoneLines(book.PHONE_BUG_CATCHER_WADE?.callerKey, 16).keys()].some((k) => greet.some((l) => l.text === k)));
+  } else {
   check("phone {STRBUF}: caller's name / own Pokémon", fill("41:5989") === "a trainer's name" && fill("41:5b0d") === "one of the caller's own Pokémon" && fill("41:5cdb") === "“ROUTE 30”", JSON.stringify([...bufs.values()]));
   // the greetings by time of day: checktime DAY / NITE branches, morning falls through
   check("phone greetings by time (Joey calls you)", bufs.get("41:5955")?.time === "Morning" && bufs.get("41:5989")?.time === "Day" && bufs.get("41:59b5")?.time === "Night" && bufs.get("41:5b0d")?.time === undefined, JSON.stringify([...bufs.values()].map((l) => [l.text, l.time])));
   // Gold's trainers share their phone talk: Wade says Joey's greeting too
   const wade = book.PHONE_BUG_CATCHER_WADE;
   check("phone talk shared (Joey and Wade)", phoneLines(wade?.callerKey).has("41:5955"), String(wade?.callerKey));
+  }
   check("Joey's number is given on Route 30", (givers.get(15) ?? []).some((g) => g.map === "ROUTE_30"), JSON.stringify(givers.get(15)));
   const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, phone_contacts: { PHONE_YOUNGSTER_JOEY: { ...joey, map: "ROUTE_31" } } });
   const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
@@ -672,13 +685,15 @@ for (const [registry, records] of Object.entries(edited)) {
   const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
   const uses = adapter.flags!.uses(ctx);
   const joey = uses.get("628") ?? [];
-  check("flags: 628 checked and set (Joey's rematch)", joey.some((u) => u.kind === "check" && u.map === "ROUTE_30") && joey.some((u) => u.kind === "set" && !!u.contact), JSON.stringify(joey.slice(0, 4)));
+  if (!isCrystal) check("flags: 628 checked and set (Joey's rematch)", joey.some((u) => u.kind === "check" && u.map === "ROUTE_30") && joey.some((u) => u.kind === "set" && !!u.contact), JSON.stringify(joey.slice(0, 4)));
   const beaten = [...uses.values()].flat().filter((u) => u.kind === "beaten" && u.map === "ROUTE_30");
   check("flags: Route 30's trainers' beaten flags", beaten.length >= 2, JSON.stringify(beaten));
-  check("flags: a new game's flags and Gold's names", [...uses.values()].flat().some((u) => u.kind === "start") && adapter.flags!.name!(ctx, "628") === "EVENT_JOEY_READY_FOR_REMATCH", String(adapter.flags!.name!(ctx, "628")));
+  check("flags: a new game's flags", [...uses.values()].flat().some((u) => u.kind === "start"));
+  if (!isCrystal) check("flags: Gold's names", adapter.flags!.name!(ctx, "628") === "EVENT_JOEY_READY_FOR_REMATCH", String(adapter.flags!.name!(ctx, "628")));
   // engine flags: Falkner's gym sets the Zephyr Badge (E26); the command reads back as itself
   const badge = uses.get("E26") ?? [];
-  check("flags: engine flag E26 (Zephyr Badge) set in Violet's gym", adapter.flags!.name!(ctx, "E26") === "ENGINE_ZEPHYRBADGE" && badge.some((u) => u.kind === "set" && u.map === "VIOLET_GYM"), JSON.stringify(badge.slice(0, 3)));
+  check("flags: engine flags are read", [...uses.keys()].some((k) => k.startsWith("E") && (uses.get(k) ?? []).some((u) => u.kind === "set")));
+  if (!isCrystal) check("flags: engine flag E26 (Zephyr Badge) set in Violet's gym", adapter.flags!.name!(ctx, "E26") === "ENGINE_ZEPHYRBADGE" && badge.some((u) => u.kind === "set" && u.map === "VIOLET_GYM"), JSON.stringify(badge.slice(0, 3)));
   const ev = adapter.events!;
   const rows = ev.compile!([{ t: "if", cond: ["checkflag", 26], not: false, then: [{ t: "cmd", row: ["setflag", 64] }], else: null }], ctx, undefined);
   check("flags: engine flag commands round-trip", JSON.stringify(rows).includes('"op":"checkflag","flag":26') && JSON.stringify(ev.parse!(rows, ctx)).includes('["setflag",64]'), JSON.stringify(ev.parse!(rows, ctx)).slice(0, 200));
@@ -691,7 +706,8 @@ for (const [registry, records] of Object.entries(edited)) {
     const want = not ? '{"op":"ifless","value":7' : '{"op":"ifgreater","value":6';
     check(`badges: ${not ? "fewer than" : "at least"} 7 compiles and reads back`, JSON.stringify(b7).includes('{"op":"readvar","var":7},' + want) && JSON.stringify(ev.parse!(b7, ctx)).includes(`"cond":["#badges",7],"not":${not}`), JSON.stringify(ev.parse!(b7, ctx)).slice(0, 200));
   }
-  const rival = ev.gameRows!(ctx, "5a:48ff");
+  const rivalKey = ((base.INDIGO_PLATEAU_POKECENTER_1F as unknown as Rec).coordEvents as Rec[] | undefined)?.[0]?.scriptKey;
+  const rival = ev.gameRows!(ctx, String(rivalKey));
   check("weekday: the Indigo Plateau rival's trigger checks the day", !!rival && ["0", "2", "4", "5", "6"].every((d) => JSON.stringify(ev.parse!(rival as never, ctx)).includes(`"cond":["#weekday",${d}]`)), JSON.stringify(rival && ev.parse!(rival as never, ctx)).slice(0, 300));
 }
 

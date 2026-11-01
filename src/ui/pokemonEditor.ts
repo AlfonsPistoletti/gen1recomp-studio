@@ -10,7 +10,7 @@ import { store } from "../core/store.ts";
 import type { IconMotion, PokemonSpec } from "../games/types.ts";
 import { importArt, placeholderArt } from "./artImport.ts";
 import { footprintRow } from "./footprints.ts";
-import { clear, comboInput, field, h, numberInput, rerender, selectInput, onFocusLeave, toast } from "./dom.ts";
+import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput, toast, whenShown } from "./dom.ts";
 import { colorSelect, defaultView, monPaletteName, paletteField, picColors } from "./picColors.ts";
 import { loadImage, showTinted } from "../render/graphics.ts";
 import type { Rgb } from "../render/color.ts";
@@ -236,12 +236,12 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     revert.textContent = isNew ? "Delete Pokémon" : "Revert to base";
     revert.hidden = !isNew && ![REG, ...related()].some((reg) => store.isRecordEdited(reg, current!)) && !(spec.colorPairs && monPairEdited(spec.colorPairs, current));
   };
-  const schedule = () => {
+  const schedule = whenShown(main, () => {
     if (!scheduled) {
       scheduled = true;
       requestAnimationFrame(renderNow);
     }
-  };
+  });
 
   // a new species as a copy of an existing one: next dex number, the
   // source's cry and menu icon, and its own copy of the dex text

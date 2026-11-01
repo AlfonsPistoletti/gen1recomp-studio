@@ -662,7 +662,7 @@ export class MapView {
     if (cs) {
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 2 / this.zoom;
-      ctx.strokeRect(cs.x * CELL - 1, cs.y * CELL - 1, CELL + 2, CELL + 2);
+      this.box(cs.x * CELL - 1, cs.y * CELL - 1, CELL + 2, CELL + 2, "stroke", 4);
     }
     // warps and triggers under signs under NPCs, the way they stack in game
     for (const layer of byKind(store.adapter.layers, ["warp", "trigger", "sign", "npc"])) {
@@ -673,10 +673,10 @@ export class MapView {
           // a mod's own kind: its icon in its color on a tinted cell
           ctx.globalAlpha = 0.35;
           ctx.fillStyle = kind.color;
-          ctx.fillRect(e.x * CELL, e.y * CELL, CELL, CELL);
+          this.box(e.x * CELL, e.y * CELL, CELL, CELL, "fill");
           ctx.globalAlpha = 1;
           ctx.strokeStyle = kind.color;
-          ctx.strokeRect(e.x * CELL + lw / 2, e.y * CELL + lw / 2, CELL - lw, CELL - lw);
+          this.box(e.x * CELL + lw / 2, e.y * CELL + lw / 2, CELL - lw, CELL - lw, "stroke");
           const [name, node] = extIcon(kind.icon);
           this.markerIcon(name, node, kind.color, e);
         } else if (layer.kind === "npc") {
@@ -691,10 +691,10 @@ export class MapView {
         } else if (layer.kind === "sign") {
           ctx.globalAlpha = 0.5;
           ctx.fillStyle = layer.color;
-          ctx.fillRect(e.x * CELL + 3, e.y * CELL + 3, CELL - 6, CELL - 6);
+          this.box(e.x * CELL + 3, e.y * CELL + 3, CELL - 6, CELL - 6, "fill", 2);
           ctx.globalAlpha = 1;
           ctx.strokeStyle = layer.color;
-          ctx.strokeRect(e.x * CELL + 3, e.y * CELL + 3, CELL - 6, CELL - 6);
+          this.box(e.x * CELL + 3, e.y * CELL + 3, CELL - 6, CELL - 6, "stroke", 2);
           this.markerIcon("signpost", Signpost, SIGN_ICON, e);
         } else {
           // Gen 2 step triggers run only in their scene: other scenes' are faint
@@ -702,11 +702,11 @@ export class MapView {
           const faint = sceneOf !== null && map.id === store.currentMap && sceneOf !== store.scene ? 0.35 : 1;
           ctx.globalAlpha = (layer.kind === "warp" ? 0.45 : 0.3) * faint;
           ctx.fillStyle = layer.color;
-          ctx.fillRect(e.x * CELL, e.y * CELL, CELL, CELL);
+          this.box(e.x * CELL, e.y * CELL, CELL, CELL, "fill");
           ctx.globalAlpha = faint;
           ctx.strokeStyle = layer.color;
           if (layer.kind === "trigger") ctx.setLineDash([3 / this.zoom, 2 / this.zoom]);
-          ctx.strokeRect(e.x * CELL + lw / 2, e.y * CELL + lw / 2, CELL - lw, CELL - lw);
+          this.box(e.x * CELL + lw / 2, e.y * CELL + lw / 2, CELL - lw, CELL - lw, "stroke");
           ctx.setLineDash([]);
           ctx.globalAlpha = 1;
           if (layer.kind === "warp") this.markerIcon("door-open", DoorOpen, WARP_ICON, e);
@@ -746,7 +746,7 @@ export class MapView {
           if (id.startsWith(`${map.id}:step:trainer`)) {
             ctx.fillStyle = SIGHT_COLOR;
             ctx.globalAlpha = 0.28;
-            ctx.fillRect(ev.x * CELL + 2, Number(ev.y) * CELL + 2, CELL - 4, CELL - 4);
+            this.box(ev.x * CELL + 2, Number(ev.y) * CELL + 2, CELL - 4, CELL - 4, "fill", 2);
             ctx.globalAlpha = 1;
           } else this.markerIcon("zap", Zap, "#d4357a", ev);
         }
@@ -763,14 +763,23 @@ export class MapView {
     if (e) {
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 2 / this.zoom;
-      ctx.strokeRect(e.x * CELL - 1, e.y * CELL - 1, CELL + 2, CELL + 2);
+      this.box(e.x * CELL - 1, e.y * CELL - 1, CELL + 2, CELL + 2, "stroke", 4);
       ctx.strokeStyle = "#2f7dff";
       ctx.lineWidth = 1 / this.zoom;
-      ctx.strokeRect(e.x * CELL - 1, e.y * CELL - 1, CELL + 2, CELL + 2);
+      this.box(e.x * CELL - 1, e.y * CELL - 1, CELL + 2, CELL + 2, "stroke", 4);
     }
   }
 
   // a Lucide icon centered on the entity's cell (12 of its 16 pixels)
+  // the studio's markers have rounded corners, so they stand apart from the square tiles under them
+  private box(x: number, y: number, w: number, h: number, mode: "fill" | "stroke", r = 3): void {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, r);
+    if (mode === "fill") ctx.fill();
+    else ctx.stroke();
+  }
+
   private markerIcon(name: string, node: IconNode, color: string, e: EntityRecord): void {
     const img = markerIcon(name, node, color, () => this.invalidate());
     if (!img) return;
@@ -820,7 +829,7 @@ export class MapView {
           const x = o.x + dx * k;
           const y = o.y + dy * k;
           if (x < 0 || y < 0 || x >= map.width * 2 || y >= map.height * 2) break;
-          ctx.fillRect(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4);
+          this.box(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4, "fill", 2);
         }
       }
       ctx.globalAlpha = 1;
@@ -844,7 +853,7 @@ export class MapView {
     ctx.textBaseline = "top";
     const w = ctx.measureText(text).width + 4 / this.zoom;
     ctx.fillStyle = color;
-    ctx.fillRect(x, y, w, size + 2 / this.zoom);
+    this.box(x, y, w, size + 2 / this.zoom, "fill", 2 / this.zoom);
     ctx.fillStyle = "#fff";
     ctx.fillText(text, x + 2 / this.zoom, y + 1 / this.zoom);
   }

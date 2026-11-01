@@ -391,9 +391,16 @@ export function mountChangesMenu(): HTMLElement {
     if (!panel.hidden) render();
   };
   const afterBrush = afterStroke(refresh);
+  // edits come one per key while typing: the count follows once typing pauses
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const soon = () => {
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 200);
+  };
   store.on((reason) => {
     if (store.midStroke(reason)) afterBrush();
-    else if (["edit", "content", "project", "saved", "map"].includes(reason)) refresh();
+    else if (reason === "edit" || reason === "content") soon();
+    else if (["project", "saved", "map"].includes(reason)) refresh();
   });
   refresh();
   return root;

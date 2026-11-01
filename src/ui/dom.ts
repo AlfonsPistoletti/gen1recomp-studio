@@ -100,6 +100,28 @@ export function icon(node: IconNode, size = 16): SVGElement {
 // recreated under the caret.
 let rerendering = false;
 
+// A page's re-render that waits while its workspace is out of sight: `fn` runs
+// now when `el` is in the shown workspace, else once when that workspace is shown
+// again (main.ts setWorkspace sends "studio:shown"). Typing in one workspace then
+// doesn't rebuild every other one on each key.
+export const SHOWN = "studio:shown";
+export function whenShown(el: HTMLElement, fn: () => void): () => void {
+  let stale = false;
+  let hooked: HTMLElement | null = null;
+  return () => {
+    const panel = el.closest<HTMLElement>("#layout > [data-ws]");
+    if (!panel?.hidden) return fn();
+    stale = true;
+    if (hooked === panel) return;
+    hooked = panel;
+    panel.addEventListener(SHOWN, () => {
+      if (!stale) return;
+      stale = false;
+      fn();
+    });
+  };
+}
+
 // Runs `cb` when focus leaves a form (a held-back re-render can happen
 // then), ignoring the focus moves rerender() itself causes.
 // Only when a render was actually held back: a spurious one right after

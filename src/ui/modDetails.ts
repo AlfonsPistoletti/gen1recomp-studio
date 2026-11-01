@@ -6,7 +6,7 @@
 import type { Host } from "../host/types.ts";
 import { field, h, toast } from "./dom.ts";
 import { normalizeGithub } from "../project/publish.ts";
-import { GAME_NAMES, GAME_OF_VERSION } from "../games/index.ts";
+import { GAME_NAMES, GAME_OF_VERSION, minEngineFor } from "../games/index.ts";
 import type { GameId } from "../games/types.ts";
 
 // what mods in the wild use; the manager groups by it and accepts any text
@@ -210,6 +210,7 @@ export async function modDetailsDialog(host: Host, modId: string, gen: GameId, s
         ? "engine_internals is on: the studio adds it while the mod uses something that writes into the engine (prize counters, RED++ colors) and removes it again when nothing does."
         : "engine_internals isn't needed: the studio adds it by itself when a feature requires it."),
     ),
+    minEngineFor([gen]) ? h("p", { class: "hint" }, `Mods for ${GAME_NAMES[gen]} need gen1recomp ${minEngineFor([gen])} or later; on an older one they don't load.`) : "",
     h("p", { class: "hint" }, `Saved straight to mods/${modId}/manifest.json (not part of undo). The id can't change.`),
     h("div", { class: "dialog-actions" }, h("button", { class: "btn", onclick: close }, "Cancel"), h("button", { class: "btn primary", onclick: () => void save() }, "Save details")),
   );

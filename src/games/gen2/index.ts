@@ -914,7 +914,7 @@ const globals: GlobalsSpec = {
     // string buffer, and the text shows what the last of these rows put there
     // (gen1recomp Vm:setStringBuffer; specials 90-92 = Specials.lua's phone
     // name-drops). Rows are walked in order, calls return, jumps don't.
-    lines: (ctx, script) => {
+    lines: (ctx, script, caller) => {
       const out = new Map<string, PhoneLine>();
       const text = ctx.data.content.text ?? {};
       const specials = (ctx.data.extra as { specialOrder?: string[] }).specialOrder ?? [];
@@ -950,8 +950,19 @@ const globals: GlobalsSpec = {
         if (!Array.isArray(rows) || depth > 12 || (typeof body === "string" && visited.has(seenKey))) return cur;
         if (typeof body === "string") visited.add(seenKey);
         let checked: number | null = null;
+        // Crystal's shared call scripts pick a contact's line by readvar VAR_CALLERID (23)
+        // and one ifequal per contact index: only `caller`'s branch is this contact's
+        let byCaller = false;
         for (const r of rows as Record<string, unknown>[]) {
           cur = fills(r) ?? cur;
+          if (r.op === "readvar") {
+            byCaller = r.var === 23 && caller !== undefined;
+            continue;
+          }
+          if (byCaller && (r.op === "ifequal" || r.op === "ifnotequal") && (typeof r.script === "string" || Array.isArray(r.script))) {
+            if ((r.op === "ifequal") === (r.value === caller)) return run(r.script, cur, mask, depth + 1);
+            continue;
+          }
           for (const v of Object.values(r)) {
             if (typeof v !== "string" || typeof text[v] !== "string") continue;
             const line = out.get(v) ?? { text: v, fills: [] };
@@ -1197,6 +1208,8 @@ export const gen2: GameAdapter = {
     uses: (ctx) => gen2FlagUses(ctx, scriptRows, startFlags),
   },
   roles: "gen2",
+  // 0.3.96: shops, new phone contacts, script numbers (gen1recomp #3036-#3038)
+  minEngine: "0.3.96",
   textSets: [{ registry: "text", label: "Script texts" }, { registry: "rom_text", label: "Game texts" }],
   scriptTexts(ctx, key) {
     if (!(key in scriptRows)) return undefined;
@@ -1307,6 +1320,14 @@ export const gen2: GameAdapter = {
       ...content.map((c) => (c.file ? (read(c.file) as Promise<Record<string, unknown>>) : Promise.resolve({}))),
     ]);
     const scripts = ((await read("scripts.lua").catch(() => null)) ?? {}) as Record<string, unknown>;
+    // Crystal's std scripts say their texts with farwritetext (another bank): the VM runs it as
+    // writetext (Vm.lua), so the studio reads it as one too (events, phone lines, texts' Used by …)
+    const plainText = (v: unknown): void => {
+      if (!v || typeof v !== "object") return;
+      if ((v as { op?: unknown }).op === "farwritetext") (v as { op: string }).op = "writetext";
+      for (const x of Object.values(v)) if (x && typeof x === "object") plainText(x);
+    };
+    plainText(scripts);
     scriptRows = scripts;
     scriptTextMemo.clear();
     // gen1recomp World:resolveSprite: object sprite $F0+slot = the slot's

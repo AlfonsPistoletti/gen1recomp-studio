@@ -464,7 +464,7 @@ export interface GlobalsSpec {
   // record per PHONE_* id with its row `index`); `givers`: the map people whose
   // script asks for a contact's number (askforphonenumber <index>)
   // `lines`: the texts a call script (a key or inline rows) says, in order
-  phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; lines(ctx: GameContext, script: unknown): PhoneLine[] };
+  phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; lines(ctx: GameContext, script: unknown, caller?: number): PhoneLine[] };
   // Gen 2: the shops (the engine's `marts` registry, engine 535a5ec0+): ids "0".."33" = the script's mart
   // number -> item list, "bargain" -> { item, price } rows; `clerks`: the map people opening mart n
   shops?: { registry: string; clerks(n: number): { mapId: string; index: number }[] };
@@ -1026,6 +1026,8 @@ export interface GameAdapter {
   // which Role box a person / sign gets (src/ui/roles.ts): Gen 1's (unset) or
   // Gen 2's (roles2.ts: inline scripts and object fields)
   roles?: "gen2";
+  // the oldest gen1recomp release the mods saved for this game load in (shown in Mod details and the mod's README)
+  minEngine?: string;
   // the "text" keys a script shows (its rows, followed through calls and
   // jumps), undefined when `key` is no script: the Text workspace's labels and
   // Used by for a game whose texts are named after their place in the ROM (Gen 2)

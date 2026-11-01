@@ -5,11 +5,15 @@
 //   event    any other inline list (the Events workspace edits it)
 //   nurse    [jumpstd PokecenterNurseScript] (the game's std script, by key)
 //   mart     faceplayer, opentext, pokemart <one of the game's marts>, closetext
+//   prizes   a Game Corner prize counter (prizes2.ts, src/games/gen2/prizes.ts)
+//   coins    a coin seller (the game's jumpstd GameCornerCoinVendorScript, or the mod's own rows)
 //   std      a sign running a std script (bookshelf, TV, trash can …)
 //   trainer  object.trainer (mapTrainer.ts)
 //   item     object type 1 with itemball = { item, quantity }, eventFlag = taken
 //   hidden   sign kind 7 with hiddenItem = { event, item }
 //   game     the game's own script key (kept as it was) when it does more
+//   cutscene the cart's ObjectEvent stand-in ("Object event."): people that only appear in a
+//            scene and are moved by the map's scripts (the hidden rival at Indigo Plateau, …)
 // A person still on a game key gets the role of that key's rows (the fisher's
 // [jumptextfaceplayer text] is Normal), keeping the key: nothing is copied.
 // There is no PC role: the engine opens a Pokémon Center's PC by tileset.
@@ -26,6 +30,9 @@ import type { RoleCtx, RoleSet } from "./roles.ts";
 import { textEditor } from "./textField.ts";
 import { pickText } from "./textPick.ts";
 import { contactName } from "./globalWorkspace.ts";
+import { gameScriptRows } from "../games/gen2/events.ts";
+import { COIN_VENDOR_STD, isCounter, isSeller } from "../games/gen2/prizes.ts";
+import { coinSellerEditor, goldPrizeEditor, makeCounter, makeSeller } from "./prizes2.ts";
 
 type Row = Record<string, unknown> & { op: string };
 type Rec = Record<string, unknown>;
@@ -55,18 +62,32 @@ const keyRows = (key: unknown) => {
 // what the entity runs: its inline rows, else its game script's
 const scriptOf = (e: EntityRecord) => rowsOf(e) ?? keyRows(e.scriptKey);
 
+// ObjectEvent (home bank, one jumptextfaceplayer): the cart's stand-in script, shared
+// by every cutscene person (Gold 00:2812, Crystal 00:26ef); its text is everyone's
+const isStandIn = (key: unknown): boolean => {
+  const rows = typeof key === "string" && key.startsWith("00:") ? keyRows(key) : null;
+  return !!rows && rows.length === 1 && rows[0].op === "jumptextfaceplayer";
+};
+
 // the role a script's rows play ("event": none of the simple ones)
 function rowsRole(rows: Row[]): string {
   if (rows.length === 1 && (rows[0].op === "jumptextfaceplayer" || rows[0].op === "jumptext")) return "";
+  if (rows.length === 1 && rows[0].op === "jumpstd" && rows[0].std === COIN_VENDOR_STD) return "coins";
   if (rows.length === 1 && rows[0].op === "jumpstd") return rows[0].std === "PokecenterNurseScript" ? "nurse" : "std";
   if (rows.length === 1 && rows[0].op === "fruittree") return "fruit";
+  if (isCounter(rows)) return "prizes";
+  if (isSeller(rows)) return "coins";
   if (rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op))) return "mart";
   return "event";
 }
 
 // the role of a game script key ("game": it does more than a simple role)
 function keyRole(key: string): string {
+  if (isStandIn(key)) return "cutscene";
   const rows = keyRows(key);
+  // a prize counter branches into scripts of its own: read with those in
+  const full = gameScriptRows(extra().scripts ?? {}, key) as Row[] | null;
+  if (full && isCounter(full)) return "prizes";
   const role = rows ? rowsRole(rows) : "event";
   return role === "event" ? "game" : role;
 }
@@ -112,7 +133,8 @@ function setRole(c: RoleCtx, from: string, next: string): void {
   if (next === "std" && !extra().stdScripts?.PictureBookshelfScript) return void toast("The game's standard scripts were not found in this dataset", "error");
   if ((next === "item" || next === "hidden") && freeFlag() === null) return void toast("No free event flag left", "error");
   store.group(`Role: ${next || "text"}`, () => {
-    const keep = textIn(c.entity);
+    // (never the stand-in's text: every cutscene person shares it)
+    const keep = isStandIn(c.entity.scriptKey) ? null : textIn(c.entity);
     if (from === "trainer") removeTrainer(c.entity, c.editEntity);
     // a trainer keeps its script: talking to it once it's beaten runs that
     if (next !== "trainer") c.editEntity(`Role: ${next || "text"}`, (e) => {
@@ -149,7 +171,7 @@ function setRole(c: RoleCtx, from: string, next: string): void {
       }
       // the role the game's own script plays: its key again, not a copy
       const game = gameScript(c);
-      if (game && keyRole(game) === next && ["", "nurse", "std", "mart", "fruit"].includes(next)) e.scriptKey = game;
+      if (game && keyRole(game) === next && ["", "nurse", "std", "mart", "fruit", "prizes", "coins", "cutscene"].includes(next)) e.scriptKey = game;
       if (e.scriptKey === undefined) delete e.scriptKey;
     });
     else if (from === "item") c.editEntity("Role: trainer", (e) => {
@@ -158,6 +180,9 @@ function setRole(c: RoleCtx, from: string, next: string): void {
       e.sprite = personSprite(c);
     });
     if (next === "trainer") makeTrainer(c.editEntity);
+    const game = gameScript(c);
+    if (next === "prizes" && !(game && keyRole(game) === "prizes")) makeCounter((rows) => c.editEntity("Role: prize counter", (e) => (e.scriptKey = rows)));
+    if (next === "coins" && !(game && keyRole(game) === "coins")) makeSeller((rows) => c.editEntity("Role: coin seller", (e) => (e.scriptKey = rows)));
     syncEventTexts();
   });
   store.seal();
@@ -297,6 +322,20 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
         h("div", { class: "row" }, h("button", { class: "btn small ghost", onclick: () => nav.openGlobal("fruittrees") }, "Edit what the trees give →")),
       ];
     }
+    case "prizes": {
+      const editor = goldPrizeEditor(c.map.id, c.layer, c.index);
+      return [
+        ...(editor ? [editor] : []),
+        h("p", { class: "hint" }, "Coins for prizes, in the game's prize menu (up to four). Its texts are the mod's own once a prize changes (Text workspace)."),
+      ];
+    }
+    case "coins": {
+      const editor = coinSellerEditor(c.map.id, c.layer, c.index);
+      return [
+        ...(editor ? [editor] : []),
+        h("p", { class: "hint" }, "Game Corner coins for money, in the game's menu (up to four packs; the coin case holds 9999). Its texts are the mod's own once a pack changes (Text workspace)."),
+      ];
+    }
     case "game": {
       const id = `game:${eventId(c.map.id, "talk", talkKey(c))}`;
       return [
@@ -308,6 +347,8 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
     }
     case "none":
       return [h("p", { class: "hint" }, "Nothing happens when the player talks to it.")];
+    case "cutscene":
+      return [h("p", { class: "hint" }, "No talk of its own: the game gives it a stand-in line (\"Object event.\") because it only appears in a scene, where the map's scripts move it and speak for it (see When it's there). Pick Normal or Event to let it say something itself.")];
   }
   return [];
 }
@@ -318,9 +359,10 @@ export const gen2Roles: RoleSet = (c) => {
   const npc = c.kind === "npc";
   const options = [
     "", "event",
-    ...(npc ? ["trainer", "item", "mart", "nurse", ...(store.adapter.globals?.fruitTrees ? ["fruit"] : [])] : ["hidden", "std"]),
+    ...(npc ? ["trainer", "item", "mart", "prizes", "coins", "nurse", ...(store.adapter.globals?.fruitTrees ? ["fruit"] : [])] : ["hidden", "std", "prizes"]),
     // only when the game's script does more than one of the roles above
     ...((gameScript(c) && keyRole(gameScript(c)!) === "game") || current === "game" ? ["game"] : []),
+    ...((gameScript(c) && keyRole(gameScript(c)!) === "cutscene") || current === "cutscene" ? ["cutscene"] : []),
     ...(current === "none" ? ["none"] : []),
   ];
   return { current, options, set: (next) => setRole(c, current, next), panels: panels(c, current) };

@@ -23,6 +23,8 @@ import type { GameGift } from "../../project/gameEvents.ts";
 import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
 import { giftRegistration2, STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
 import { TRADE_RUNTIME2, tradeRegistration2 } from "../../lua/tradeRuntime2.ts";
+import { EVOLUTION_RUNTIME2, happinessRegistration2 } from "../../lua/evolutionRuntime2.ts";
+import { FOOTPRINT_RUNTIME2, footprintRegistration2 } from "../../lua/footprintRuntime2.ts";
 import { FIELD_RUNTIME2, fruitTreeRegistration2, hmBadgeRegistration2, slotRegistration2, townMapRegistration2 } from "../../lua/fieldRuntime2.ts";
 import { INTRO_RUNTIME } from "../../lua/introRuntime.ts";
 import { INTRO_TEXT_RUNTIME2, introRegistration2, introTextRegistration2 } from "../../lua/introRuntime2.ts";
@@ -32,7 +34,7 @@ import type { Direction, MapDef, SpriteDef, TilesetDef } from "../../core/types.
 import { gen2TileAnimations, OWN_PATTERNS, type TileAnimSheets } from "./tileAnim.ts";
 import { inlineContacts, inlineScripts, outlineContacts, outlineScripts, ownsScript } from "./scriptKeys.ts";
 import { gen2FlagUses } from "./flags.ts";
-import { GOLD_FLAG_NAMES } from "./flagNames.ts";
+import { GOLD_ENGINE_FLAG_NAMES, GOLD_FLAG_NAMES } from "./flagNames.ts";
 import type { CellInfo, ConnectionRef, ContentSpec, Dataset, Facing, FieldSpec, GameAdapter, GameContext, GlobalNumber, GlobalsSpec, ItemSpec, ItemUse, MoveSpec, PhoneLine, PhoneTime, PokemonSpec, TimedEncounterSpec, TrainerSlot, TrainerSpec } from "../types.ts";
 
 // roofs.lua: which roof tiles each map group draws
@@ -164,6 +166,11 @@ const content: ContentSpec[] = [
     build: (f) => structuredClone((f as { pokegear?: { maps?: Record<string, unknown> } }).pokegear?.maps ?? {}),
     generator: { what: "Town Map tiles", order: [], runtime: FIELD_RUNTIME2, registration: townMapRegistration2, writes: [] },
   },
+  // Pokédex footprints of the mod's own (species -> { pixels } | { copy }): the recipe builds the strip
+  {
+    registry: "studio_footprints", editable: true, build: () => ({}), studioFile: "studio_footprints.lua",
+    generator: { what: "Pokédex footprints", order: ["pixels", "copy"], runtime: FOOTPRINT_RUNTIME2, registration: footprintRegistration2, writes: [] },
+  },
   // replaced game images: files in mods/<id>/overrides/ (not registry calls)
   { registry: "image_overrides", editable: true, build: () => ({}), files: true },
   // move animations: only "moves" (move id -> script pointer); a new move borrows one
@@ -179,6 +186,11 @@ const content: ContentSpec[] = [
   {
     registry: "studio_fruit_trees", editable: true, build: () => ({ trees: [...GOLD_FRUIT_TREES] }), studioFile: "studio_fruit_trees.lua",
     generator: { what: "fruit trees", order: [], runtime: FIELD_RUNTIME2, registration: fruitTreeRegistration2, writes: [], internals: true },
+  },
+  // happiness evolutions at another number than 220: method id -> { happiness }
+  {
+    registry: "studio_happiness", editable: true, build: () => ({}), studioFile: "studio_happiness.lua",
+    generator: { what: "happiness evolutions", order: ["happiness"], runtime: EVOLUTION_RUNTIME2, registration: happinessRegistration2, writes: ["evolution_methods"] },
   },
   // Kurt's apricorn balls: the engine's own registry (patched)
   { registry: "apricorns", editable: true, build: () => structuredClone(GOLD_APRICORNS) },
@@ -455,13 +467,14 @@ const pokemon: PokemonSpec = {
     { id: "EVOLVE_LEVEL", label: "Level", level: true },
     { id: "EVOLVE_ITEM", label: "Item", item: true },
     { id: "EVOLVE_TRADE", label: "Trade", item: "optional" },
-    { id: "EVOLVE_HAPPINESS", label: "Happiness", time: ["ANYTIME", "MORNDAY", "NITE"] },
+    { id: "EVOLVE_HAPPINESS", label: "Happiness", time: ["ANYTIME", "MORNDAY", "NITE"], threshold: { registry: "studio_happiness", prefix: "STUDIO_HAPPINESS_", game: 220 } },
     {
       id: "EVOLVE_STAT", label: "Level + stats", level: true,
       comparison: [{ id: "ATK_LT_DEF", label: "Atk < Def" }, { id: "ATK_GT_DEF", label: "Atk > Def" }, { id: "ATK_EQ_DEF", label: "Atk = Def" }],
     },
   ],
   breeding: { eggGroups: EGG_GROUPS },
+  footprints: { registry: "studio_footprints" },
   heldItems: true,
   machines: (ctx) =>
     Object.values(recordsOf(ctx, "items"))
@@ -507,11 +520,16 @@ const pokemon: PokemonSpec = {
     if (typeof icon === "string") out.push({ registry: "icons", id: newId, value: icon });
     const table = recordsOf(ctx, "palettes").pokemon as Record<string, unknown> | undefined;
     if (table?.[sourceId]) out.push({ registry: "palettes", id: "pokemon", value: { ...table, [newId]: structuredClone(table[sourceId]) } });
+    // the source's footprint: its own drawing, else the game's (as a copy: no pixels in the mod)
+    const print = ctx.records.studio_footprints?.[sourceId];
+    if (print) out.push({ registry: "studio_footprints", id: newId, value: structuredClone(print) });
+    else if (asList(ctx.data.extra.footprintOrder).includes(sourceId)) out.push({ registry: "studio_footprints", id: newId, value: { copy: sourceId } });
     return out;
   },
   dropExtras: (id, ctx) => {
     const out: { registry: string; id: string; value: unknown }[] = [];
     if (ctx.records.icons?.[id] !== undefined) out.push({ registry: "icons", id, value: undefined });
+    if (ctx.records.studio_footprints?.[id] !== undefined) out.push({ registry: "studio_footprints", id, value: undefined });
     const table = recordsOf(ctx, "palettes").pokemon as Record<string, unknown> | undefined;
     if (table?.[id]) {
       const rest = { ...table };
@@ -875,6 +893,7 @@ const globals: GlobalsSpec = {
     { id: "fruittrees", group: "Other", label: "Fruit trees", hint: "The item each fruit tree gives once a day. A tree on the map is a person whose role is Fruit tree, with its number." },
     { id: "apricorns", group: "Other", label: "Kurt's apricorn balls", hint: "Which ball Kurt makes from each apricorn." },
     { id: "phone", group: "Other", label: "Phone contacts", hint: "The Pokégear phone book: where each contact stands, when calls happen, who gives the number and what is said on the phone. A mod can change them and add its own." },
+    { id: "prizes", group: "Other", label: "Game Corner prizes", hint: "What each prize counter trades for coins (up to four prizes, items or Pokémon) and what the coin sellers ask for coins. Any person can be made either (Maps, select it, Role)." },
     { id: "shops", group: "Other", label: "Shops", hint: "What each shop sells, by the game's shop number (clerks opening the same number share it), and the bargain shop's prices." },
     { id: "sounds", group: "Other", label: "Music & sounds", hint: "Your own songs and sound effects (sound files), and game songs or sounds replaced by files. A map's song is picked in its properties." },
   ],
@@ -895,7 +914,7 @@ const globals: GlobalsSpec = {
     // string buffer, and the text shows what the last of these rows put there
     // (gen1recomp Vm:setStringBuffer; specials 90-92 = Specials.lua's phone
     // name-drops). Rows are walked in order, calls return, jumps don't.
-    lines: (ctx, script) => {
+    lines: (ctx, script, caller) => {
       const out = new Map<string, PhoneLine>();
       const text = ctx.data.content.text ?? {};
       const specials = (ctx.data.extra as { specialOrder?: string[] }).specialOrder ?? [];
@@ -931,8 +950,19 @@ const globals: GlobalsSpec = {
         if (!Array.isArray(rows) || depth > 12 || (typeof body === "string" && visited.has(seenKey))) return cur;
         if (typeof body === "string") visited.add(seenKey);
         let checked: number | null = null;
+        // Crystal's shared call scripts pick a contact's line by readvar VAR_CALLERID (23)
+        // and one ifequal per contact index: only `caller`'s branch is this contact's
+        let byCaller = false;
         for (const r of rows as Record<string, unknown>[]) {
           cur = fills(r) ?? cur;
+          if (r.op === "readvar") {
+            byCaller = r.var === 23 && caller !== undefined;
+            continue;
+          }
+          if (byCaller && (r.op === "ifequal" || r.op === "ifnotequal") && (typeof r.script === "string" || Array.isArray(r.script))) {
+            if ((r.op === "ifequal") === (r.value === caller)) return run(r.script, cur, mask, depth + 1);
+            continue;
+          }
           for (const v of Object.values(r)) {
             if (typeof v !== "string" || typeof text[v] !== "string") continue;
             const line = out.get(v) ?? { text: v, fills: [] };
@@ -1174,10 +1204,12 @@ export const gen2: GameAdapter = {
   flags: {
     notes: "studio_flag_notes", numeric: true,
     // pokegold's names; Crystal numbers its flags differently
-    name: (_ctx, key) => (gameVersion === "crystal" ? undefined : GOLD_FLAG_NAMES[Number(key)]),
+    name: (_ctx, key) => (gameVersion === "crystal" ? undefined : key.startsWith("E") ? GOLD_ENGINE_FLAG_NAMES[Number(key.slice(1))] : GOLD_FLAG_NAMES[Number(key)]),
     uses: (ctx) => gen2FlagUses(ctx, scriptRows, startFlags),
   },
   roles: "gen2",
+  // 0.3.96: shops, new phone contacts, script numbers (gen1recomp #3036-#3038)
+  minEngine: "0.3.96",
   textSets: [{ registry: "text", label: "Script texts" }, { registry: "rom_text", label: "Game texts" }],
   scriptTexts(ctx, key) {
     if (!(key in scriptRows)) return undefined;
@@ -1288,6 +1320,14 @@ export const gen2: GameAdapter = {
       ...content.map((c) => (c.file ? (read(c.file) as Promise<Record<string, unknown>>) : Promise.resolve({}))),
     ]);
     const scripts = ((await read("scripts.lua").catch(() => null)) ?? {}) as Record<string, unknown>;
+    // Crystal's std scripts say their texts with farwritetext (another bank): the VM runs it as
+    // writetext (Vm.lua), so the studio reads it as one too (events, phone lines, texts' Used by …)
+    const plainText = (v: unknown): void => {
+      if (!v || typeof v !== "object") return;
+      if ((v as { op?: unknown }).op === "farwritetext") (v as { op: string }).op = "writetext";
+      for (const x of Object.values(v)) if (x && typeof x === "object") plainText(x);
+    };
+    plainText(scripts);
     scriptRows = scripts;
     scriptTextMemo.clear();
     // gen1recomp World:resolveSprite: object sprite $F0+slot = the slot's
@@ -1388,7 +1428,7 @@ export const gen2: GameAdapter = {
     type TradeTables = { tradeTexts?: Record<string, unknown>; tradeBuffers?: Record<string, unknown> };
     const eventsFile = tables[content.findIndex((c) => c.registry === "studio_trades")] as TradeTables | undefined;
     const tradeIntro = { texts: eventsFile?.tradeTexts?.TRADE_DIALOG_INTRO ?? {}, buffers: eventsFile?.tradeBuffers?.TRADE_DIALOG_INTRO ?? {} };
-    type MenuGfx = { battleHud?: { trainerPics?: Record<string, string> }; pokegear?: { palMap?: unknown; palettes?: unknown } };
+    type MenuGfx = { battleHud?: { trainerPics?: Record<string, string> }; pokegear?: { palMap?: unknown; palettes?: unknown }; pokedex?: { footprintOrder?: unknown } };
     const menuGfx = await (read("menu_gfx.lua") as Promise<MenuGfx>).catch(() => ({}) as MenuGfx);
     type Dex = { newOrder?: string[]; entries?: Record<string, { kind?: string; height?: number; weight?: number; text?: string; text2?: string }> };
     const pokedex = await (read("pokedex.lua") as Promise<Dex>).catch(() => ({}) as Dex);
@@ -1417,6 +1457,8 @@ export const gen2: GameAdapter = {
       maps, tilesets, sprites, content: contentTables,
       extra: {
         palettes: pal, roofs, tradeIntro, pokegearColors: { palMap: asList(menuGfx.pokegear?.palMap), palettes: asList(menuGfx.pokegear?.palettes).map((p) => asList(p)) }, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists),
+        // the footprint strip's rows (species ids)
+        footprintOrder: asList(menuGfx.pokedex?.footprintOrder),
         sfxOrder: asList(lists.sfxOrder), musicOrder: asList(lists.musicOrder), specialOrder: asList(lists.specialOrder),
         // the game's scripts, shown read-only (and copied) in Events
         scripts,

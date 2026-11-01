@@ -9,6 +9,8 @@ declare const __EXPERIMENTAL__: boolean | undefined;
 const experimental = typeof __EXPERIMENTAL__ !== "undefined" && __EXPERIMENTAL__;
 
 export const FEATURES = {
-  // Gold / Silver / Crystal (src/games/gen2): the view-only map viewer
-  gen2: experimental,
+  // Gold / Silver / Crystal (src/games/gen2): released with 0.4.0, on everywhere
+  gen2: true,
+  // (kept so a later unfinished feature can go behind `experimental` again)
+  experimental,
 };

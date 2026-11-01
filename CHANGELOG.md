@@ -3,6 +3,13 @@
 What changed in each release of G1R Studio. Releases before 0.3.5 are described on the
 [GitHub releases page](https://github.com/AlfonsPistoletti/gen1recomp-studio/releases).
 
+## 0.4.0 (not released yet)
+
+### Requirements
+- Mods for Gold, Silver and Crystal need **gen1recomp 0.3.96 or later**. On an older gen1recomp they don't load
+  (shops, new phone contacts and script numbers for new Pokémon, moves and items came in 0.3.96).
+  Red/Blue/Yellow mods work as before.
+
 ## 0.3.5
 
 ### New

@@ -38,6 +38,52 @@ export function studioMovementSteps(key: unknown): number[] | null {
 
 export interface ScriptRegistration { id: string; value: unknown }
 
+// A labelled block: { op = "sjump", label = "menu", script = rows } jumps into
+// rows that may jump back to their own start (script "studio:label:menu", a
+// prize counter's menu after each prize). A row list can't hold itself, so the
+// save registers the block as <holder key>_MENU and both jumps name that key.
+const LABEL = "studio:label:";
+
+function outlineLabels(rows: unknown, key: string, regs: Map<string, unknown>): unknown {
+  const keyOf = (name: string) => `${key}_${name.toUpperCase()}`;
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (typeof v === "string") return v.startsWith(LABEL) ? keyOf(v.slice(LABEL.length)) : v;
+    if (!v || typeof v !== "object") return v;
+    const r = v as Rec;
+    const out: Rec = {};
+    for (const [k, x] of Object.entries(r)) if (k !== "label") out[k] = walk(x);
+    if (typeof r.label === "string" && Array.isArray(r.script)) {
+      regs.set(keyOf(r.label), out.script);
+      out.script = keyOf(r.label);
+    }
+    return out;
+  };
+  return walk(rows);
+}
+
+// back: a jump to one of the holder's own blocks becomes the labelled block
+function inlineLabels(rows: unknown, key: string, scripts: Record<string, unknown>): unknown {
+  const open = new Map<string, string>(); // block key -> label, while inside it
+  const walk = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(walk);
+    if (typeof v === "string") return open.has(v) ? LABEL + open.get(v) : v;
+    if (!v || typeof v !== "object") return v;
+    const r = v as Rec;
+    const block = r.op === "sjump" && typeof r.script === "string" && r.script.startsWith(`${key}_`) && !open.has(r.script) ? scripts[r.script] : undefined;
+    if (Array.isArray(block)) {
+      const sub = r.script as string;
+      const label = sub.slice(key.length + 1).toLowerCase();
+      open.set(sub, label);
+      const inner = walk(structuredClone(block));
+      open.delete(sub);
+      return { ...r, label, script: inner };
+    }
+    return Object.fromEntries(Object.entries(r).map(([k, x]) => [k, walk(x)]));
+  };
+  return walk(rows);
+}
+
 // The maps with every inline script replaced by its key, and what to register.
 // Maps without one are passed through as they are.
 export function outlineScripts(maps: Record<string, MapDef>): { maps: Record<string, MapDef>; registrations: ScriptRegistration[] } {
@@ -60,7 +106,7 @@ export function outlineScripts(maps: Record<string, MapDef>): { maps: Record<str
       if (!Array.isArray(h.scriptKey)) continue;
       const key = `${PREFIX}${id}_${part}`;
       moves(h.scriptKey);
-      regs.set(key, h.scriptKey);
+      regs.set(key, outlineLabels(h.scriptKey, key, regs));
       h.scriptKey = key;
     }
     out[id] = copy;
@@ -74,7 +120,7 @@ export function inlineScripts(maps: Record<string, MapDef>, scripts: Record<stri
     if (!map) continue;
     for (const [h] of holders(map)) {
       const rows = typeof h.scriptKey === "string" && ownsScript(h.scriptKey) ? scripts[h.scriptKey] : undefined;
-      if (Array.isArray(rows)) h.scriptKey = structuredClone(rows);
+      if (Array.isArray(rows)) h.scriptKey = inlineLabels(structuredClone(rows), h.scriptKey as string, scripts);
     }
   }
 }

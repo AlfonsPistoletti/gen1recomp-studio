@@ -23,12 +23,16 @@ function check(name: string, ok: boolean, detail = ""): void {
 }
 
 const info = await nodeHost.info();
-const version = info.versions.find((v) => v.available && adapterFor(v.version)?.id === "gen2")?.version;
+// npm run selftest:gen2 -- crystal (default: the first imported Gen 2 game)
+const wanted = process.argv[2];
+const version = info.versions.find((v) => v.available && adapterFor(v.version)?.id === "gen2" && (!wanted || v.version === wanted))?.version;
 if (!version) {
   console.log("FAIL no Gen 2 dataset imported (or the Gen 2 feature is off)");
   process.exit(1);
 }
 const adapter = adapterFor(version)!;
+// Crystal differs from Gold/Silver in places (script keys, flag numbers, its own prizes and trades)
+const isCrystal = version === "crystal";
 
 const t0 = Date.now();
 const project = await openProject(nodeHost, version, adapter, null);
@@ -211,7 +215,7 @@ for (const [registry, records] of Object.entries(edited)) {
   const crystal = { ...ts, imageWidth: 128, imageHeight: 128, tileAttrs: { 1: { palette: 1, vramBank: 0 } } };
   const cext = newExtension(crystal, true);
   check("Crystal tiles are added from slot 0xE0", cext.first === 0xe0 && cext.sheet === 256, JSON.stringify(cext));
-  check("Gold tiles are added below the sheet", newExtension(ts, true).first === first && newExtension(ts, true).sheet === undefined);
+  if (!isCrystal) check("Gold tiles are added below the sheet", newExtension(ts, true).first === first && newExtension(ts, true).sheet === undefined);
   const lua = recipe("studio_selftest", [], [{ source: "tilesets/johto.png", out: "studio/tilesets/x.png", per: 16, first: 0xe0, tiles: ["0".repeat(64)] }]);
   check("recipe places Crystal tiles inside the sheet", lua.includes("first = 224,") && lua.includes("local first = s.first or"));
   const cdata = dataFile("studio_selftest", "tileset extensions", { TILESET_JOHTO: { ...cext, tiles: ["0".repeat(64)], palettes: [3], blocks: [[0xe0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]], collision: [[0, 0, 0, 0]] } });
@@ -271,7 +275,8 @@ for (const [registry, records] of Object.entries(edited)) {
   // the game's own events: New Bark's teacher (three flag checks) reads in
   // with its branches as nested lists, and as If blocks
   const { GEN2_EVENTS } = await import("../src/games/gen2/events.ts");
-  const teacher = GEN2_EVENTS.gameRows!(ctx, "48:406f") as unknown as Record<string, unknown>[] | null;
+  const teacherKey = ((base.NEW_BARK_TOWN as unknown as Rec).objects as Rec[]).find((o) => o.sprite === "SPRITE_TEACHER")?.scriptKey;
+  const teacher = GEN2_EVENTS.gameRows!(ctx, String(teacherKey)) as unknown as Record<string, unknown>[] | null;
   check("a game script reads in with its branches", !!teacher && teacher.some((r) => r.op === "iftrue" && Array.isArray(r.script)), JSON.stringify(teacher).slice(0, 200));
   const tb = gparse((teacher ?? []) as never, ctx) as { t: string }[];
   check("a game script shows as If blocks", tb.filter((b) => b.t === "if").length >= 1 && !JSON.stringify(tb).includes('"#raw",{"op":"iftrue"'), JSON.stringify(tb).slice(0, 300));
@@ -305,7 +310,7 @@ for (const [registry, records] of Object.entries(edited)) {
     }
     check("new event commands round-trip", !bad.length, bad.join("; "));
     const walk = GEN2_EVENTS.commands.find((x) => x.id === "walk")!;
-    check("a game movement reads as a path", deepEqual(walk.unpack!({ op: "applymovement", object: 10, movement: "4a:4868" }, ctx), { who: 10, path: ["left"], speed: 0x0c }));
+    if (!isCrystal) check("a game movement reads as a path", deepEqual(walk.unpack!({ op: "applymovement", object: 10, movement: "4a:4868" }, ctx), { who: 10, path: ["left"], speed: 0x0c }));
   }
   // screens: the picture's three rows and a screen special read back; every listed special exists
   {
@@ -481,12 +486,12 @@ for (const [registry, records] of Object.entries(edited)) {
   const { tradeRegistration2 } = await import("../src/lua/tradeRuntime2.ts");
   const { dataFile } = await import("../src/lua/writer.ts");
   const list = (content.studio_trades as Record<string, unknown>).trades as Record<string, unknown>[];
-  check("six trades load", list?.length === 6 && typeof list[0].give === "string", String(list?.length));
+  check(`${isCrystal ? "seven" : "six"} trades load`, list?.length === (isCrystal ? 7 : 6) && typeof list[0].give === "string", String(list?.length));
   const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
   const offers = adapter.globals!.trades!.offers(ctx);
   check("every trade is offered by someone", [1, 2, 3, 4, 5, 6].every((n) => (offers.get(n) ?? []).length > 0), JSON.stringify([...offers].map(([n, o]) => [n, o.map((x) => x.map)])));
   const line = adapter.globals!.trades!.offerLine(ctx, list[0]);
-  check("a trade's offer line names its Pokémon", line.includes("DROWZEE") && line.includes("MACHOP") && !line.includes("{"), line);
+  check("a trade's offer line names its Pokémon", line.includes(isCrystal ? "ABRA" : "DROWZEE") && line.includes("MACHOP") && !line.includes("{"), line);
   const code = tradeRegistration2("studio_selftest", "studio_trades.lua");
   check("trade helper has no backticks", !code.includes("`"));
   const edited = list.map((t, i) => (i === 0 ? { ...t, get: "PIKACHU", nickname: "SPARKY" } : t));
@@ -570,6 +575,59 @@ for (const [registry, records] of Object.entries(edited)) {
   check("an older walk row (steps) still reads", deepEqual(walk.unpack!({ op: "applymovement", object: 2, movement: "studio:13.71", steps: [13, 71] }, ctx), { who: 2, path: ["up"], speed: 0x0c }));
 }
 
+// Game Corner prizes: Gold's four counters are clerks' scripts; one written by
+// the studio loops back to its menu through a labelled block saved as a key
+{
+  const sk = await import("../src/games/gen2/scriptKeys.ts");
+  const pz = await import("../src/games/gen2/prizes.ts");
+  const { gameScriptRows } = await import("../src/games/gen2/events.ts");
+  const ctx = { data: project.data, maps: base, records: {} };
+  const scripts = (project.data.extra as { scripts?: Record<string, unknown> }).scripts ?? {};
+  const found: string[] = [];
+  for (const [id, map] of Object.entries(base)) {
+    for (const o of [...(((map as unknown as Rec).objects as Rec[] | undefined) ?? []), ...(((map as unknown as Rec).bgEvents as Rec[] | undefined) ?? [])]) {
+      const rows = typeof o.scriptKey === "string" ? gameScriptRows(scripts, o.scriptKey) : null;
+      const c = rows && pz.counterOf(rows as never, ctx);
+      if (c && Object.values(c.texts).filter(Boolean).length !== 8) found.push(`${id}: texts ${JSON.stringify(c.texts)}`);
+      if (c) found.push(`${id}:${c.prizes.map((p) => `${p.item ?? `${p.species}@${p.level}`}=${p.cost}`).join(",")}`);
+    }
+  }
+  const tm = found.find((f) => f.startsWith("GOLDENROD_GAME_CORNER:TM_"));
+  const mons = found.find((f) => f.startsWith("GOLDENROD_GAME_CORNER:ABRA"));
+  const lastMon = isCrystal ? "WOBBUFFET@15=1500" : "DRATINI@10=2100";
+  check("Gold's four prize counters are read from their scripts", found.length === 4 && tm === "GOLDENROD_GAME_CORNER:TM_THUNDER=5500,TM_BLIZZARD=5500,TM_FIRE_BLAST=5500" && !!mons?.includes(lastMon), found.join(" | "));
+  const texts = { hello: "T_HELLO", which: "T_WHICH", confirm: "T_OK", here: "T_HERE", poor: "T_POOR", full: "T_FULL", bye: "T_BYE", noCase: "T_CASE" };
+  const counter = { prizes: [{ item: "TM_THUNDER", cost: 5500 }, { species: "DRATINI", level: 15, cost: 2100 }], texts };
+  const rows = pz.counterRows(counter, ctx);
+  check("a counter written by the studio reads back the same", deepEqual(pz.counterOf(rows, ctx), counter) && pz.isCounter(rows), JSON.stringify(pz.counterOf(rows, ctx)));
+  const id = "GOLDENROD_GAME_CORNER";
+  const m = clone(base[id]) as Rec;
+  const objs = m.objects as Rec[];
+  objs[1] = { ...objs[1], scriptKey: rows };
+  const out = sk.outlineScripts({ [id]: m } as never);
+  const key = `STUDIO_${id}_OBJ${String(objs[1].index)}`;
+  const regs = Object.fromEntries(out.registrations.map((r) => [r.id, r.value]));
+  const flat = JSON.stringify(regs);
+  check("its menu is a key of its own the prizes jump back to", Array.isArray(regs[`${key}_MENU`]) && !flat.includes("studio:label") && !flat.includes('"label"') && flat.includes(`"script":"${key}_MENU"`), Object.keys(regs).join(","));
+  const back = clone(out.maps) as Record<string, import("../src/core/types.ts").MapDef>;
+  sk.inlineScripts(back, regs);
+  check("and reads back inline", deepEqual(back[id], m));
+  // coin sellers: the game's (jumpstd GameCornerCoinVendorScript) and one written by the studio
+  const sellers: string[] = [];
+  for (const [mid, map] of Object.entries(base)) {
+    for (const o of ((map as unknown as Rec).objects as Rec[] | undefined) ?? []) {
+      const rows = typeof o.scriptKey === "string" ? gameScriptRows(scripts, o.scriptKey) : null;
+      const c = rows && pz.sellerOf(rows as never, scripts, (k) => gameScriptRows(scripts, k) as never);
+      if (c) sellers.push(`${mid}:${c.offers.map((x) => `${x.coins}=${x.price}`).join(",")}:${Object.values(c.texts).filter(Boolean).length}`);
+    }
+  }
+  check("coin sellers: the game's are read (packs and their 7 texts)", sellers.length === 2 && sellers.every((x) => x.endsWith(":50=1000,500=10000:7")), sellers.join(" | "));
+  const seller = { offers: [{ coins: 50, price: 1000 }, { coins: 9999, price: 150000 }, { coins: 5, price: 0 }], texts: { hello: "H", noCase: "N", which: "W", full: "F", poor: "P", here: "R", bye: "B" } };
+  const srows = pz.sellerRows(seller, ctx);
+  const sflat = JSON.stringify(srows);
+  check("coin sellers: written the game's way and read back", deepEqual(pz.sellerOf(srows), seller) && pz.isSeller(srows) && !pz.isCounter(srows) && sflat.includes('"items":["  50 :   ¥1000","9999 : ¥150000","   5 :      ¥0","CANCEL"]') && sflat.includes('{"op":"checkcoins","args":[0,0]}'), JSON.stringify(pz.sellerOf(srows)) + sflat.slice(0, 300));
+}
+
 // the phone book: Joey is contact 15 on Route 30, Route 30's NPC 2 gives his
 // number, and moving him saves as a patch of the map only
 {
@@ -579,15 +637,22 @@ for (const [registry, records] of Object.entries(edited)) {
   const givers = adapter.globals!.phone!.givers(ctx);
   check("phone contacts load (Joey = 15 on ROUTE_30)", joey?.index === 15 && joey.map === "ROUTE_30" && !("PHONE_UNUSED" in book), JSON.stringify(joey));
   // what fills {STRBUF} in Joey's call: his name in the greeting, his own mon in the chat
-  const phoneLines = (k: unknown) => new Map(adapter.globals!.phone!.lines(ctx, k).map((l) => [l.text, l]));
-  const bufs = phoneLines(joey?.callerKey);
+  const phoneLines = (k: unknown, who?: number) => new Map(adapter.globals!.phone!.lines(ctx, k, who).map((l) => [l.text, l]));
+  const bufs = phoneLines(joey?.callerKey, 15);
   const fill = (t: string) => bufs.get(t)?.fills.join() ?? "";
+  if (isCrystal) {
+    // the shared call script reads the caller (readvar VAR_CALLERID): one greeting per time of day, Joey's
+    const greet = [...bufs.values()].filter((l) => l.time);
+    check("phone (Crystal): only the caller's own greetings", greet.length === 3 && ["Morning", "Day", "Night"].every((t) => greet.some((l) => l.time === t && l.fills.join() === "a trainer's name")), JSON.stringify(greet));
+    check("phone (Crystal): Wade's greetings are his own", ![...phoneLines(book.PHONE_BUG_CATCHER_WADE?.callerKey, 16).keys()].some((k) => greet.some((l) => l.text === k)));
+  } else {
   check("phone {STRBUF}: caller's name / own Pokémon", fill("41:5989") === "a trainer's name" && fill("41:5b0d") === "one of the caller's own Pokémon" && fill("41:5cdb") === "“ROUTE 30”", JSON.stringify([...bufs.values()]));
   // the greetings by time of day: checktime DAY / NITE branches, morning falls through
   check("phone greetings by time (Joey calls you)", bufs.get("41:5955")?.time === "Morning" && bufs.get("41:5989")?.time === "Day" && bufs.get("41:59b5")?.time === "Night" && bufs.get("41:5b0d")?.time === undefined, JSON.stringify([...bufs.values()].map((l) => [l.text, l.time])));
   // Gold's trainers share their phone talk: Wade says Joey's greeting too
   const wade = book.PHONE_BUG_CATCHER_WADE;
   check("phone talk shared (Joey and Wade)", phoneLines(wade?.callerKey).has("41:5955"), String(wade?.callerKey));
+  }
   check("Joey's number is given on Route 30", (givers.get(15) ?? []).some((g) => g.map === "ROUTE_30"), JSON.stringify(givers.get(15)));
   const { calls } = contentCalls(adapter, { maps: base, ...content }, { maps: base as unknown as Rec, phone_contacts: { PHONE_YOUNGSTER_JOEY: { ...joey, map: "ROUTE_31" } } });
   const src = studioContentFile("studio_selftest", calls, fieldOrders(adapter));
@@ -620,10 +685,101 @@ for (const [registry, records] of Object.entries(edited)) {
   const ctx = { data: project.data, maps: base, records: content as Record<string, Record<string, unknown>> };
   const uses = adapter.flags!.uses(ctx);
   const joey = uses.get("628") ?? [];
-  check("flags: 628 checked and set (Joey's rematch)", joey.some((u) => u.kind === "check" && u.map === "ROUTE_30") && joey.some((u) => u.kind === "set" && !!u.contact), JSON.stringify(joey.slice(0, 4)));
+  if (!isCrystal) check("flags: 628 checked and set (Joey's rematch)", joey.some((u) => u.kind === "check" && u.map === "ROUTE_30") && joey.some((u) => u.kind === "set" && !!u.contact), JSON.stringify(joey.slice(0, 4)));
   const beaten = [...uses.values()].flat().filter((u) => u.kind === "beaten" && u.map === "ROUTE_30");
   check("flags: Route 30's trainers' beaten flags", beaten.length >= 2, JSON.stringify(beaten));
-  check("flags: a new game's flags and Gold's names", [...uses.values()].flat().some((u) => u.kind === "start") && adapter.flags!.name!(ctx, "628") === "EVENT_JOEY_READY_FOR_REMATCH", String(adapter.flags!.name!(ctx, "628")));
+  check("flags: a new game's flags", [...uses.values()].flat().some((u) => u.kind === "start"));
+  if (!isCrystal) check("flags: Gold's names", adapter.flags!.name!(ctx, "628") === "EVENT_JOEY_READY_FOR_REMATCH", String(adapter.flags!.name!(ctx, "628")));
+  // engine flags: Falkner's gym sets the Zephyr Badge (E26); the command reads back as itself
+  const badge = uses.get("E26") ?? [];
+  check("flags: engine flags are read", [...uses.keys()].some((k) => k.startsWith("E") && (uses.get(k) ?? []).some((u) => u.kind === "set")));
+  if (!isCrystal) check("flags: engine flag E26 (Zephyr Badge) set in Violet's gym", adapter.flags!.name!(ctx, "E26") === "ENGINE_ZEPHYRBADGE" && badge.some((u) => u.kind === "set" && u.map === "VIOLET_GYM"), JSON.stringify(badge.slice(0, 3)));
+  const ev = adapter.events!;
+  const rows = ev.compile!([{ t: "if", cond: ["checkflag", 26], not: false, then: [{ t: "cmd", row: ["setflag", 64] }], else: null }], ctx, undefined);
+  check("flags: engine flag commands round-trip", JSON.stringify(rows).includes('"op":"checkflag","flag":26') && JSON.stringify(ev.parse!(rows, ctx)).includes('["setflag",64]'), JSON.stringify(ev.parse!(rows, ctx)).slice(0, 200));
+  // weekdays: "Today is" = readvar VAR_WEEKDAY + ifequal; the Indigo Plateau rival's trigger reads that way
+  const wed = ev.compile!([{ t: "if", cond: ["#weekday", 3], not: false, then: [{ t: "cmd", row: ["setflag", 64] }], else: null }], ctx, undefined);
+  check("weekday: Today is compiles and reads back", JSON.stringify(wed).includes('{"op":"readvar","var":11},{"op":"ifequal","value":3') && JSON.stringify(ev.parse!(wed, ctx)).includes('"cond":["#weekday",3]'), JSON.stringify(wed).slice(0, 200));
+  // badges: at least 7 = readvar VAR_BADGES + ifgreater 6; not = ifless 7
+  for (const not of [false, true]) {
+    const b7 = ev.compile!([{ t: "if", cond: ["#badges", 7], not, then: [{ t: "cmd", row: ["setflag", 64] }], else: null }], ctx, undefined);
+    const want = not ? '{"op":"ifless","value":7' : '{"op":"ifgreater","value":6';
+    check(`badges: ${not ? "fewer than" : "at least"} 7 compiles and reads back`, JSON.stringify(b7).includes('{"op":"readvar","var":7},' + want) && JSON.stringify(ev.parse!(b7, ctx)).includes(`"cond":["#badges",7],"not":${not}`), JSON.stringify(ev.parse!(b7, ctx)).slice(0, 200));
+  }
+  const rivalKey = ((base.INDIGO_PLATEAU_POKECENTER_1F as unknown as Rec).coordEvents as Rec[] | undefined)?.[0]?.scriptKey;
+  const rival = ev.gameRows!(ctx, String(rivalKey));
+  check("weekday: the Indigo Plateau rival's trigger checks the day", !!rival && ["0", "2", "4", "5", "6"].every((d) => JSON.stringify(ev.parse!(rival as never, ctx)).includes(`"cond":["#weekday",${d}]`)), JSON.stringify(rival && ev.parse!(rival as never, ctx)).slice(0, 300));
+}
+
+// Pokédex footprints: a drawing equal to a game footprint is a copy (no ROM pixels),
+// the recipe appends 2x2 tiles per record in sorted order, the helper gives those species those rows
+{
+  const fp = await import("../src/games/gen2/footprints.ts");
+  const { footprintRegistration2 } = await import("../src/lua/footprintRuntime2.ts");
+  const { dataFile, studioContentFile: contentFile } = await import("../src/lua/writer.ts");
+  const { LuaFactory } = await import("wasmoon");
+  const order = (project.data.extra.footprintOrder as string[] | undefined) ?? [];
+  check("footprints: the strip's order is loaded", order.length === 251 && order[0] === "BULBASAUR", String(order.length));
+  const a = "1" + "0".repeat(255), b = "0".repeat(255) + "1";
+  const rows = [a, b];
+  const two = ["BULBASAUR", "IVYSAUR"];
+  check("footprints: own game drawing = no record, another's = copy, new = pixels",
+    fp.footprintRecord("BULBASAUR", a, rows, two) === undefined && deepEqual(fp.footprintRecord("BULBASAUR", b, rows, two), { copy: "IVYSAUR" })
+    && deepEqual(fp.footprintRecord("STUDIO_X", "1".repeat(256), rows, two), { pixels: "1".repeat(256) }));
+  const ink = "0".repeat(8) + "1" + "0".repeat(247); // pixel (8, 0): the top right tile's first
+  const tiles = fp.footprintTiles({ ZZZ: { copy: "IVYSAUR" }, AAA: { pixels: ink } }, order);
+  check("footprints: recipe tiles (sorted: pixels as digits, a copy from the strip)", tiles.length === 8 && tiles[1] === "0" + "3".repeat(63) && tiles[0] === "3".repeat(64)
+    && deepEqual(tiles[4], { from: "pokedex/footprints.png", x: 0, y: 16 }) && deepEqual(tiles[7], { from: "pokedex/footprints.png", x: 8, y: 24 }), JSON.stringify(tiles.slice(4)));
+  const data = dataFile("studio_selftest", "Pokédex footprints", { PIKACHU: { pixels: ink }, STUDIO_X: { copy: "IVYSAUR" } }, ["pixels", "copy"]);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, contentFile("studio_selftest", [], {}, footprintRegistration2("studio_selftest", "studio_footprints.lua"))], ["mods/studio_selftest/studio_footprints.lua", data]]), "studio_selftest", f, null);
+  check("footprints: the helper loads in the studio VM", ran.errors.length === 0, ran.errors.join("; "));
+  const lua = await new LuaFactory().createEngine();
+  try {
+    const reg = footprintRegistration2("m", "y.lua").replace(/require\([^)]*\)/, "(function() " + data.replace(/^--.*$/gm, "") + " end)()");
+    const out: string = await lua.doString(`
+      local ready
+      mod = { events = { on = function(_, name, fn) if name == "game.ready" then ready = fn end end } }
+      ${reg}
+      local order = { "BULBASAUR", "PIKACHU", "RAICHU" }
+      local data = { gen2MenuGfx = { pokedex = { footprints = "x", footprintOrder = order } } }
+      ready({ game = { data = data } })
+      ready({ game = { data = data } })
+      local o = data.gen2MenuGfx.pokedex.footprintOrder
+      return table.concat({ tostring(o[2]), tostring(o[4]), tostring(o[5]), tostring(#o), data.gen2MenuGfx.pokedex.footprints }, " ")
+    `);
+    check("footprints: the helper points the Pokédex at the strip, new rows below the game's", out === "false PIKACHU STUDIO_X 5 save/mod-derived/m/studio/pokedex/footprints.png", out);
+  } finally {
+    lua.global.close();
+  }
+}
+
+// happiness evolutions at an own number: the helper registers STUDIO_HAPPINESS_<n> with the
+// game's check at that number (Everstone, time of day)
+{
+  const { happinessRegistration2 } = await import("../src/lua/evolutionRuntime2.ts");
+  const { dataFile, studioContentFile: contentFile } = await import("../src/lua/writer.ts");
+  const { LuaFactory } = await import("wasmoon");
+  const data = dataFile("studio_selftest", "happiness evolutions", { STUDIO_HAPPINESS_160: { happiness: 160 } }, ["happiness"]);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, contentFile("studio_selftest", [], {}, happinessRegistration2("studio_selftest", "studio_happiness.lua"))], ["mods/studio_selftest/studio_happiness.lua", data]]), "studio_selftest", f, null);
+  check("happiness: the helper registers its method", ran.errors.length === 0 && ran.ops.some((o) => o.registry === "evolution_methods" && o.id === "STUDIO_HAPPINESS_160"), ran.errors.join("; "));
+  const lua = await new LuaFactory().createEngine();
+  try {
+    const reg = happinessRegistration2("x", "y.lua").replace(/require\([^)]*\)/, "(function() " + data.replace(/^--.*$/gm, "") + " end)()");
+    const out: string = await lua.doString(`
+      local methods = {}
+      mod = { content = { evolution_methods = { register = function(_, id, r) methods[id] = r end } } }
+      ${reg}
+      local c = methods.STUDIO_HAPPINESS_160.check
+      local function ok(...) return tostring((c(...))) end
+      return table.concat({ ok({}, { happiness = 159 }, {}), ok({}, { happiness = 160 }, {}), ok({}, { happiness = 200, item = "EVERSTONE" }, {}),
+        ok({ time = "NITE" }, { happiness = 200 }, { timeOfDay = "DAY" }), ok({ time = "NITE" }, { happiness = 200 }, { timeOfDay = "NITE" }) }, " ")
+    `);
+    check("happiness: 160 needed, Everstone stops it, night only at night", out === "false true false false true", out);
+  } finally {
+    lua.global.close();
+  }
 }
 
 // own held effects: the helper registers in the studio VM, and its hooks act on a

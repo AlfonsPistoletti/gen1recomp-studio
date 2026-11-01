@@ -22,6 +22,8 @@ const NAMES: Record<string, [string, string]> = {
   items: ["Items", "item"],
   studio_item_effects: ["Custom item effects", "custom item effect"],
   studio_held_effects: ["Own held effects", "own held effect"],
+  studio_happiness: ["Happiness to evolve", "happiness number"],
+  studio_footprints: ["Pokédex footprints", "footprint"],
   balls: ["Ball catch numbers", "ball"],
   studio_events: ["Events", "event"],
   studio_visibility: ["Visibility rules", "visibility rule"],
@@ -196,6 +198,13 @@ function opener(registry: string, id: string, removed: boolean): (() => void) | 
       return store.table("items")[id] ? () => nav.openItem(id) : removed ? null : removeUnused(registry, id);
     case "studio_flag_notes":
       return () => nav.openFlag(id);
+    case "studio_footprints":
+      return store.table("pokemon")[id] ? () => nav.openPokemon(id) : removed ? null : removeUnused(registry, id);
+    case "studio_happiness": {
+      // the first species that evolves at this number
+      const user = Object.entries(store.table("pokemon")).find(([, m]) => ((m as { evolutions?: { method?: string }[] }).evolutions ?? []).some((e) => e.method === id))?.[0];
+      return user ? () => nav.openPokemon(user) : removed ? null : removeUnused(registry, id);
+    }
     case "studio_visibility": {
       // "<MAP>:<OBJECT>": the person on its map
       const [mapId, name] = [id.slice(0, id.indexOf(":")), id.slice(id.indexOf(":") + 1)];
@@ -382,9 +391,16 @@ export function mountChangesMenu(): HTMLElement {
     if (!panel.hidden) render();
   };
   const afterBrush = afterStroke(refresh);
+  // edits come one per key while typing: the count follows once typing pauses
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const soon = () => {
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 200);
+  };
   store.on((reason) => {
     if (store.midStroke(reason)) afterBrush();
-    else if (["edit", "content", "project", "saved", "map"].includes(reason)) refresh();
+    else if (reason === "edit" || reason === "content") soon();
+    else if (["project", "saved", "map"].includes(reason)) refresh();
   });
   refresh();
   return root;

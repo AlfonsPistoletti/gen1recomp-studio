@@ -18,21 +18,22 @@
 
 import { studioMovementSteps } from "./scriptKeys.ts";
 import type { Block } from "../../core/eventBlocks.ts";
+import { isCounter, isSeller } from "./prizes.ts";
 import type { EventCommand, EventRow, EventSpec, GameContext } from "../types.ts";
 
 type Row = Record<string, unknown> & { op: string };
 type Args = Record<string, unknown>;
 
-const recordsOf = (ctx: GameContext, registry: string) =>
+export const recordsOf = (ctx: GameContext, registry: string) =>
   (ctx.records[registry] ?? ctx.data.content[registry] ?? {}) as Record<string, { index?: number; name?: string }>;
 // items and species are numbers in Gold's rows (their records' `index`)
-const numberOf = (ctx: GameContext, registry: string, id: unknown) => recordsOf(ctx, registry)[String(id)]?.index ?? 0;
-const idOf = (ctx: GameContext, registry: string, n: unknown) =>
+export const numberOf = (ctx: GameContext, registry: string, id: unknown) => recordsOf(ctx, registry)[String(id)]?.index ?? 0;
+export const idOf = (ctx: GameContext, registry: string, n: unknown) =>
   Object.entries(recordsOf(ctx, registry)).find(([, r]) => r?.index === n)?.[0] ?? String(n);
 
 // sounds, songs and specials are their place in the game's name lists
-const orders = (ctx: GameContext) => ctx.data.extra as { sfxOrder?: string[]; musicOrder?: string[]; specialOrder?: string[] };
-const placeIn = (list: string[] | undefined, name: unknown) => Math.max(0, (list ?? []).indexOf(String(name)));
+export const orders = (ctx: GameContext) => ctx.data.extra as { sfxOrder?: string[]; musicOrder?: string[]; specialOrder?: string[] };
+export const placeIn = (list: string[] | undefined, name: unknown) => Math.max(0, (list ?? []).indexOf(String(name)));
 // money operands: an account byte, then the amount in 3 bytes, big-endian
 const moneyArgs = (n: unknown) => {
   const v = Math.max(0, Math.min(999999, Number(n) || 0));
@@ -85,6 +86,9 @@ const commands: EventCommand[] = [
   // ---- Flags (event flags are numbers in Gold, 0-2047)
   { id: "set_flag", verb: "setevent", label: "Set flag", category: "Flags", help: "Turns an event flag on. Flags remember that something happened (saved with the game).", params: [{ key: "event", label: "Flag", type: "flagNumber" }], describe: (a) => `Set flag ${s(a.event)}` },
   { id: "clear_flag", verb: "clearevent", label: "Clear flag", category: "Flags", help: "Turns an event flag off.", params: [{ key: "event", label: "Flag", type: "flagNumber" }], describe: (a) => `Clear flag ${s(a.event)}` },
+  // engine flags: the game's own switches (badges, Pokégear cards, fly points, the Pokédex)
+  { id: "set_engine_flag", verb: "setflag", label: "Set engine flag", category: "Flags", help: "Turns one of the game's own switches on: a badge, a Pokégear card, a fly point, the Pokédex …", params: [{ key: "flag", label: "Engine flag", type: "engineFlag", default: 11 }], describe: (a) => `Set engine flag E${s(a.flag)}` },
+  { id: "clear_engine_flag", verb: "clearflag", label: "Clear engine flag", category: "Flags", help: "Turns one of the game's own switches off.", params: [{ key: "flag", label: "Engine flag", type: "engineFlag", default: 11 }], describe: (a) => `Clear engine flag E${s(a.flag)}` },
 
   // ---- Scenes: a map's story stage (step triggers run only in theirs; entering
   // runs the scene's event); a map's own scene changes its blocks on the next load
@@ -110,6 +114,26 @@ const commands: EventCommand[] = [
     params: [{ key: "scene", label: "Scene", type: "number", default: 0, min: 0, max: 255 }], condition: "this map's scene is {scene}", describe: (a) => `this map's scene is ${s(a.scene)}`,
     // checkscene leaves the scene as the last result; its If row compares it
     rows: () => [{ op: "checkscene" }], branch: { op: "ifequal", not: "ifnotequal" },
+  },
+
+  // the clock's weekday (VAR_WEEKDAY: 0 Sunday … 6 Saturday), as the game's day-bound
+  // scripts check it (readvar, then an ifequal per day)
+  {
+    id: "check_weekday", verb: "#weekday", label: "Today is", category: "Conditions", help: "True on that day of the week (the game's clock), as the game checks for its weekday events.",
+    params: [{ key: "day", label: "Day", type: "choice", default: 1, options: [
+      { value: 0, label: "Sunday" }, { value: 1, label: "Monday" }, { value: 2, label: "Tuesday" }, { value: 3, label: "Wednesday" },
+      { value: 4, label: "Thursday" }, { value: 5, label: "Friday" }, { value: 6, label: "Saturday" },
+    ] }],
+    condition: "today is {day}", describe: (a) => `today is ${["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][Number(a.day)] ?? `day ${s(a.day)}`}`,
+    rows: () => [{ op: "readvar", var: 11 }], branch: { op: "ifequal", not: "ifnotequal" },
+  },
+
+  // the badge count (VAR_BADGES: Johto and Kanto together), as Gold's scripts read it
+  {
+    id: "check_badges", verb: "#badges", label: "Has badges", category: "Conditions", help: "True when the player has at least this many badges (Johto and Kanto together).",
+    params: [{ key: "count", label: "At least", type: "number", default: 8, min: 1, max: 16 }],
+    condition: "the player has {count} badges", describe: (a) => `the player has at least ${s(a.count)} badges`,
+    rows: () => [{ op: "readvar", var: 7 }], branch: { op: "ifgreater", not: "ifless", offset: -1 },
   },
 
   // ---- Conditions (used by If)
@@ -139,6 +163,7 @@ const commands: EventCommand[] = [
     // HAVE_LESS = 2, as for money
     branch: { op: "ifnotequal", not: "ifequal", value: 2 },
   },
+  { id: "check_engine_flag", verb: "checkflag", label: "Engine flag is set", category: "Conditions", help: "True when one of the game's own switches is on (a badge, a Pokégear card …).", params: [{ key: "flag", label: "Engine flag", type: "engineFlag", default: 11 }], condition: "engine flag E{flag} is set", describe: (a) => `engine flag E${s(a.flag)} is set` },
   { id: "check_flag", verb: "checkevent", label: "Flag is set", category: "Conditions", help: "True when the event flag is on.", params: [{ key: "event", label: "Flag", type: "flagNumber" }], condition: "flag {event} is set", describe: (a) => `flag ${s(a.event)} is set` },
   {
     id: "check_item", verb: "checkitem", label: "Has item", category: "Conditions", help: "True when the bag holds at least one.",
@@ -475,7 +500,17 @@ function describeRaw(r: Row, ctx: GameContext): { text: string; help: string } {
     case "setval": return d(`Sets the last result to ${s(nums(r)[0] ?? r.value)}`);
     case "addval": return d(`Adds ${s(nums(r)[0])} to the last result`);
     case "random": return d(`Picks a random number below ${s(nums(r)[0])} as the last result`);
-    case "readvar": return d(`Reads game value ${s(r.var)} as the last result`, "A value the game keeps (party size, badges, time of day …).");
+    case "readvar": {
+      // gen1recomp World.lua VAR (pokegold/pokecrystal constants/script_constants.asm)
+      const what = ([
+        "the string buffer", "the party size", "the battle result", "the battle type", "the time of day (1 morning, 2 day, 4 night)",
+        "the Pokémon caught", "the Pokémon seen", "the badge count", "how the player moves (walk, bike, surf)", "the player's facing",
+        "the hour", "the weekday (0 Sunday … 6 Saturday)", "the map group", "the map number", "the Unown caught", "the map's environment",
+        "the free box space", "the Bug Contest minutes", "the player's x", "the player's y", "the special phone call",
+        "the Battle Tower win streak", "Kurt's apricorns", "the caller id", "the Blue Card points", "Buena's password", "Kenji's break",
+      ] as string[])[Number(r.var)];
+      return d(`Reads ${what ?? `game value ${s(r.var)}`} as the last result`, "A value the game keeps; an If on \"Last result is\" right after picks by it.");
+    }
     case "loadvar": case "writemem": return d("Sets one of the game's values");
     case "readmem": return d("Reads one of the game's values as the last result");
     case "itemnotify": return d("Says the item went into its pocket");
@@ -545,6 +580,7 @@ function describeRaw(r: Row, ctx: GameContext): { text: string; help: string } {
 // a script one of the Roles writes (src/ui/roles2.ts): one line of text, a
 // std script (nurse, bookshelf …), a shop
 export function presetOf(rows: Row[]): boolean {
+  if (isCounter(rows) || isSeller(rows)) return true;
   if (rows.length === 1 && ["jumptextfaceplayer", "jumptext", "jumpstd", "fruittree"].includes(rows[0].op)) return true;
   return rows.some((r) => r.op === "pokemart") && rows.every((r) => ["faceplayer", "opentext", "pokemart", "closetext", "end"].includes(r.op));
 }
@@ -618,7 +654,7 @@ function emit(list: Block[], tail: Row[], ctx: GameContext): Row[] {
       const rest = emit(list.slice(i + 1), tail, ctx);
       if (b.cond) out.push(...rowsOf(b.cond, ctx));
       const br = b.cond ? byVerb.get(String(b.cond[0]))?.branch : undefined;
-      out.push(br ? { op: b.not ? br.not : br.op, value: br.value ?? Number(b.cond![1] ?? 0), script: emit(b.then, rest, ctx) } : { op: b.not ? "iffalse" : "iftrue", script: emit(b.then, rest, ctx) });
+      out.push(br ? { op: b.not ? br.not : br.op, value: br.value ?? Number(b.cond![1] ?? 0) + (b.not ? 0 : (br.offset ?? 0)), script: emit(b.then, rest, ctx) } : { op: b.not ? "iffalse" : "iftrue", script: emit(b.then, rest, ctx) });
       return [...out, ...emit(b.else ?? [], rest, ctx)];
     }
     // Choice / follow / labels are not offered for Gold
@@ -655,7 +691,9 @@ const endsWith = (list: Row[], tail: Row[]) => list.length >= tail.length && tai
 
 // `rows` without `tail`, the rows every branch in it ends with (what follows
 // the enclosing Ifs, then closetext + end): compile() copied them there
-function parseList(rows: Row[], tail: Row[], ctx: GameContext): Block[] {
+// `weekday`: the last result is still the weekday a "Today is" before read (the game
+// compares one readvar with an ifequal per day)
+function parseList(rows: Row[], tail: Row[], ctx: GameContext, weekday = false): Block[] {
   const out: Block[] = [];
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
@@ -711,25 +749,33 @@ function parseList(rows: Row[], tail: Row[], ctx: GameContext): Block[] {
       // the scene compared is the If row's value
       cond = ["checkscene", next.value];
       j = i + 1;
+    } else if (r.op === "readvar" && r.var === 7 && (next?.op === "ifgreater" || next?.op === "ifless") && typeof next.value === "number") {
+      // the badge count: "at least n" = ifgreater n-1, not = ifless n
+      cond = ["#badges", next.op === "ifgreater" ? next.value + 1 : next.value];
+      j = i + 1;
+    } else if (r.op === "readvar" && r.var === 11 && (next?.op === "ifequal" || next?.op === "ifnotequal") && typeof next.value === "number") {
+      // the weekday, compared by the If row
+      cond = ["#weekday", next.value];
+      j = i + 1;
     } else if (CHECKS.has(r.op)) {
       cond = blockRow(r, ctx);
       j = i + 1;
     } else if ((r.op === "ifequal" || r.op === "ifnotequal") && typeof r.value === "number" && Array.isArray(r.script)) {
-      // reads the last result on its own
-      cond = ["#lastis", r.value];
+      // reads the last result on its own (still the weekday: another day)
+      cond = [weekday ? "#weekday" : "#lastis", r.value];
     }
     const branch = rows[j];
     const script = branch?.script as Row[] | undefined;
     // the If row: iftrue/iffalse, or the check's own (checkmoney: ifnotequal 2)
     const br = cond ? byVerb.get(String(cond[0]))?.branch : undefined;
-    const reads = br ? (branch?.op === br.op || branch?.op === br.not) && branch?.value === (br.value ?? Number(cond?.[1])) : branch?.op === "iftrue" || branch?.op === "iffalse";
+    const reads = br ? (branch?.op === br.op || branch?.op === br.not) && branch?.value === (br.value ?? Number(cond?.[1]) + (branch?.op === br.op ? (br.offset ?? 0) : 0)) : branch?.op === "iftrue" || branch?.op === "iffalse";
     if (branch && reads && Array.isArray(script) && (cond || j === i) && (endsWith(script, tail) || endsWith(script, END))) {
       const not = br ? branch.op === br.not : branch.op === "iffalse";
       const after = rows.slice(j + 1);
       if (!endsWith(script, tail)) {
         // the then-branch stops the event: what follows the If is the rest
         out.push({ t: "if", cond, not, then: [...parseList(script.slice(0, -END.length), END, ctx), { t: "stop" }], else: null });
-        return [...out, ...parseList(after, tail, ctx)];
+        return [...out, ...parseList(after, tail, ctx, cond?.[0] === "#weekday")];
       }
       const then = script.slice(0, script.length - tail.length);
       // what follows the If ends both branches (a text's waitbutton stays with it)
@@ -739,7 +785,7 @@ function parseList(rows: Row[], tail: Row[], ctx: GameContext): Block[] {
       const shared = after.slice(after.length - k);
       const inner = [...shared, ...tail];
       const elseRows = after.slice(0, after.length - k);
-      out.push({ t: "if", cond, not, then: parseList(then.slice(0, then.length - k), inner, ctx), else: elseRows.length ? parseList(elseRows, inner, ctx) : null });
+      out.push({ t: "if", cond, not, then: parseList(then.slice(0, then.length - k), inner, ctx), else: elseRows.length ? parseList(elseRows, inner, ctx, cond?.[0] === "#weekday") : null });
       return [...out, ...parseList(shared, tail, ctx)];
     }
     if (cond) {

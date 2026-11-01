@@ -5,6 +5,7 @@
 
 import type { Host } from "../host/types.ts";
 import { append, h, toast } from "./dom.ts";
+import { minEngineFor } from "../games/index.ts";
 
 const GAME_NAMES: Record<string, string> = {
   gen1: "Pokémon Red, Blue and Yellow", all: "every game", red: "Pokémon Red", blue: "Pokémon Blue", yellow: "Pokémon Yellow",
@@ -32,7 +33,7 @@ function outline(m: Record<string, unknown>, modId: string): string {
     "2. In gen1recomp, open **MODS > Import mod .zip** and pick the file.",
     "3. Make sure the mod is switched on in the mod list.",
     "",
-    `Made for ${games}.`,
+    `Made for ${games}.${minEngineFor(Array.isArray(m.games) ? (m.games as string[]) : []) ? ` Needs gen1recomp ${minEngineFor(m.games as string[])} or later.` : ""}`,
     "",
     "## What it changes",
     "",

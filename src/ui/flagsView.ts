@@ -67,10 +67,12 @@ export function mountFlagsView(left: HTMLElement, center: HTMLElement, right: HT
       if (!s) return [];
       const uses = allUses();
       const keys = new Set([...uses.keys(), ...Object.keys(notes())]);
-      // Gold/Silver: every named flag, used by a script or not
-      if (s.numeric && s.name) for (let n = 0; n < 2048; n++) if (s.name(store.ctx, String(n))) keys.add(String(n));
+      // Gold/Silver: every named flag, used by a script or not (engine flags "E<n>" too)
+      if (s.numeric && s.name) for (let n = 0; n < 2048; n++) for (const k of [String(n), `E${n}`]) if (s.name(store.ctx, k)) keys.add(k);
+      // event flags by number, then the engine's
+      const order = (k: string) => (k.startsWith("E") ? 1e6 + Number(k.slice(1)) : Number(k));
       return [...keys]
-        .sort((a, b) => (s.numeric ? Number(a) - Number(b) : a.localeCompare(b)))
+        .sort((a, b) => (s.numeric ? order(a) - order(b) : a.localeCompare(b)))
         .map((key) => {
           const u = uses.get(key) ?? [];
           const note = flagNote(key);
@@ -79,7 +81,7 @@ export function mountFlagsView(left: HTMLElement, center: HTMLElement, right: HT
           return {
             id: key,
             // the list is narrow: EVENT_ goes (the flag's page shows the whole name)
-            label: flagTitle(key).replace(/(^| )EVENT_/, "$1"),
+            label: flagTitle(key).replace(/(^| )(EVENT|ENGINE)_/, "$1"),
             meta: note || (first ? `${word}: ${first.label}${u.length > 1 ? ` +${u.length - 1}` : ""}` : "unused"),
             search: `${note}\n${u.map((x) => x.label).join("\n")}`,
             edited: !!note || u.some((x) => x.own),
@@ -159,7 +161,8 @@ export function mountFlagsView(left: HTMLElement, center: HTMLElement, right: HT
     side.replaceChildren(
       h("p", { class: "hint" }, "Event flags remember what happened in the save: a person beaten, an item taken, a story step done. Events set, clear and check them."),
       h("p", { class: "hint" }, "Your flags (and the ones you noted) are listed first. A note is only for you: the game never reads it."),
-      h("p", { class: "hint" }, FEATURES.gen2 && spec()?.numeric ? "Gold's flags are numbers. \"+ New flag\" takes one no map, script or note uses yet." : "Gen 1 flags are names: name yours after your mod (MYMOD_GOT_GIFT)."));
+      h("p", { class: "hint" }, FEATURES.gen2 && spec()?.numeric ? "Gold's flags are numbers. \"+ New flag\" takes one no map, script or note uses yet." : "Gen 1 flags are names: name yours after your mod (MYMOD_GOT_GIFT)."),
+      FEATURES.gen2 && spec()?.numeric ? h("p", { class: "hint" }, "E-numbers are engine flags, the game's own switches: badges, Pokégear cards, fly points, the Pokédex. Events can set and check them too, but no new ones can be made.") : "");
     const key = current;
     if (!spec() || !key) {
       title.textContent = "Flags";

@@ -11,7 +11,7 @@ import { addGift, copyCall, followCopies, giftOf, giverOf, removeGift, setGiftCh
 import { createEvent } from "./eventEditor.ts";
 import { store } from "../core/store.ts";
 import type { EventRow, GlobalNumber, GlobalsSpec, PhoneLine } from "../games/types.ts";
-import { clear, comboInput, field, h, listFocus, listKeys, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
+import { clear, comboInput, field, h, listFocus, listKeys, numberInput, onFocusLeave, rerender, selectInput, toast, whenShown } from "./dom.ts";
 import { liveTileset } from "../core/tilesets.ts";
 import { chancesCard } from "./encounterPanel.ts";
 import { nav } from "./nav.ts";
@@ -26,6 +26,7 @@ import { textEditor } from "./textField.ts";
 import { INTRO, introCards, introEdited, revertIntro } from "./introEditor.ts";
 import { gameGifts, type GameGift } from "../project/gameEvents.ts";
 import { FEATURES } from "../features.ts";
+import { coinSellerEditor, goldCounters, goldPrizeEditor, goldSellers } from "./prizes2.ts";
 import { fishGroupCards, treeSetCards } from "./timedEncounterPanel.ts";
 
 const SECTION_KEY = "studio.globalSection";
@@ -170,6 +171,7 @@ function sectionChanged(id: string): boolean {
   if (id === "phone" && s.phone && Object.keys(store.table(s.phone.registry)).some((k) => store.isRecordEdited(s.phone!.registry, k))) return true;
   if (id === "shops" && s.shops && Object.keys(store.table(s.shops.registry)).some((k) => store.isRecordEdited(s.shops!.registry, k))) return true;
   if (id === "sounds" && soundsEdited()) return true;
+  if (FEATURES.gen2 && id === "prizes" && store.adapter.roles === "gen2" && (goldCounters().some((c) => !c.game) || goldSellers().some((c) => !c.game))) return true;
   if (id === "wild" && store.isRecordEdited("field", "fishing")) return true;
   const towns = store.adapter.towns;
   if (id === "prizes" && towns) {
@@ -239,14 +241,14 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
   };
 
   let scheduled = false;
-  const schedule = () => {
+  const schedule = whenShown(main, () => {
     if (scheduled) return;
     scheduled = true;
     requestAnimationFrame(() => {
       scheduled = false;
       renderAll();
     });
-  };
+  });
   onFocusLeave(main, schedule);
   store.on((reason, _id, registry) => {
     if (reason === "project") {
@@ -259,6 +261,8 @@ export function mountGlobalWorkspace(left: HTMLElement, center: HTMLElement, rig
       });
     }
     if (reason === "project" || reason === "saved") schedule();
+    // Gold's prize counters are scripts on the maps
+    if (FEATURES.gen2 && reason === "edit" && section === "prizes" && store.adapter?.roles === "gen2") schedule();
     const s = spec();
     const prizes = store.adapter?.towns?.prizeRegistry;
     if (reason === "content" && s && (registry === "field" || registry === STARTERS || registry === GIFTS || registry === INTRO || registry === "text" || registry === "studio_events" || registry === "constants" || registry === s.typeChart?.registry || registry === prizes || registry === "items" || registry === "pokemon" || registry === "music" || registry === "sfx" || registry === "map_songs" || registry === s.start?.registry || registry === s.intro?.textRegistry || registry === s.trades?.registry || registry === s.slots?.registry || registry === s.hmBadges?.registry || registry === s.fruitTrees?.registry || registry === s.apricorns?.registry || registry === s.phone?.registry || registry === s.shops?.registry || registry === "statuses" || sharedListSection(registry ?? "", _id ?? ""))) schedule();
@@ -694,6 +698,7 @@ function sectionForm(s: GlobalsSpec, id: string, hint: string): HTMLElement[] {
   if (id === "apricorns" && s.apricorns) out.push(apricornsCard(s.apricorns.registry));
   if (FEATURES.gen2 && id === "phone" && s.phone) out.push(...phoneCards(s.phone));
   if (FEATURES.gen2 && id === "shops" && s.shops) out.push(...shopCards(s.shops));
+  if (FEATURES.gen2 && id === "prizes" && store.adapter.roles === "gen2") out.push(...goldPrizeCards());
   if (id === "trades") out.push(...tradeCards());
   const timed = FEATURES.gen2 ? store.adapter.timedEncounters : undefined;
   if (timed && id === "fishing") out.push(...fishGroupCards(timed));
@@ -853,6 +858,28 @@ function newContactCard(ph: NonNullable<GlobalsSpec["phone"]>, table: Record<str
 }
 
 // Gen 2: every shop by its number (the clerks opening it, its stock) and the bargain shop's prices
+// Gold: every person or sign on the maps that is a prize counter (its script; prizes2.ts)
+function goldPrizeCards(): HTMLElement[] {
+  const list = goldCounters();
+  const cards = list.map((c) => {
+    const map = store.maps[c.mapId];
+    const name = String(map?.id ?? c.mapId).replace(/_/g, " ");
+    return h(
+      "section",
+      { class: "card" },
+      h("div", { class: "row" }, h("h4", {}, `${name} · ${c.layer === "objects" ? "person" : "sign"} ${c.index + 1}`), h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(c.mapId, c.layer, c.index) }, "Show on map")),
+      goldPrizeEditor(c.mapId, c.layer, c.index) ?? h("span", {}),
+    );
+  });
+  // and the coin sellers (coins for money)
+  return [...cards, ...goldSellers().map((c) => h(
+    "section",
+    { class: "card" },
+    h("div", { class: "row" }, h("h4", {}, `${c.mapId.replace(/_/g, " ")} \u00b7 coin seller (person ${c.index + 1})`), h("button", { class: "btn small ghost", onclick: () => nav.selectEntity(c.mapId, c.layer, c.index) }, "Show on map")),
+    coinSellerEditor(c.mapId, c.layer, c.index) ?? h("span", {}),
+  ))];
+}
+
 function shopCards(sh: NonNullable<GlobalsSpec["shops"]>): HTMLElement[] {
   const table = store.table(sh.registry) as Record<string, unknown>;
   const items = store.table("items") as Record<string, { name?: string; price?: number }>;
@@ -904,6 +931,30 @@ export const contactName = (id: string) => id.replace(/^PHONE_/, "").toLowerCase
 // trainers, 8 trainers). Voices come first, one card each, then one card per
 // contact with its settings and the lines no voice holds. Lines are grouped by
 // call (you call / they call), greetings by time of day side by side.
+// the phone page's folds that are open (kept over re-renders; a fold's lines
+// are built only when it is open: every card holds dozens of text editors)
+const openFolds = new Set<string>();
+function lazyFold(key: string, summary: string, build: () => HTMLElement[]): HTMLElement {
+  const fold = h("details", {}, h("summary", {}, summary));
+  let built = false;
+  const fill = () => {
+    if (built) return;
+    built = true;
+    fold.append(...build());
+  };
+  if (openFolds.has(key)) {
+    fold.open = true;
+    fill();
+  }
+  fold.addEventListener("toggle", () => {
+    if (fold.open) {
+      openFolds.add(key);
+      fill();
+    } else openFolds.delete(key);
+  });
+  return fold;
+}
+
 function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
   type Contact = { index?: number; name?: string; map?: string; calleeTime?: number; callerTime?: number; calleeKey?: unknown; callerKey?: unknown };
   type Lines = { callee: PhoneLine[]; caller: PhoneLine[] };
@@ -914,7 +965,7 @@ function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
   const ids = Object.keys(table).filter((id) => id !== "PHONE_00").sort((a, b) => Number(table[a].index ?? 0) - Number(table[b].index ?? 0));
   const texts = store.table("text");
   const said = (l: PhoneLine) => typeof texts[l.text] === "string";
-  const lines = new Map<string, Lines>(ids.map((id) => [id, { callee: ph.lines(store.ctx, table[id].calleeKey).filter(said), caller: ph.lines(store.ctx, table[id].callerKey).filter(said) }]));
+  const lines = new Map<string, Lines>(ids.map((id) => [id, { callee: ph.lines(store.ctx, table[id].calleeKey, Number(table[id].index)).filter(said), caller: ph.lines(store.ctx, table[id].callerKey, Number(table[id].index)).filter(said) }]));
   const all = (l: Lines) => [...l.callee, ...l.caller];
   // who says each text
   const owners = new Map<string, string[]>();
@@ -962,7 +1013,10 @@ function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
     const caller = l.caller.filter((x) => keep(x.text) && !callee.some((y) => y.text === x.text));
     return [callBlock("When you call", callee, noteOf), callBlock("When they call you", caller, noteOf)].filter((x): x is HTMLElement => !!x);
   };
-  const count = (blocks: HTMLElement[]) => blocks.reduce((n, b) => n + b.querySelectorAll(".text-editor").length, 0);
+  const count = (l: Lines, keep: (text: string) => boolean) => {
+    const callee = l.callee.filter((x) => keep(x.text));
+    return callee.length + l.caller.filter((x) => keep(x.text) && !callee.some((y) => y.text === x.text)).length;
+  };
 
   // a voice's lines over every member: each line once, its {STRBUF} words from
   // everyone saying it (a fixed word such as the route differs per contact)
@@ -991,12 +1045,12 @@ function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
     return parts.length ? `${parts.join("; ")[0].toUpperCase()}${parts.join("; ").slice(1)}.` : undefined;
   };
   const shared = voices.map((voice) => {
-    const blocks = calls(voiceLines(voice), () => true, voiceNote(voice));
+    const vl = voiceLines(voice);
     return h("section", { class: "card", "data-phone-voice": voice.join(",") },
       h("h4", {}, "Shared phone talk", h("span", { class: "hint team-choice" }, `${voice.length} contacts`)),
       h("p", { class: "hint" }, `Said by ${voice.map(contactName).join(", ")}.`),
       h("p", { class: "hint warn" }, "Editing a line here changes it for every one of them."),
-      h("details", {}, h("summary", {}, `Lines (${count(blocks)})`), ...blocks));
+      lazyFold(`voice:${voice.join(",")}`, `Lines (${count(vl, () => true)})`, () => calls(vl, () => true, voiceNote(voice))));
   });
 
   // a call of the contact's own (an event in the phone's shape, saved as a
@@ -1087,11 +1141,16 @@ function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
       box.addEventListener("change", () => put(`${contactName(id)}: ${key === "calleeTime" ? "can be called" : "calls you"}`, { ...c, [key]: (Number(c[key] ?? 0) & ~bit) | (box.checked ? bit : 0) }));
       return h("label", { class: "inline-check" }, box, label);
     }));
-    const mapSel = selectInput(c.map ?? "", maps, (v) => put(`${contactName(id)}: map`, { ...c, map: v || undefined }), "Nowhere (no map)");
+    // a searchable box, not a drop-down: 38 cards x every map was most of this page's weight
+    const mapBox = comboInput(c.map ?? "", "dl-phone-maps", maps, (v) => put(`${contactName(id)}: map`, { ...c, map: v }), "Nowhere (no map)");
+    const mapSel = h("div", { class: "row nowrap" }, mapBox,
+      c.map ? h("button", { class: "btn small ghost", title: "Nowhere (no map)", onclick: () => put(`${contactName(id)}: map`, { ...c, map: undefined }) }, "✕") : null);
     const who = givers.get(Number(c.index)) ?? [];
     const voice = voiceOf.get(id);
     // its lines no voice holds (a line two contacts share says so)
-    const own = calls(lines.get(id)!, (t) => !voiceOfText(t), (t) => {
+    const ownKeep = (t: string) => !voiceOfText(t);
+    const ownCount = count(lines.get(id)!, ownKeep);
+    const own = () => calls(lines.get(id)!, ownKeep, (t) => {
       const others = (owners.get(t) ?? []).filter((o) => o !== id);
       return others.length ? `Also said by ${names(others)}: editing it changes it there too.` : undefined;
     });
@@ -1106,7 +1165,7 @@ function phoneCards(ph: NonNullable<GlobalsSpec["phone"]>): HTMLElement[] {
       voice ? h("div", { class: "row wrap" },
         h("span", { class: "hint" }, `Talks with the shared phone talk of ${voice.length} contacts.`),
         h("button", { class: "btn small ghost", onclick: () => document.querySelector(`[data-phone-voice="${voice.join(",")}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" }) }, "Show →")) : null,
-      own.length ? h("details", {}, h("summary", {}, `${voice ? "Its own lines" : "What is said on the phone"} (${count(own)})`), ...own) : null,
+      ownCount ? lazyFold(`own:${id}`, `${voice ? "Its own lines" : "What is said on the phone"} (${ownCount})`, own) : null,
       ...(["callee", "caller"] as const).map((dir) => callRow(id, dir)),
       giftRow(id),
       store.baseTable(ph.registry)[id] === undefined

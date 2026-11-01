@@ -72,6 +72,16 @@ export const EVENT_RUNTIME = String.raw`
         return mod.ui.PicBox.new(game, def and def.spriteFront or "")
       end,
     })
+    -- badges are bag items whose id holds BADGE (gen1recomp Bag.isBadge)
+    mod.content.commands:register("studio:check_badges", {
+      fn = function(ctx, n)
+        local count = 0
+        for id, amount in pairs(ctx.save.inventory or {}) do
+          if type(id) == "string" and id:find("BADGE", 1, true) and (tonumber(amount) or 0) > 0 then count = count + 1 end
+        end
+        ctx.lastCheck = count >= (n or 1)
+      end,
+    })
     mod.content.commands:register("studio:check_coins", {
       fn = function(ctx, n)
         ctx.lastCheck = (ctx.save.coins or 0) >= (n or 0)

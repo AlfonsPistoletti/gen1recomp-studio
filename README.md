@@ -13,8 +13,9 @@ contains the game's own data or art.
 
 ## Install
 
-1. **gen1recomp:** get the **developer copy** (its source code) and import your Red, Blue or
-   Yellow ROM once. A normal gen1recomp download works too, but only the developer copy can
+1. **gen1recomp:** get the **developer copy** (its source code) and import your Red, Blue,
+   Yellow, Gold, Silver or Crystal ROM once. Gold/Silver/Crystal mods need gen1recomp **0.3.96 or
+   later**. A normal gen1recomp download works too, but only the developer copy can
    check a mod before you share it. See
    [Getting started](https://github.com/AlfonsPistoletti/gen1recomp-studio/wiki/Getting-started).
 2. **G1R Studio:** download the installer from the

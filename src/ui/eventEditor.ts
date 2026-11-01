@@ -1071,6 +1071,12 @@ function paramFields(_s: EventSpec, mapId: string, params: EventParam[], args: R
           flagNoteLine(String(value ?? 0)));
         break;
       }
+      case "engineFlag":
+        // the game's own switches: a fixed set (one byte each), named in the Flags view
+        input = h("div", {},
+          numberInput(Number(value ?? 0), (v) => set(Math.max(0, Math.min(255, v))), 0, 255),
+          flagNoteLine(`E${Number(value ?? 0)}`));
+        break;
       case "ext":
         input = p.ext ? extFieldInput(p.ext, value ?? p.default, set) : h("span", {});
         break;

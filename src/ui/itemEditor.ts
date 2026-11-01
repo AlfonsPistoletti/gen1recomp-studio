@@ -10,6 +10,7 @@ import { describeItemEffect } from "../games/gen1/items.ts";
 import { clear, comboInput, field, h, numberInput, onFocusLeave, rerender, selectInput, toast } from "./dom.ts";
 import { heldRulesSection } from "./heldRules.ts";
 import { FEATURES } from "../features.ts";
+import { goldCounters } from "./prizes2.ts";
 import { nav } from "./nav.ts";
 import { idRow } from "./renameId.ts";
 import { promptNewRecord } from "./newRecord.ts";
@@ -795,7 +796,7 @@ function effectCard(s: ItemSpec, id: string, r: Rec): HTMLElement {
         },
       }, "+ Step"),
       h("button", {
-        class: "btn small ghost",
+        class: "btn small danger",
         title: "Use the built-in behaviour again",
         onclick: () =>
           store.group("Item effect", () => {
@@ -1018,6 +1019,9 @@ function usesOf(id: string): Use[] {
   for (const m of s?.marts(store.ctx) ?? []) if (m.text && martStock(m).includes(id)) out.push({ label: `Shop: ${m.label}`, open: () => (m.mapId ? nav.openMap(m.mapId) : undefined) });
   const towns = store.adapter.towns;
   if (towns) for (const cid of countersGiving(towns, id)) out.push({ label: `Prize: ${counterLabel(cid)}`, open: () => showCounter(cid) });
+  if (FEATURES.gen2 && store.adapter.roles === "gen2") {
+    for (const c of goldCounters()) if (c.counter.prizes.some((p) => p.item === id)) out.push({ label: `Prize: ${c.mapId.replace(/_/g, " ")} · ${c.layer === "objects" ? "person" : "sign"} ${c.index + 1}`, open: () => nav.selectEntity(c.mapId, c.layer, c.index) });
+  }
   for (const u of s?.uses?.(store.ctx, id) ?? []) {
     const { map, trainer, pokemon } = u;
     const open = map

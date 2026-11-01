@@ -24,7 +24,7 @@ import { mountBlockPalette } from "./ui/blockPalette.ts";
 import { differencesMarkdown, mountChangesMenu } from "./ui/changesMenu.ts";
 import { ScanSearch, Brush, DoorOpen, Footprints, Package, Globe, Grid3x3, LayoutGrid, Maximize, MousePointer2, PaintBucket, Paintbrush, Palette, Play, Redo2, Save, Settings, Signpost, Square, Swords, Undo2, User, UserRound, Waves, ZoomIn, ZoomOut, type IconNode } from "lucide";
 import { modDetailsDialog } from "./ui/modDetails.ts";
-import { $, clear, dropdown, field, h, icon, numberInput, setComboLabels, toast, errorText } from "./ui/dom.ts";
+import { $, clear, dropdown, errorText, field, h, icon, numberInput, setComboLabels, SHOWN, toast } from "./ui/dom.ts";
 import { addCustom, addEntity, deleteSelection, mountInspector, nudgeSelection } from "./ui/inspector.ts";
 import { mountMapList } from "./ui/mapList.ts";
 import { nav, WORKSPACES, type EventsView, type GraphicsView, type WorkspaceId } from "./ui/nav.ts";
@@ -43,6 +43,7 @@ import { mountSpriteWorkspace } from "./ui/spriteEditor.ts";
 import { mountImageWorkspace } from "./ui/imageEditor.ts";
 import { mountPaletteWorkspace } from "./ui/paletteEditor.ts";
 import { mountTownMapWorkspace, townMapSheets } from "./ui/townMapEditor.ts";
+import { footprintSheets } from "./ui/footprints.ts";
 import { mountTownMap2 } from "./ui/townMapEditor2.ts";
 import { FEATURES } from "./features.ts";
 import { MAX_BLOCKS } from "./core/tileBrush.ts";
@@ -648,7 +649,10 @@ function setWorkspace(id: WorkspaceId): void {
   document.body.dataset.ws = id;
   for (const el of document.querySelectorAll<HTMLElement>("#layout > [data-ws]")) {
     const view = el.dataset.ws === "events" ? nav.eventsView : nav.graphicsView;
+    const was = el.hidden;
     el.hidden = el.dataset.ws !== id || (el.dataset.view !== undefined && el.dataset.view !== view);
+    // pages that skipped re-rendering while hidden catch up (dom.ts whenShown)
+    if (was && !el.hidden) el.dispatchEvent(new Event(SHOWN));
   }
   for (const b of workspaceTabs) b.classList.toggle("active", b.dataset.ws === id);
   remember(WORKSPACE_KEY, id);
@@ -1051,7 +1055,7 @@ async function save(): Promise<void> {
     const shots = await saveOverrides(host, currentMod, store.table(OVERRIDES));
     art.written += shots.written;
     // vanilla art reused through the asset-transforms recipe
-    const tf = await syncTransforms(host, currentMod, saved, [...sheetRecipes(), ...townMapSheets()], imageAliases(store.table(OVERRIDES)));
+    const tf = await syncTransforms(host, currentMod, saved, [...sheetRecipes(), ...townMapSheets(), ...footprintSheets()], imageAliases(store.table(OVERRIDES)));
     if (tf.blocked) toast(`mods/${currentMod} already has its own assets_transforms file, so vanilla art cannot be reused there. Import art instead.`, "error");
     store.markSaved();
     const parts = [];

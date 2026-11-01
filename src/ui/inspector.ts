@@ -11,7 +11,7 @@ import { afterStroke, store } from "../core/store.ts";
 import { DIRECTIONS, type Direction, type EntityRecord, type MapDef } from "../core/types.ts";
 import type { EntityGroup, EntityLayer, FieldSpec } from "../games/types.ts";
 import type { MapView } from "../render/mapView.ts";
-import { clear, comboInput, field, h, numberInput, rerender, selectInput, toast, errorText, onFocusLeave } from "./dom.ts";
+import { clear, comboInput, errorText, field, h, numberInput, onFocusLeave, rerender, selectInput, toast, whenShown } from "./dom.ts";
 import { npcTextSection } from "./mapText.ts";
 import { gen1Roles, townSection } from "./mapTown.ts";
 import { visibilitySection } from "./visibility1.ts";
@@ -69,12 +69,12 @@ export function mountInspector(host: HTMLElement, view: MapView): void {
       return mapForm(map, view);
     });
   };
-  const schedule = () => {
+  const schedule = whenShown(body, () => {
     if (!scheduled) {
       scheduled = true;
       requestAnimationFrame(render);
     }
-  };
+  });
   const afterBrush = afterStroke(schedule);
   store.on((reason, _id, registry) => {
     if (store.midStroke(reason)) afterBrush();
@@ -435,7 +435,7 @@ function mapForm(map: MapDef, view: MapView): HTMLElement[] {
     h("p", { class: "hint" }, "Select tool (V): click to select, drag to move. Double-click a warp to follow it, a neighbouring map to open it."),
     isNew || changedParts(map, true).length
       ? h("button", {
-          class: "btn danger small",
+          class: "btn small danger",
           // layout plus what belongs to the map elsewhere (events, music, ...)
           onclick: () => resetMapDialog(map, isNew, () => revertMap(map.id, store.base[map.id]), () => store.deleteMap(map.id)),
         }, isNew ? "Delete map" : "Revert map to base")

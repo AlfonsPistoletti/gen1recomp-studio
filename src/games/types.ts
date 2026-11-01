@@ -464,7 +464,7 @@ export interface GlobalsSpec {
   // record per PHONE_* id with its row `index`); `givers`: the map people whose
   // script asks for a contact's number (askforphonenumber <index>)
   // `lines`: the texts a call script (a key or inline rows) says, in order
-  phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; lines(ctx: GameContext, script: unknown): PhoneLine[] };
+  phone?: { registry: string; givers(ctx: GameContext): Map<number, { map: string; index: number }[]>; lines(ctx: GameContext, script: unknown, caller?: number): PhoneLine[] };
   // Gen 2: the shops (the engine's `marts` registry, engine 535a5ec0+): ids "0".."33" = the script's mart
   // number -> item list, "bargain" -> { item, price } rows; `clerks`: the map people opening mart n
   shops?: { registry: string; clerks(n: number): { mapId: string; index: number }[] };
@@ -539,9 +539,16 @@ export interface PokemonSpec {
   keys?: { levelMoves?: string; startMoves?: string | null; evolveInto?: string; picSize?: string };
   // evolution methods and which extra fields each one uses (item "optional":
   // a trade with or without a held item; time/comparison: the choices)
-  evolutionMethods: { id: string; label: string; level?: boolean; item?: boolean | "optional"; time?: string[]; comparison?: { id: string; label: string }[] }[];
+  evolutionMethods: {
+    id: string; label: string; level?: boolean; item?: boolean | "optional"; time?: string[]; comparison?: { id: string; label: string }[];
+    // Gold happiness: the game's number (`game`), any other one is a method of the mod's own,
+    // <prefix><n>, with a `registry` record { happiness: n } its helper registers
+    threshold?: { registry: string; prefix: string; game: number };
+  }[];
   // Gen 1's importer writes level 1 for evolutions without a level: keep that shape
   evolutionLevelAlways?: boolean;
+  // Gold: Pokédex footprints of the mod's own (registry: species -> { pixels } | { copy }), src/ui/footprints.ts
+  footprints?: { registry: string };
   // breeding block (Gen 2): egg groups in nibble order (index + 1), written
   // with the raw byte the engine compares (eggGroupsRaw)
   breeding?: { eggGroups: string[] };
@@ -748,6 +755,7 @@ export type EventParamType =
   | "text" // a line of text, or a text key ("_SomeText")
   | "flag"
   | "flagNumber" // Gen 2: an event flag by number (0-2047)
+  | "engineFlag" // Gen 2: an engine flag by number (badges, Pokégear cards …; Flags view key "E<n>")
   | "goldObject" // Gen 2: the player (0) or a person of the event's map (its index + 1)
   | "item"
   | "species"
@@ -807,7 +815,8 @@ export interface EventCommand {
   // Gen 2: the If row that reads this check, and its opposite (unset:
   // iftrue / iffalse): checkmoney answers 0 more, 1 the amount, 2 less
   // (no `value`: the command's own "value" argument)
-  branch?: { op: string; not: string; value?: number };
+  // (`offset`: added to the argument in the `op` row only: "at least n" is ifgreater n-1, its not ifless n)
+  branch?: { op: string; not: string; value?: number; offset?: number };
 }
 
 // What the Events workspace needs to know about a generation.
@@ -874,6 +883,8 @@ export interface ConnectionRef {
 export interface ImageSpec {
   // folders left out (prefixes of paths below assets/generated)
   skip: string[];
+  // inside a skipped folder, still listed (Gold's town roofs under tilesets/)
+  except?: string[];
   // [path prefix or exact path, group label], first match wins
   groups: [string, string][];
   // path -> what the image is for
@@ -1015,6 +1026,8 @@ export interface GameAdapter {
   // which Role box a person / sign gets (src/ui/roles.ts): Gen 1's (unset) or
   // Gen 2's (roles2.ts: inline scripts and object fields)
   roles?: "gen2";
+  // the oldest gen1recomp release the mods saved for this game load in (shown in Mod details and the mod's README)
+  minEngine?: string;
   // the "text" keys a script shows (its rows, followed through calls and
   // jumps), undefined when `key` is no script: the Text workspace's labels and
   // Used by for a game whose texts are named after their place in the ROM (Gen 2)

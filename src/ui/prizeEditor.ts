@@ -60,16 +60,36 @@ export function showCounter(id: string): void {
 export function prizeCounterEditor(spec: TownSpec, id: string): HTMLElement {
   const counter = counters(spec)[id] ?? freshCounter(spec);
   const base = store.baseTable(spec.prizeRegistry)[id] as PrizeCounter | undefined;
-  const editPrize = (i: number, label: string, mutate: (p: Prize) => void) => {
-    store.editRecord<PrizeCounter>(spec.prizeRegistry, id, label, (d) => {
-      d.prizes = d.prizes.map((p, j) => (j === i ? { ...p } : p));
-      mutate(d.prizes[i]);
-    }, { create: () => clone(counter) });
-    store.seal();
-  };
+  return prizeEditor({
+    prizes: counter.prizes.slice(0, spec.prizesPerCounter),
+    maxCoins: spec.maxCoins,
+    edit: (label, mutate) => {
+      store.editRecord<PrizeCounter>(spec.prizeRegistry, id, label, (d) => {
+        d.prizes = d.prizes.map((p) => ({ ...p }));
+        mutate(d.prizes);
+      }, { create: () => clone(counter) });
+      store.seal();
+    },
+    revert: base && !deepEqual(base, counter) ? { label: "Revert to vanilla", run: () => (store.revertRecord(spec.prizeRegistry, id), store.seal()) } : undefined,
+  });
+}
+
+// What a prize list is edited through: Gen 1's prize registry above, Gold's
+// counter scripts (roles2.ts). `mutate` changes a copy of the list.
+export interface PrizeSource {
+  prizes: Prize[];
+  maxCoins: number;
+  edit(label: string, mutate: (prizes: Prize[]) => void): void;
+  // how many prizes the window holds when the list may grow or shrink (Gold's menu box)
+  count?: { min: number; max: number };
+  revert?: { label: string; run(): void };
+}
+
+export function prizeEditor(src: PrizeSource): HTMLElement {
+  const editPrize = (i: number, label: string, mutate: (p: Prize) => void) => src.edit(label, (list) => mutate(list[i]));
   const species = Object.keys(store.table("pokemon")).sort();
   const itemIds = Object.keys(store.table("items")).sort();
-  const rows = counter.prizes.slice(0, spec.prizesPerCounter).map((p, i) => {
+  const rows = src.prizes.map((p, i) => {
     const kind = selectInput(p.species ? "mon" : "item", ["item", "mon"], (v) =>
       editPrize(i, "Prize kind", (x) => {
         if (v === "mon") {
@@ -92,21 +112,29 @@ export function prizeCounterEditor(spec: TownSpec, id: string): HTMLElement {
           numberInput(p.level ?? 5, (v) => editPrize(i, "Prize level", (x) => (x.level = Math.max(1, Math.min(100, v)))), 1, 100),
         ]
       : [comboInput(p.item ?? "", "dl-prize-items", itemIds, (v) => itemIds.includes(v) && editPrize(i, "Prize item", (x) => (x.item = v)))];
+    const count = src.count;
     return h(
       "div",
       { class: "prize-row" },
       kind,
       h("div", { class: "row nowrap" }, ...what),
-      h("div", { class: "row nowrap" }, numberInput(p.cost, (v) => editPrize(i, "Prize cost", (x) => (x.cost = Math.max(0, Math.min(spec.maxCoins, v)))), 0, spec.maxCoins), h("span", { class: "muted" }, "coins")),
+      h(
+        "div",
+        { class: "row nowrap" },
+        numberInput(p.cost, (v) => editPrize(i, "Prize cost", (x) => (x.cost = Math.max(0, Math.min(src.maxCoins, v)))), 0, src.maxCoins),
+        h("span", { class: "muted" }, "coins"),
+        count && src.prizes.length > count.min ? h("button", { class: "btn small ghost", title: "Remove this prize", onclick: () => src.edit("Remove prize", (list) => list.splice(i, 1)) }, "✕") : null,
+      ),
     );
   });
-  const edited = base ? !deepEqual(base, counter) : true;
+  const count = src.count;
   return h(
     "div",
     { class: "prize-counter" },
     ...rows,
-    edited && base
-      ? h("button", { class: "btn small ghost", onclick: () => (store.revertRecord(spec.prizeRegistry, id), store.seal()) }, "Revert to vanilla")
+    count && src.prizes.length < count.max
+      ? h("button", { class: "btn small ghost", onclick: () => src.edit("Add prize", (list) => list.push({ item: "POKE_BALL", cost: 50 })) }, "+ Prize")
       : null,
+    src.revert ? h("button", { class: "btn small danger", onclick: () => src.revert!.run() }, src.revert.label) : null,
   );
 }

@@ -2,7 +2,8 @@
 // for Events > Flags: script rows (setevent / clearevent / checkevent, followed
 // through the scripts they call), a person's eventFlag (hidden while set; an
 // item ball's: taken), a trainer's beaten flag, a hidden item's, the flags a new
-// game starts with, and phone contacts' calls.
+// game starts with, and phone contacts' calls. Engine flags (setflag / clearflag /
+// checkflag: badges, Pokégear cards, fly points …) are a second set, keyed "E<n>".
 import type { MapDef } from "../../core/types.ts";
 import type { FlagUse, FlagUseKind, GameContext } from "../types.ts";
 
@@ -10,13 +11,14 @@ type Rec = Record<string, unknown>;
 const asList = (v: unknown): Rec[] => (Array.isArray(v) ? v : v && typeof v === "object" ? Object.values(v) : []) as Rec[];
 const ROW_KIND: Record<string, FlagUseKind> = { setevent: "set", clearevent: "clear", checkevent: "check" };
 const NO_FLAG = 0xffff;
+const ENGINE_ROW: Record<string, FlagUseKind> = { setflag: "set", clearflag: "clear", checkflag: "check" };
 
 export function gen2FlagUses(ctx: GameContext, scripts: Record<string, unknown>, startFlags: Set<number>): Map<string, FlagUse[]> {
   const out = new Map<string, FlagUse[]>();
-  const add = (flag: unknown, use: FlagUse) => {
+  const add = (flag: unknown, use: FlagUse, engine = false) => {
     const n = Number(flag);
     if (!Number.isInteger(n) || n < 0 || n >= NO_FLAG) return;
-    const key = String(n);
+    const key = engine ? `E${n}` : String(n);
     const list = out.get(key) ?? [];
     if (!list.some((u) => u.kind === use.kind && u.label === use.label)) list.push(use);
     out.set(key, list);
@@ -30,6 +32,8 @@ export function gen2FlagUses(ctx: GameContext, scripts: Record<string, unknown>,
       for (const r of list as Rec[]) {
         const kind = ROW_KIND[String(r.op)];
         if (kind) add(r.event, { ...use, kind });
+        const engine = ENGINE_ROW[String(r.op)];
+        if (engine) add(r.flag, { ...use, kind: engine }, true);
         for (const x of Object.values(r)) if (typeof x === "string" ? x in scripts : Array.isArray(x)) walk(x);
       }
     };

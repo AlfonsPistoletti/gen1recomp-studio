@@ -813,7 +813,8 @@ export interface EventCommand {
   // Gen 2: the If row that reads this check, and its opposite (unset:
   // iftrue / iffalse): checkmoney answers 0 more, 1 the amount, 2 less
   // (no `value`: the command's own "value" argument)
-  branch?: { op: string; not: string; value?: number };
+  // (`offset`: added to the argument in the `op` row only: "at least n" is ifgreater n-1, its not ifless n)
+  branch?: { op: string; not: string; value?: number; offset?: number };
 }
 
 // What the Events workspace needs to know about a generation.

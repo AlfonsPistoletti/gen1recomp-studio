@@ -668,6 +668,17 @@ for (const [registry, records] of Object.entries(edited)) {
   const ev = adapter.events!;
   const rows = ev.compile!([{ t: "if", cond: ["checkflag", 26], not: false, then: [{ t: "cmd", row: ["setflag", 64] }], else: null }], ctx, undefined);
   check("flags: engine flag commands round-trip", JSON.stringify(rows).includes('"op":"checkflag","flag":26') && JSON.stringify(ev.parse!(rows, ctx)).includes('["setflag",64]'), JSON.stringify(ev.parse!(rows, ctx)).slice(0, 200));
+  // weekdays: "Today is" = readvar VAR_WEEKDAY + ifequal; the Indigo Plateau rival's trigger reads that way
+  const wed = ev.compile!([{ t: "if", cond: ["#weekday", 3], not: false, then: [{ t: "cmd", row: ["setflag", 64] }], else: null }], ctx, undefined);
+  check("weekday: Today is compiles and reads back", JSON.stringify(wed).includes('{"op":"readvar","var":11},{"op":"ifequal","value":3') && JSON.stringify(ev.parse!(wed, ctx)).includes('"cond":["#weekday",3]'), JSON.stringify(wed).slice(0, 200));
+  // badges: at least 7 = readvar VAR_BADGES + ifgreater 6; not = ifless 7
+  for (const not of [false, true]) {
+    const b7 = ev.compile!([{ t: "if", cond: ["#badges", 7], not, then: [{ t: "cmd", row: ["setflag", 64] }], else: null }], ctx, undefined);
+    const want = not ? '{"op":"ifless","value":7' : '{"op":"ifgreater","value":6';
+    check(`badges: ${not ? "fewer than" : "at least"} 7 compiles and reads back`, JSON.stringify(b7).includes('{"op":"readvar","var":7},' + want) && JSON.stringify(ev.parse!(b7, ctx)).includes(`"cond":["#badges",7],"not":${not}`), JSON.stringify(ev.parse!(b7, ctx)).slice(0, 200));
+  }
+  const rival = ev.gameRows!(ctx, "5a:48ff");
+  check("weekday: the Indigo Plateau rival's trigger checks the day", !!rival && ["0", "2", "4", "5", "6"].every((d) => JSON.stringify(ev.parse!(rival as never, ctx)).includes(`"cond":["#weekday",${d}]`)), JSON.stringify(rival && ev.parse!(rival as never, ctx)).slice(0, 300));
 }
 
 // happiness evolutions at an own number: the helper registers STUDIO_HAPPINESS_<n> with the

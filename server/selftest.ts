@@ -242,6 +242,7 @@ check("text saved as override", source.includes(`text:override("${textKey}", "HE
   const evRun = await runMod(new Map([[file, contentSrc], ["mods/studio_selftest/studio_events.lua", dataSrc]]), "studio_selftest", file, null);
   check("event helper runs", evRun.errors.length === 0, evRun.errors.join("; "));
   check("events registered", evRun.ops.some((o) => o.registry === "map_scripts" && o.id === "PALLET_TOWN") && evRun.ops.some((o) => o.registry === "commands" && o.id === "studio:check_choice"), evRun.ops.map((o) => `${o.registry}:${o.id}`).join(", "));
+  check("the badge count check is registered", evRun.ops.some((o) => o.registry === "commands" && o.id === "studio:check_badges"));
   const back = await loadLuaData<Record<string, unknown>>(dataSrc, "studio_events.lua");
   check("studio_events.lua round-trips", deepEqual(back, events), JSON.stringify(back).slice(0, 200));
   check("event helper has no backticks or ${", !EVENT_RUNTIME.includes("`") && !EVENT_RUNTIME.includes("${"));

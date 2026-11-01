@@ -46,6 +46,7 @@ export const ROLE_LABEL: Record<string, string> = {
   game: "The game's script",
   fruit: "Fruit tree (gives fruit daily)",
   none: "Nothing (doesn't react)",
+  cutscene: "Cutscene person (the game's stand-in)",
 };
 
 // the role picker and the role's panels (the inspector's "What it does" card)

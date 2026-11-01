@@ -11,6 +11,8 @@
 //   item     object type 1 with itemball = { item, quantity }, eventFlag = taken
 //   hidden   sign kind 7 with hiddenItem = { event, item }
 //   game     the game's own script key (kept as it was) when it does more
+//   cutscene the cart's ObjectEvent stand-in ("Object event."): people that only appear in a
+//            scene and are moved by the map's scripts (the hidden rival at Indigo Plateau, …)
 // A person still on a game key gets the role of that key's rows (the fisher's
 // [jumptextfaceplayer text] is Normal), keeping the key: nothing is copied.
 // There is no PC role: the engine opens a Pokémon Center's PC by tileset.
@@ -59,6 +61,13 @@ const keyRows = (key: unknown) => {
 // what the entity runs: its inline rows, else its game script's
 const scriptOf = (e: EntityRecord) => rowsOf(e) ?? keyRows(e.scriptKey);
 
+// ObjectEvent (home bank, one jumptextfaceplayer): the cart's stand-in script, shared
+// by every cutscene person (Gold 00:2812, Crystal 00:26ef); its text is everyone's
+const isStandIn = (key: unknown): boolean => {
+  const rows = typeof key === "string" && key.startsWith("00:") ? keyRows(key) : null;
+  return !!rows && rows.length === 1 && rows[0].op === "jumptextfaceplayer";
+};
+
 // the role a script's rows play ("event": none of the simple ones)
 function rowsRole(rows: Row[]): string {
   if (rows.length === 1 && (rows[0].op === "jumptextfaceplayer" || rows[0].op === "jumptext")) return "";
@@ -71,6 +80,7 @@ function rowsRole(rows: Row[]): string {
 
 // the role of a game script key ("game": it does more than a simple role)
 function keyRole(key: string): string {
+  if (isStandIn(key)) return "cutscene";
   const rows = keyRows(key);
   // a prize counter branches into scripts of its own: read with those in
   const full = gameScriptRows(extra().scripts ?? {}, key) as Row[] | null;
@@ -120,7 +130,8 @@ function setRole(c: RoleCtx, from: string, next: string): void {
   if (next === "std" && !extra().stdScripts?.PictureBookshelfScript) return void toast("The game's standard scripts were not found in this dataset", "error");
   if ((next === "item" || next === "hidden") && freeFlag() === null) return void toast("No free event flag left", "error");
   store.group(`Role: ${next || "text"}`, () => {
-    const keep = textIn(c.entity);
+    // (never the stand-in's text: every cutscene person shares it)
+    const keep = isStandIn(c.entity.scriptKey) ? null : textIn(c.entity);
     if (from === "trainer") removeTrainer(c.entity, c.editEntity);
     // a trainer keeps its script: talking to it once it's beaten runs that
     if (next !== "trainer") c.editEntity(`Role: ${next || "text"}`, (e) => {
@@ -157,7 +168,7 @@ function setRole(c: RoleCtx, from: string, next: string): void {
       }
       // the role the game's own script plays: its key again, not a copy
       const game = gameScript(c);
-      if (game && keyRole(game) === next && ["", "nurse", "std", "mart", "fruit", "prizes"].includes(next)) e.scriptKey = game;
+      if (game && keyRole(game) === next && ["", "nurse", "std", "mart", "fruit", "prizes", "cutscene"].includes(next)) e.scriptKey = game;
       if (e.scriptKey === undefined) delete e.scriptKey;
     });
     else if (from === "item") c.editEntity("Role: trainer", (e) => {
@@ -325,6 +336,8 @@ function panels(c: RoleCtx, role: string): HTMLElement[] {
     }
     case "none":
       return [h("p", { class: "hint" }, "Nothing happens when the player talks to it.")];
+    case "cutscene":
+      return [h("p", { class: "hint" }, "No talk of its own: the game gives it a stand-in line (\"Object event.\") because it only appears in a scene, where the map's scripts move it and speak for it (see When it's there). Pick Normal or Event to let it say something itself.")];
   }
   return [];
 }
@@ -338,6 +351,7 @@ export const gen2Roles: RoleSet = (c) => {
     ...(npc ? ["trainer", "item", "mart", "prizes", "nurse", ...(store.adapter.globals?.fruitTrees ? ["fruit"] : [])] : ["hidden", "std", "prizes"]),
     // only when the game's script does more than one of the roles above
     ...((gameScript(c) && keyRole(gameScript(c)!) === "game") || current === "game" ? ["game"] : []),
+    ...((gameScript(c) && keyRole(gameScript(c)!) === "cutscene") || current === "cutscene" ? ["cutscene"] : []),
     ...(current === "none" ? ["none"] : []),
   ];
   return { current, options, set: (next) => setRole(c, current, next), panels: panels(c, current) };

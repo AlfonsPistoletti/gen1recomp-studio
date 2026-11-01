@@ -547,6 +547,8 @@ export interface PokemonSpec {
   }[];
   // Gen 1's importer writes level 1 for evolutions without a level: keep that shape
   evolutionLevelAlways?: boolean;
+  // Gold: Pokédex footprints of the mod's own (registry: species -> { pixels } | { copy }), src/ui/footprints.ts
+  footprints?: { registry: string };
   // breeding block (Gen 2): egg groups in nibble order (index + 1), written
   // with the raw byte the engine compares (eggGroupsRaw)
   breeding?: { eggGroups: string[] };

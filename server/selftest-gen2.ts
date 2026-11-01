@@ -681,6 +681,49 @@ for (const [registry, records] of Object.entries(edited)) {
   check("weekday: the Indigo Plateau rival's trigger checks the day", !!rival && ["0", "2", "4", "5", "6"].every((d) => JSON.stringify(ev.parse!(rival as never, ctx)).includes(`"cond":["#weekday",${d}]`)), JSON.stringify(rival && ev.parse!(rival as never, ctx)).slice(0, 300));
 }
 
+// Pokédex footprints: a drawing equal to a game footprint is a copy (no ROM pixels),
+// the recipe appends 2x2 tiles per record in sorted order, the helper gives those species those rows
+{
+  const fp = await import("../src/games/gen2/footprints.ts");
+  const { footprintRegistration2 } = await import("../src/lua/footprintRuntime2.ts");
+  const { dataFile, studioContentFile: contentFile } = await import("../src/lua/writer.ts");
+  const { LuaFactory } = await import("wasmoon");
+  const order = (project.data.extra.footprintOrder as string[] | undefined) ?? [];
+  check("footprints: the strip's order is loaded", order.length === 251 && order[0] === "BULBASAUR", String(order.length));
+  const a = "1" + "0".repeat(255), b = "0".repeat(255) + "1";
+  const rows = [a, b];
+  const two = ["BULBASAUR", "IVYSAUR"];
+  check("footprints: own game drawing = no record, another's = copy, new = pixels",
+    fp.footprintRecord("BULBASAUR", a, rows, two) === undefined && deepEqual(fp.footprintRecord("BULBASAUR", b, rows, two), { copy: "IVYSAUR" })
+    && deepEqual(fp.footprintRecord("STUDIO_X", "1".repeat(256), rows, two), { pixels: "1".repeat(256) }));
+  const ink = "0".repeat(8) + "1" + "0".repeat(247); // pixel (8, 0): the top right tile's first
+  const tiles = fp.footprintTiles({ ZZZ: { copy: "IVYSAUR" }, AAA: { pixels: ink } }, order);
+  check("footprints: recipe tiles (sorted: pixels as digits, a copy from the strip)", tiles.length === 8 && tiles[1] === "0" + "3".repeat(63) && tiles[0] === "3".repeat(64)
+    && deepEqual(tiles[4], { from: "pokedex/footprints.png", x: 0, y: 16 }) && deepEqual(tiles[7], { from: "pokedex/footprints.png", x: 8, y: 24 }), JSON.stringify(tiles.slice(4)));
+  const data = dataFile("studio_selftest", "Pokédex footprints", { PIKACHU: { pixels: ink }, STUDIO_X: { copy: "IVYSAUR" } }, ["pixels", "copy"]);
+  const f = "mods/studio_selftest/studio_content.lua";
+  const ran = await runMod(new Map([[f, contentFile("studio_selftest", [], {}, footprintRegistration2("studio_selftest", "studio_footprints.lua"))], ["mods/studio_selftest/studio_footprints.lua", data]]), "studio_selftest", f, null);
+  check("footprints: the helper loads in the studio VM", ran.errors.length === 0, ran.errors.join("; "));
+  const lua = await new LuaFactory().createEngine();
+  try {
+    const reg = footprintRegistration2("m", "y.lua").replace(/require\([^)]*\)/, "(function() " + data.replace(/^--.*$/gm, "") + " end)()");
+    const out: string = await lua.doString(`
+      local ready
+      mod = { events = { on = function(_, name, fn) if name == "game.ready" then ready = fn end end } }
+      ${reg}
+      local order = { "BULBASAUR", "PIKACHU", "RAICHU" }
+      local data = { gen2MenuGfx = { pokedex = { footprints = "x", footprintOrder = order } } }
+      ready({ game = { data = data } })
+      ready({ game = { data = data } })
+      local o = data.gen2MenuGfx.pokedex.footprintOrder
+      return table.concat({ tostring(o[2]), tostring(o[4]), tostring(o[5]), tostring(#o), data.gen2MenuGfx.pokedex.footprints }, " ")
+    `);
+    check("footprints: the helper points the Pokédex at the strip, new rows below the game's", out === "false PIKACHU STUDIO_X 5 save/mod-derived/m/studio/pokedex/footprints.png", out);
+  } finally {
+    lua.global.close();
+  }
+}
+
 // happiness evolutions at an own number: the helper registers STUDIO_HAPPINESS_<n> with the
 // game's check at that number (Everstone, time of day)
 {

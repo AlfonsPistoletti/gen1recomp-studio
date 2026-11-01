@@ -5,7 +5,8 @@
 import type { ImageSpec } from "../types.ts";
 
 export const GEN2_IMAGES: ImageSpec = {
-  skip: ["sprites/", "tilesets/", "battle/front/", "battle/back/", "battle/trainers/", "audio/"],
+  // footprints: per species in the Pokémon editor (src/ui/footprints.ts)
+  skip: ["sprites/", "tilesets/", "battle/front/", "battle/back/", "battle/trainers/", "audio/", "pokedex/footprints.png"],
   groups: [
     ["battle/player_back.png", "The player"],
     ["battle/dude_back.png", "The player"],
@@ -41,7 +42,6 @@ export const GEN2_IMAGES: ImageSpec = {
     "fonts/frames.png": "The text box frames (one per frame option).",
     "slots/gold_slots_2.png": "The slot reel symbols: six 16×16 symbols stacked.",
     "pokegear/gear.png": "The Pokégear's screens and the Town Map's tiles.",
-    "pokedex/footprints.png": "The Pokédex footprints, one 16×16 per species in Pokédex order.",
     "trainer_card/badges.png": "The badges on the trainer card.",
   },
 };

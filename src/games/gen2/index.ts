@@ -24,6 +24,7 @@ import { START_RUNTIME2, startRegistration2 } from "../../lua/startRuntime2.ts";
 import { giftRegistration2, STARTER_RUNTIME2, starterRegistration2 } from "../../lua/starterRuntime2.ts";
 import { TRADE_RUNTIME2, tradeRegistration2 } from "../../lua/tradeRuntime2.ts";
 import { EVOLUTION_RUNTIME2, happinessRegistration2 } from "../../lua/evolutionRuntime2.ts";
+import { FOOTPRINT_RUNTIME2, footprintRegistration2 } from "../../lua/footprintRuntime2.ts";
 import { FIELD_RUNTIME2, fruitTreeRegistration2, hmBadgeRegistration2, slotRegistration2, townMapRegistration2 } from "../../lua/fieldRuntime2.ts";
 import { INTRO_RUNTIME } from "../../lua/introRuntime.ts";
 import { INTRO_TEXT_RUNTIME2, introRegistration2, introTextRegistration2 } from "../../lua/introRuntime2.ts";
@@ -164,6 +165,11 @@ const content: ContentSpec[] = [
     registry: "studio_townmap", file: "menu_gfx.lua", editable: true, studioFile: "studio_townmap.lua",
     build: (f) => structuredClone((f as { pokegear?: { maps?: Record<string, unknown> } }).pokegear?.maps ?? {}),
     generator: { what: "Town Map tiles", order: [], runtime: FIELD_RUNTIME2, registration: townMapRegistration2, writes: [] },
+  },
+  // Pokédex footprints of the mod's own (species -> { pixels } | { copy }): the recipe builds the strip
+  {
+    registry: "studio_footprints", editable: true, build: () => ({}), studioFile: "studio_footprints.lua",
+    generator: { what: "Pokédex footprints", order: ["pixels", "copy"], runtime: FOOTPRINT_RUNTIME2, registration: footprintRegistration2, writes: [] },
   },
   // replaced game images: files in mods/<id>/overrides/ (not registry calls)
   { registry: "image_overrides", editable: true, build: () => ({}), files: true },
@@ -468,6 +474,7 @@ const pokemon: PokemonSpec = {
     },
   ],
   breeding: { eggGroups: EGG_GROUPS },
+  footprints: { registry: "studio_footprints" },
   heldItems: true,
   machines: (ctx) =>
     Object.values(recordsOf(ctx, "items"))
@@ -513,11 +520,16 @@ const pokemon: PokemonSpec = {
     if (typeof icon === "string") out.push({ registry: "icons", id: newId, value: icon });
     const table = recordsOf(ctx, "palettes").pokemon as Record<string, unknown> | undefined;
     if (table?.[sourceId]) out.push({ registry: "palettes", id: "pokemon", value: { ...table, [newId]: structuredClone(table[sourceId]) } });
+    // the source's footprint: its own drawing, else the game's (as a copy: no pixels in the mod)
+    const print = ctx.records.studio_footprints?.[sourceId];
+    if (print) out.push({ registry: "studio_footprints", id: newId, value: structuredClone(print) });
+    else if (asList(ctx.data.extra.footprintOrder).includes(sourceId)) out.push({ registry: "studio_footprints", id: newId, value: { copy: sourceId } });
     return out;
   },
   dropExtras: (id, ctx) => {
     const out: { registry: string; id: string; value: unknown }[] = [];
     if (ctx.records.icons?.[id] !== undefined) out.push({ registry: "icons", id, value: undefined });
+    if (ctx.records.studio_footprints?.[id] !== undefined) out.push({ registry: "studio_footprints", id, value: undefined });
     const table = recordsOf(ctx, "palettes").pokemon as Record<string, unknown> | undefined;
     if (table?.[id]) {
       const rest = { ...table };
@@ -1395,7 +1407,7 @@ export const gen2: GameAdapter = {
     type TradeTables = { tradeTexts?: Record<string, unknown>; tradeBuffers?: Record<string, unknown> };
     const eventsFile = tables[content.findIndex((c) => c.registry === "studio_trades")] as TradeTables | undefined;
     const tradeIntro = { texts: eventsFile?.tradeTexts?.TRADE_DIALOG_INTRO ?? {}, buffers: eventsFile?.tradeBuffers?.TRADE_DIALOG_INTRO ?? {} };
-    type MenuGfx = { battleHud?: { trainerPics?: Record<string, string> }; pokegear?: { palMap?: unknown; palettes?: unknown } };
+    type MenuGfx = { battleHud?: { trainerPics?: Record<string, string> }; pokegear?: { palMap?: unknown; palettes?: unknown }; pokedex?: { footprintOrder?: unknown } };
     const menuGfx = await (read("menu_gfx.lua") as Promise<MenuGfx>).catch(() => ({}) as MenuGfx);
     type Dex = { newOrder?: string[]; entries?: Record<string, { kind?: string; height?: number; weight?: number; text?: string; text2?: string }> };
     const pokedex = await (read("pokedex.lua") as Promise<Dex>).catch(() => ({}) as Dex);
@@ -1424,6 +1436,8 @@ export const gen2: GameAdapter = {
       maps, tilesets, sprites, content: contentTables,
       extra: {
         palettes: pal, roofs, tradeIntro, pokegearColors: { palMap: asList(menuGfx.pokegear?.palMap), palettes: asList(menuGfx.pokegear?.palettes).map((p) => asList(p)) }, growthRates: Object.keys(monFile?.growthRates ?? {}), johtoDex: asList(pokedex.newOrder), trainerPics: menuGfx.battleHud?.trainerPics ?? {}, stdScripts, marts: asList(marts.lists),
+        // the footprint strip's rows (species ids)
+        footprintOrder: asList(menuGfx.pokedex?.footprintOrder),
         sfxOrder: asList(lists.sfxOrder), musicOrder: asList(lists.musicOrder), specialOrder: asList(lists.specialOrder),
         // the game's scripts, shown read-only (and copied) in Events
         scripts,

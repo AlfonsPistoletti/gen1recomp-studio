@@ -43,6 +43,7 @@ import { mountSpriteWorkspace } from "./ui/spriteEditor.ts";
 import { mountImageWorkspace } from "./ui/imageEditor.ts";
 import { mountPaletteWorkspace } from "./ui/paletteEditor.ts";
 import { mountTownMapWorkspace, townMapSheets } from "./ui/townMapEditor.ts";
+import { footprintSheets } from "./ui/footprints.ts";
 import { mountTownMap2 } from "./ui/townMapEditor2.ts";
 import { FEATURES } from "./features.ts";
 import { MAX_BLOCKS } from "./core/tileBrush.ts";
@@ -1051,7 +1052,7 @@ async function save(): Promise<void> {
     const shots = await saveOverrides(host, currentMod, store.table(OVERRIDES));
     art.written += shots.written;
     // vanilla art reused through the asset-transforms recipe
-    const tf = await syncTransforms(host, currentMod, saved, [...sheetRecipes(), ...townMapSheets()], imageAliases(store.table(OVERRIDES)));
+    const tf = await syncTransforms(host, currentMod, saved, [...sheetRecipes(), ...townMapSheets(), ...footprintSheets()], imageAliases(store.table(OVERRIDES)));
     if (tf.blocked) toast(`mods/${currentMod} already has its own assets_transforms file, so vanilla art cannot be reused there. Import art instead.`, "error");
     store.markSaved();
     const parts = [];

@@ -9,6 +9,7 @@ import { canDerive } from "../core/reuse.ts";
 import { store } from "../core/store.ts";
 import type { IconMotion, PokemonSpec } from "../games/types.ts";
 import { importArt, placeholderArt } from "./artImport.ts";
+import { footprintRow } from "./footprints.ts";
 import { clear, comboInput, field, h, numberInput, rerender, selectInput, onFocusLeave, toast } from "./dom.ts";
 import { colorSelect, defaultView, monPaletteName, paletteField, picColors } from "./picColors.ts";
 import { loadImage, showTinted } from "../render/graphics.ts";
@@ -344,7 +345,7 @@ export function mountPokemonWorkspace(left: HTMLElement, center: HTMLElement, ri
     if (reason === "project") {
       if (!current || !species()[current]) current = dexOrder()[0] ?? null;
       schedule();
-    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries" || registry === "items" || (!!store.project && (registry === store.adapter.pokemon?.icon.registry || registry === store.adapter.pokemon?.colorPairs?.registry)))) {
+    } else if (reason === "content" && (registry === REG || registry === "text" || registry === "cries" || registry === "items" || (!!store.project && (registry === store.adapter.pokemon?.icon.registry || registry === store.adapter.pokemon?.colorPairs?.registry || registry === store.adapter.pokemon?.footprints?.registry)))) {
       // items: a new or changed TM/HM changes the TM/HM list
       if ((registry === REG || registry === "cries") && id !== current) return;
       schedule();
@@ -978,7 +979,8 @@ function sideForm(id: string, r: Rec, spec: PokemonSpec): HTMLElement[] {
   }
   const dex = r.dexEntry as Rec | undefined;
   if (spec.dexInline) {
-    return [dex ? card("Pokédex entry", ...inlineDex(id, dex, spec.dexInline)) : card("Pokédex entry", h("p", { class: "hint" }, "No Pokédex entry.")), ...(lacks(spec, "cry") ? [] : [cryCard(id)])];
+    const print = footprintRow(id);
+    return [dex ? card("Pokédex entry", ...inlineDex(id, dex, spec.dexInline)) : card("Pokédex entry", h("p", { class: "hint" }, "No Pokédex entry.")), ...(print ? [card("Footprint", print)] : []), ...(lacks(spec, "cry") ? [] : [cryCard(id)])];
   }
   const dexFields: HTMLElement[] = [];
   if (dex) {

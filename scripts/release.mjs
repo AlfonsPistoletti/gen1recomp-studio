@@ -47,6 +47,7 @@ edit("src-tauri/Cargo.lock", (s) => s.replace(/(name = "gen1recomp-studio"\r?\nv
 
 run("npm run typecheck");
 run("npm run selftest");
+run("npm run selftest:gen2:all");
 run("git add package.json package-lock.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock");
 run(`git commit -m "Release ${tag}"`);
 run(`git tag -a ${tag} -m "G1R Studio ${tag}"`);

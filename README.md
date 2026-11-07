@@ -1,10 +1,10 @@
 # G1R Studio
 
 A visual editor for making mods for [gen1recomp](https://github.com/bryanthaboi/gen1recomp), the
-Pokémon Red, Blue and Yellow recompilation. Paint maps, place people and signs, change Pokémon,
-moves, items and trainers, write dialogue and small cutscenes, and replace graphics and music,
-all without writing code. Try your changes in the game with one click, and share them as a
-normal gen1recomp mod.
+Pokémon recompilation: Red, Blue and Yellow, and Gold, Silver and Crystal. Paint maps, place
+people and signs, change Pokémon, moves, items and trainers, write dialogue and small cutscenes,
+and replace graphics and music, all without writing code. Try your changes in the game with one
+click, and share them as a normal gen1recomp mod.
 
 Your edits are saved into a mod: the game and your ROM are never changed, and a mod never
 contains the game's own data or art.

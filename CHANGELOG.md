@@ -3,12 +3,81 @@
 What changed in each release of G1R Studio. Releases before 0.3.5 are described on the
 [GitHub releases page](https://github.com/AlfonsPistoletti/gen1recomp-studio/releases).
 
-## 0.4.0 (not released yet)
+## 0.4.0
 
-### Requirements
-- Mods for Gold, Silver and Crystal need **gen1recomp 0.3.96 or later**. On an older gen1recomp they don't load
-  (shops, new phone contacts and script numbers for new Pokémon, moves and items came in 0.3.96).
-  Red/Blue/Yellow mods work as before.
+### Gold, Silver and Crystal
+The studio now makes mods for the second generation. Import your Gold, Silver or Crystal ROM in gen1recomp, pick
+the game in the top bar and start a mod as usual. One Gen 2 mod works in Gold, Silver and Crystal.
+
+**Requires gen1recomp 0.3.96 or later.** On an older gen1recomp, Gen 2 mods don't load. Red/Blue/Yellow mods work
+as before.
+
+- **Maps:**
+  - Edit blocks, warps, connections, people, signs and step triggers.
+  - Time of day (morning, day, night) and the town roofs in the map view; tiles animate.
+  - **Scenes:** a map's story stages. Step triggers and the "on entering" event belong to a scene, and a scene
+    can change blocks.
+  - **When a person is there:** event flags, the days of the week, and what on the map shows or hides them.
+- **Roles for people and signs:** Normal text, Event, Trainer, Item ball, Hidden item, Shop clerk, Nurse, Fruit
+  tree, Prize counter, Coin seller, Cutscene person and Standard object. A game person keeps the game's own script
+  until you change it.
+- **Events:** the game's scripts read as blocks and run as the game runs them.
+  - "Edit a copy" makes a game event your own.
+  - Conditions: flags, items, money, coins, time of day, today is (weekday), has badges, engine flags (badges,
+    Pokégear cards, fly points).
+  - Choice menus, battles, walking paths, Pokémon pictures, name slots ({STRBUF}), phone numbers, and the screens
+    the game opens.
+- **Encounters:**
+  - Grass for morning, day and night; water and fishing.
+  - Headbutt trees and Rock Smash.
+  - Swarms, where the game has them.
+- **Pokémon:**
+  - Stats, types, learnsets, TMs/HMs, evolutions and breeding.
+  - Held items, menu icons and cries.
+  - Pokédex entries, and **footprints** you can draw or import.
+  - **New species** get their own number, so starters, gifts and events can give them.
+  - Happiness evolutions can need any amount of happiness.
+- **Moves and items:**
+  - Edit the game's moves and items, and make new ones.
+  - Custom move effects.
+  - Item effects (what using an item does) and **held effects of your own** (heal, boost, cure, raise a stat …),
+    optionally used up after one use.
+- **Trainers:**
+  - Teams with items and moves, and the AI.
+  - New trainers and trainer classes.
+  - People on the map as trainers.
+- **Global:**
+  - Start values and the player's names.
+  - Oak's speech, starters, gift Pokémon, in-game trades.
+  - Status conditions, HM badges, slot machines, fruit trees and Kurt's balls.
+  - Shops and the bargain shop.
+  - **Game Corner prizes and coin sellers** (up to four prizes or packs).
+  - **Phone contacts:**
+    - Where they stand and when they call.
+    - What they say, with each line in the shared talk or the contact's own.
+    - Gifts by phone.
+    - New contacts.
+- **Graphics:**
+  - Tilesets (your own, or new blocks on the game's) with collision, palette slots and animated tiles.
+  - Sprites.
+  - Replacing the game's images, including the town roofs.
+  - Palettes for every place and time of day.
+  - The Pokégear Town Map.
+- **Text:** the game's script texts and its other texts, with where each one is used.
+- **Play from here** starts the game on the map you're looking at.
+
+### New for every game
+- **"Today is" and "Has badges"** conditions in events (Red/Blue/Yellow get "Has badges").
+- **Prize counters:** the shared prize editor; Gold adds or removes prizes.
+- Map markers (warps, signs, step triggers, sight squares) have rounded corners, so they stand apart from the
+  tiles; the map sits on a faint dotted background.
+- All "Back to the game's …" and "Revert" buttons look the same (red outline).
+
+### Faster
+- Typing in an event or a text no longer re-renders the pages you can't see: about 15× faster per key. Pages catch
+  up when you open them.
+- Global > Phone contacts: the map box searches instead of listing every map, and line folds are built when you
+  open them.
 
 ## 0.3.5
 

@@ -5,7 +5,8 @@
 // holds ({ op = "writetext", text = "..." }), stored inline as the map
 // person's / sign's / step trigger's `scriptKey` (gen1recomp src/script/gen2
 // Vm.lua: Vm:start and runList take "a scripts.lua key, or a command list
-// itself"; mods can't add keys to data.gen2Scripts, ISSUES #4).
+// itself"). On save they are outlined into map_scripts records (engine
+// 070ca01+ routes them to data.gen2Scripts), see scriptKeys.ts.
 //
 // compile() wraps the text box around the whole script (opentext after the
 // leading faceplayer, closetext + end at every end) and puts a waitbutton after
@@ -485,7 +486,7 @@ function describeRaw(r: Row, ctx: GameContext): { text: string; help: string } {
     case "jumpstd": return d(`Runs the game's ${pretty(r.std)} script (and ends)`, "One of the game's standard scripts (nurse, bookshelves, phone calls …).");
     case "callstd": return d(`Runs the game's ${pretty(r.std)} script`, "One of the game's standard scripts, then goes on.");
     case "promptbutton": return d("Waits for A (the text box stays open)", "Like the wait after a text, but the next text continues in the same box.");
-    case "applymovement": return d(`Moves ${who(r.object)} along one of the game's paths`, "The steps are the game's own movement data; mods can't add paths yet (ISSUES #4).");
+    case "applymovement": return d(`Moves ${who(r.object)} along one of the game's paths`, "The steps are the game's own movement data. \"Walk along a path\" draws a path of your own.");
     case "applymovementlasttalked": return d("Moves the person talked to along one of the game's paths");
     case "endifjustbattled": return d("Ends here right after a battle", "Used by trainers: what follows only runs when the player talks to them later.");
     case "setflag": return d(`Sets engine flag ${s(r.flag)}`, "Engine flags are the game's own switches (badges, Pokégear cards, the bike …), not event flags.");
